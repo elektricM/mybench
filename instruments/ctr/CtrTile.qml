@@ -31,22 +31,24 @@ Item {
             color: root.measuring ? Theme.ch0 : root.pulsing ? Theme.math : Theme.ch1
             stale: !root.controller.running
         }
-        BenchPlot {
+        Rectangle {
             visible: root.measuring
             Layout.fillWidth: true
             Layout.fillHeight: true
-            interactive: false
-            frameVisible: false
-            leftMargin: 0
-            rightMargin: 0
-            topMargin: 0
-            bottomMargin: 0
-            xLabelsVisible: false
-            yLabelsVisible: false
-            xAxis { labelFormat: PlotAxis.Time; follow: true; gridVisible: false }
-            yAxis { autoScale: true; gridVisible: false }
-            Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 30, Date.now() / 1000)
-            PlotTrace { buffer: root.controller.trend; color: Theme.ch0; width: 1.2 }
+            radius: Theme.radiusM
+            color: Theme.display
+            border.width: 1
+            border.color: Theme.displayBorder
+            clip: true
+            BenchPlot {
+                anchors.fill: parent
+                anchors.margins: 1
+                bare: true
+                xAxis { labelFormat: PlotAxis.Time; follow: true; gridVisible: false }
+                yAxis { autoScale: true; gridVisible: false }
+                Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 30, Date.now() / 1000)
+                PlotTrace { buffer: root.controller.trend; color: Theme.ch0; width: 1.2 }
+            }
         }
         Item { visible: !root.measuring; Layout.fillHeight: true }
         Text {

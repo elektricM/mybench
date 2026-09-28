@@ -1,0 +1,52 @@
+# Data Logger
+
+The Data Logger records slow signals for a long time: AI 0 and AI 1 at 1 to 1000 samples per
+second, and optionally the multimeter, into a live chart and a text file you can open in a
+spreadsheet. It is MYBENCH's version of the NI "Data Logger" featured application.
+
+## Quick start
+
+1. Connect the signal to **AI 0+ / AI 0−** (and AI 1 if needed).
+2. In **Channel Select**, turn on the channels to log. Set the **Sampling Rate** (10 S/s by
+   default) and the **Input Limits**.
+3. Press **Run** to watch the signals (nothing is saved yet), then **Record** to start a file.
+   **Record** also starts the logger when it is idle.
+4. **Pause** stops writing for a while (the chart keeps running), **Stop Recording** closes the
+   file, **Stop** ends everything.
+
+## Channels and ranges
+
+- **AI 0 / AI 1**: differential inputs, sampled together at the same rate.
+- **DMM** logs the multimeter too: pick the function (DC/AC voltage, DC/AC current, resistance)
+  and a range, or *Auto*. It takes about 10 readings per second (3 for AC), independently of the
+  sampling rate. Use the meter's banana jacks.
+- **Maximum / Minimum (V)**: limits within ±2 V use the more precise ±2 V range, otherwise
+  ±10 V. With *Auto-scale graph* off, they also set the chart's vertical scale.
+- Channels, rate and limits are fixed while the logger runs; stop it to change them.
+
+## The chart
+
+- The chart holds the whole recording (up to 20 million samples per channel, shown in the
+  Sampling card; the file has no limit). Choose the visible span (10 s … 1 h, All) or zoom with
+  the wheel.
+- **Following latest** keeps the newest data at the right edge. Dragging or zooming to look at
+  older data turns it off; click **Follow latest** to come back.
+- The strip below the chart shows everything recorded, with the visible window: drag the
+  window to jump through the recording.
+- The cards above show each channel's latest value and its minimum, maximum, mean and standard
+  deviation. The trash button clears the chart and statistics (not the file).
+
+## The file
+
+- **Log File** card: folder, file name, *Date and time in the name*, format **Tab** (.tsv, as
+  the NI app) or **CSV**, an optional *Timestamp column*, *Record when Run starts*, and *Stop
+  after* a number of minutes. **Show Folder** opens the folder.
+- The file starts with lines beginning with `#` (app, date, device, sampling rate, limits,
+  channels, start time), then a header row and one row per sample: time in seconds since the
+  start of the recording, then one column per channel. DMM readings appear on the row where they
+  arrived, with their own time.
+- Existing files are never overwritten (`_2`, `_3`… are added).
+- The file is written while recording and saved to disk continuously: if the computer crashes,
+  everything up to the last fraction of a second is kept.
+
+**Export ▸ Export data** additionally saves what the chart holds (CSV or TSV).
