@@ -56,18 +56,19 @@ behaviour of sections 2-8):
 |---|---|---|---|---|---|
 | Stimulus Channel | combo | `AI 0` only | | `AI 0` | never (fixed on myDAQ) |
 | Response Channel | combo | `AI 1` only | | `AI 1` | never (fixed on myDAQ) |
-| Start Frequency | numeric (Hz) | 1 Hz ... 20 kHz | 2 decimals + SI suffix (`100.00`, `1.50k`); increment 1 % of the value's decade | 100 Hz (`100.00`) | idle |
+| Start Frequency | numeric (Hz) | 1 Hz ... 20 kHz (typed `0.1` -> `1.00`, `900k` -> `20.00k`; verified in ELVISmx UI) | 2 decimals + SI suffix (`100.00`, `1.50k`, `10.00k`); increment 1 (ELVISmx) / 1 % of the decade (MYBENCH arrows) | 100 Hz (`100.00`) | idle (MYBENCH; ELVISmx leaves them editable during a sweep, the sweep keeps its values) |
 | Stop Frequency | numeric (Hz) | 1 Hz ... 20 kHz | same | 10 kHz (`10.00k`) | idle |
-| Steps (per decade) | numeric | integer 1 ... 100 | increment 1 | 5 | idle |
-| Peak Amplitude | numeric (V) | 0.01 ... 10.00 V (sine peak) | 2 decimals; increment 0.1 | 2.00 | idle |
-| Op-Amp Signal Polarity | combo | `Normal`, `Inverted` | | `Normal` | always (re-computes the displayed data immediately, see 3.5) |
-| Mapping | combo | `Logarithmic`, `Linear` | | `Logarithmic` | always (display only) |
+| Steps (per decade) | numeric | integer ≥ 1 (`0` -> `1`; `99999` accepted - verified); MYBENCH caps at 1000 | increment 1 | 5 | idle |
+| Peak Amplitude | numeric (V) | **0.00 ... 5.00 V** (typed `20` -> `5.00`, `-3` -> `0.00`; verified in UI and code) | 2 decimals; increment 0.01 | 2.00 | idle |
+| Op-Amp Signal Polarity | combo | `Normal`, `Inverted` | | `Normal` | always; ELVISmx applies it to the **next** sweep only (verified: changing it after a sweep leaves the graphs and readouts unchanged). **[MYBENCH extension]** re-computes the displayed data immediately (3.5) |
+| Mapping | combo | `Linear`, `Logarithmic` (list order verified) | | `Logarithmic` | always; redraws the existing data at once (verified) |
 | Autoscale | checkbox | on/off | | on | always |
 | Cursors On | checkbox | on/off | | off | always |
-| Cursor selector | combo | `Cursor (Real)` | | | Cursors On (see Open questions) |
-| Position Left / Right | two diamond buttons | move the cursor by one measured point | | | Cursors On and data exist |
+| Cursor selector | combo | `Cursor (Real)` (ELVISmx: always grayed on a myDAQ, verified; its other item is for simulated data) | | | never |
+| Position Left / Right | two diamond buttons | move the cursor by one measured point (verified: three Right clicks from 100 Hz -> 398.11 Hz at 5 points/decade) | | | Cursors On and data exist |
 | Run / Stop | run bar | | | | app.md |
-| Log / Print (ELVISmx) | Export data / Export image | | | | at least one measured point, also during a sweep (data); any time (image) |
+| Log / Print (ELVISmx) | Export data / Export image | | | | ELVISmx: idle with at least one point (grayed at launch and during a sweep, verified); MYBENCH: also during a sweep (data), any time (image) |
+| Device (ELVISmx) | top-bar device | | | | ELVISmx grays it during a sweep |
 
 The Measurement Settings are locked while a sweep runs (the sweep uses the values at Run).
 
@@ -126,13 +127,17 @@ Amplitude" is shown once per sweep.
 - X: logarithmic, from Start to Stop (fixed, so the sweep grows left to right), decade labels
   (`100`, `1000`, `10000`) and 2..9 minor lines.
 - Gain plot: Mapping `Logarithmic` -> dB values, title `Gain (dB)`; `Linear` -> gain ratio, title
-  `Gain`. Phase plot: degrees, title `Phase (deg)`, linear Y.
-- Points are drawn as small dots joined by lines (theme `trace0` color for both plots; references
-  use other colors).
+  `Gain (Linear)` (verified). Phase plot: degrees, title `Phase (deg)`, linear Y.
+- Points are drawn as small hollow circle markers joined by lines, **yellow** in ELVISmx for both
+  plots (verified); MYBENCH uses the theme's `trace0`/`displayYellow` (option `ELVISmx colors`);
+  references use other colors.
+- Run clears both plots (verified).
 - Autoscale on: both Y axes fit the data (with 5 % margin, nice tick steps) after every point.
-  Autoscale off: Y ranges stay as they are; the user sets them by zoom/pan or by editing the axis
-  limits (app.md plot conventions). Before any data: Gain (dB) -40 ... +10, Gain 0 ... 2, Phase
-  -180 ... +180 (ELVISmx shows arbitrary placeholder ranges).
+  Autoscale off (verified in ELVISmx): at Run the axes jump to fixed ranges - Gain -30 ... +5
+  (whatever the Mapping), Phase -360 ... +360 with 90° steps - and stay there. MYBENCH: the same
+  fixed ranges, plus zoom/pan and axis-limit editing (app.md plot conventions). Before any data
+  ELVISmx shows placeholder ranges (Gain -0.5 ... 0.1 dB, Phase -3.5 ... 1.5); MYBENCH: Gain (dB)
+  -40 ... +10, Gain 0 ... 2, Phase -180 ... +180.
 
 ### 3.5 Polarity and Mapping after the fact
 
@@ -143,11 +148,15 @@ phase immediately ("the inversion does not affect the acquired data").
 ### 3.6 Readouts and cursor
 
 - `Frequency (Hz)`, `Phase (deg)`, `Gain`, `Gain (dB)`: values of the most recent point during a
-  sweep; with Cursors On, the values of the point under the cursor. Format: 2 decimals (`1000.00`,
-  `-45.00`, `0.71`, `-3.01`); before any data `0.00` and `Gain (dB)` = `-Inf` (20·log10 0; ELVISmx
-  shows `Inf`).
-- Cursors On shows one cursor on both plots at the same point (initially the middle point). Dragging
-  snaps to the nearest measured point; `Position Left`/`Right` move it by one point (clamped).
+  sweep; with Cursors On, the values of the point under the cursor (verified). Format: 2 decimals
+  (`10000.00`, `214.04`, `1.08`, `0.64`); before any data `0.00` and `Gain (dB)` = `Inf` (as ELVISmx,
+  verified; MYBENCH may show `-Inf`, the mathematically correct value).
+- Cursors On shows one **red full crosshair** on each plot at the same point, initially the **first**
+  point (verified). Dragging snaps to the nearest measured point; `Position Left`/`Right` move it by
+  one point (clamped). The cursor stays on its point index during a new sweep.
+- Phase values may exceed ±180° slightly: ELVISmx wraps the phase difference to [-180, 180] and
+  then adds the inter-channel skew correction (observed `214.04` on the simulator); MYBENCH applies
+  the skew correction before wrapping, so its phase stays in (-180, 180].
 
 ### 3.7 End of sweep
 
@@ -185,6 +194,14 @@ Banners/toasts (app.md), not blocking dialogs.
 
 ## 7. Export (ELVISmx Log and Print)
 
+- ELVISmx **Log** (verified): same `Save Log File` dialog as the Scope (TXT / TDMS). The TXT file
+  holds: line 1 date and time (tab-separated), line 2 `Amplitude: <A> V`, a header `Freq (Hz)`,
+  `Gain (Linear)` or `Gain (dB)` (per Mapping), `Phase (deg)`, then one row per measured point with
+  3 decimals in fixed-width columns (points measured before a Stop are included).
+- ELVISmx **Print** (verified): the Scope's Print dialog; the page shows the header (computer, user,
+  time stamp), a legend `CH0 Real`, both plots (ink saver), the readout row and a parameter table:
+  Device, Start Frequency, Stop Frequency, Steps / decade, Peak Amplitude, Op-Amp Polarity, Graph
+  Mapping, Cursor Linked Plot.
 - **Export data** (at least one point measured; during a sweep it exports the points so far):
   common header (app.md) plus
   ```
@@ -256,14 +273,37 @@ Sim wiring: AO 0 -> AI 0 directly, AO 0 -> RC low-pass (1 kHz) -> AI 1.
 
 ## 12. Open questions / assumptions
 
-1. **Frequency limits** 1 Hz ... 20 kHz (myDAQ FGEN-class limits); ELVISmx's exact limits for the
-   myDAQ are not in the help.
-2. **Cursor selector** (`Cursor (Real)` in the screenshot) looks like LabVIEW's cursor/plot binding
-   with a single choice; MYBENCH has one cursor shared by both plots and the selector is only kept in
-   the reference layout.
-3. **Settling time, record length, AI rate and the 5 % stimulus threshold** are our choices.
-4. **Wrapped phase** (-180, 180] by default, as ELVISmx appears to do; unwrap is an option.
-5. **Steps range** 1-100 and **Peak Amplitude** range 0.01-10 V are assumptions (help gives defaults
-   only).
-6. **Trace colors** of ELVISmx are not visible in the screenshot (no data); we use the theme's
-   first trace color for both plots.
+1. **Frequency limits** - resolved: 1 Hz ... 20 kHz (verified in UI and code).
+2. **Cursor selector** - resolved: always grayed on a myDAQ (`Cursor (Real)`); MYBENCH omits it.
+3. **Settling time, record length, AI rate and the 5 % stimulus threshold**: ELVISmx does a
+   pre-measurement per point (see 13) and measures 16 000 samples; no stimulus check. MYBENCH keeps
+   its own settling rule and the "No stimulus" check (extension).
+4. **Wrapped phase**: ELVISmx wraps before the skew correction (values slightly beyond ±180 occur);
+   MYBENCH wraps after.
+5. **Steps / Peak Amplitude** - resolved: Steps ≥ 1 (no practical maximum), Peak Amplitude 0 ... 5 V.
+6. **Trace colors** - resolved: yellow lines with hollow point markers; red crosshair cursor.
+7. **Polarity after the fact**: ELVISmx applies it to the next sweep only; MYBENCH recomputes
+   (extension, documented difference).
+8. **Controls during a sweep**: ELVISmx leaves the Measurement Settings editable (the running sweep
+   keeps the values it started with); MYBENCH locks them.
+
+## 13. Verified DAQmx usage (ELVISmx, observed with NI I/O Trace)
+
+Simulated NI myDAQ, ELVISmx 25.8; in our own words.
+- Idle: editing any numeric writes 0 V to AO 0 (a short task at 2 kS/s writes zeros and is
+  cleared).
+- For every frequency point `f`:
+  1. **Stimulus**: AO task on `ao0` (RSE, ±10 V), one period of the sine written with the timing
+     of the waveform, regeneration allowed, continuous, started; samples per period
+     `round(200 kS/s / f)` at 5 µs (e.g. 2000 at 100 Hz, 271 at ~740 Hz); `use onboard memory only`
+     when the period has fewer than 200 samples.
+  2. **Range pre-measurement**: AI 1 then AI 0, each alone, ±10 V, default terminal configuration,
+     200 kS/s, finite 16 000 samples (80 ms each); the input ranges of the next step are chosen
+     from these blocks.
+  3. **Measurement**: one task with AI 1 (response) then AI 0 (stimulus), differential, ranges from
+     step 2, finite 16 000 samples per channel at `min(16 000 f, max rate) / 5` (observed 40.02 kS/s
+     at every point from 100 Hz up: 0.4 s per record); the AI conversion rate (80.06 kHz) is read to
+     correct the inter-channel skew.
+  4. The AO task is stopped and cleared; the next point starts.
+  About 0.7 s per point on the emulated test PC.
+- Stop or end of the sweep: AO 0 is driven to 0 V (2 kS/s task writing zeros, then cleared).

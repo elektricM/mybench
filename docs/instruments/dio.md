@@ -128,8 +128,8 @@ Controls and indicators:
 
 | Control | Type | Values | Default | Enabled when | Live while running |
 |---|---|---|---|---|---|
-| Lines to Read | combo | `0 - 3`, `4 - 7`, `0 - 7` (+ `None`, `Custom` in MYBENCH) | `4 - 7` | ELVISmx: idle only. MYBENCH: always (2.2) | MYBENCH: yes |
-| Input radix | radix selector (click on the prefix letter -> menu) | `Decimal` (`d`), `Hex` (`x`), `Octal` (`o`), `Binary` (`b`), `SI Notation` (`p`) | Hex | always | yes (display only) |
+| Lines to Read | combo | `0 - 3`, `4 - 7`, `0 - 7` (+ `None`, `Custom` in MYBENCH) | `4 - 7` (verified) | ELVISmx: idle only (grayed while running, verified). MYBENCH: always (2.2) | MYBENCH: yes |
+| Input radix | radix selector (click on the prefix letter -> menu) | `Decimal` (`d`), `Hex` (`x`), `Octal` (`o`), `Binary` (`b`), `SI Notation` (`p`) (menu verified) | Hex | always | yes (display only) |
 | Acquisition Mode | run bar | Run Continuously = `Run`, Run Once = `Single` | - | - | - |
 
 | Indicator | Content |
@@ -140,7 +140,11 @@ Controls and indicators:
 Behaviour:
 1. Run: claim the IN lines in the ResourceArbiter; `dioSetDirection(inMask, false)`.
 2. Run Continuously: every sample interval (default **100 ms**) `dioRead()`, mask, update LEDs,
-   numeric value and timeline. Repaint only on change (the timeline still advances).
+   numeric value and timeline. Repaint only on change (the timeline still advances). ELVISmx
+   (verified with NI I/O Trace) reads back to back without any pause (about one read per
+   millisecond on the simulated device); MYBENCH's 100 ms default is a deliberate choice (USB
+   load), adjustable down to 10 ms (Timeline card).
+   Verified numeric value: with `4 - 7`, lines 4 and 6 high -> `x 5` (right-justified).
 3. Run Once (`Single`): one `dioRead()`, update, done.
 4. Stop: stop polling; IN lines stay inputs (harmless); the display keeps the last values.
 5. Pulses shorter than the sample interval can be missed (static, software-timed reads).
@@ -173,15 +177,15 @@ Controls and indicators (`width` = number of OUT lines, `max = 2^width - 1`):
 | Control | Type | Values | Default | Enabled when | Live while running |
 |---|---|---|---|---|---|
 | Lines to Write | combo | `0 - 3`, `4 - 7`, `0 - 7` (+ `None`, `Custom`) | `0 - 3` | ELVISmx: idle only. MYBENCH: always | MYBENCH: yes (sequence restarts) |
-| Pattern | combo | `Manual`, `Ramp (0-255)`, `Toggle`, `Walking 1's` | `Manual` | always | yes (new pattern starts at its first value at the next step; Manual writes immediately) |
+| Pattern | combo | `Manual`, `Ramp (0-255)` (shown `Ramp (0-15)` for 4-line groups, verified), `Alternating 1/0's`, `Walking 1's` (verified names) | `Manual` | idle only in ELVISmx (grayed while running, verified); MYBENCH: always | yes (new pattern starts at its first value at the next step; Manual writes immediately) |
 | Manual Pattern switches | one `ToggleSwitch` per OUT line (HI/LO) | | all LO | Pattern = Manual | yes (written immediately) |
-| Pattern Number | `SiField` integer with radix prefix | 0 ... max, arrows ±1, coerced | 0 | Pattern = Manual | yes; typing a value moves the switches |
+| Pattern Number | `SiField` integer with radix prefix | 0 ... max, arrows ±1, coerced (ELVISmx: hex entry, a too-large typed value was not accepted - the previous value stayed) | 0 | Pattern = Manual (grayed otherwise, verified) | yes; typing a value moves the switches |
 | Pattern Number radix | radix selector | as 3.1 | Hex | always | display only |
 | Toggle | button | | | Pattern = Manual | yes |
 | Rotate | button | | | Pattern = Manual | yes |
 | Shift | button | | | Pattern = Manual | yes |
 | Direction | combo / `SegmentedControl` | `Left`, `Right` | `Left` | Pattern = Manual | yes |
-| Interval (ms) **[MYBENCH extension]** | `SiField` | 10 ... 10000 ms, step 10 | 200 | Pattern != Manual | yes |
+| Interval (ms) **[MYBENCH extension]** | `SiField` | 10 ... 10000 ms, step 10 | **100** (ELVISmx fixed step, verified with NI I/O Trace: one write every 100 ms) | Pattern != Manual | yes |
 | Generation Mode | run bar | Run Continuously = `Run`, Run Once = `Single` | | | |
 
 | Indicator | Content |
@@ -189,7 +193,10 @@ Controls and indicators (`width` = number of OUT lines, `max = 2^width - 1`):
 | Line States | last value **written** to each OUT line (on = HI); MYBENCH adds the readback mark (2.4) |
 | Numeric Value (`Outputs`) | last written value, right-justified, in the output radix (default Hex) |
 
-Actions on the Manual Pattern (value `v`, applied within `width` bits):
+Actions on the Manual Pattern (value `v`, applied within `width` bits) - verified in ELVISmx UI on
+`0 - 3`: `5` -Toggle-> `A` -Rotate Left-> `5` -Shift Left-> `A` -Shift Left-> `4`; with Direction
+`Right`, Rotate on `4` -> `2`. The action buttons and Direction are grayed unless Pattern = Manual
+and while running a sequence:
 - **Toggle**: `v = ~v & max`.
 - **Rotate** (1 bit, circular): Left `v = ((v << 1) | (v >> (width - 1))) & max`; Right
   `v = (v >> 1) | ((v & 1) << (width - 1))`.
@@ -201,9 +208,12 @@ Predefined sequences (one cycle):
 
 | Pattern | Sequence |
 |---|---|
-| Ramp (0-255) | 0, 1, ..., max (0..15 for 4 lines, 0..255 for 8) |
-| Toggle | `0x55 & max`, `0xAA & max` (4 lines: 0x5, 0xA) |
-| Walking 1's | 1, 2, 4, ..., 2^(width - 1) |
+| Ramp (0-255) | 0, 1, ..., max (0..15 for 4 lines, 0..255 for 8), wrapping (verified running on `0 - 3`) |
+| Alternating 1/0's | `0x55 & max`, `0xAA & max` (4 lines: 0x5, 0xA; verified `x 55` on `0 - 7`) |
+| Walking 1's | 1, 2, 4, ..., 2^(width - 1) (verified `x 10` = line 4 lit on `0 - 7`) |
+
+The spec's former name `Toggle` for the second sequence is replaced by the ELVISmx name
+`Alternating 1/0's` (the `Toggle` action button keeps its name).
 
 The item label `Ramp (0-255)` becomes `Ramp (0-<max>)` when `width` < 8 **[MYBENCH]**.
 
@@ -216,7 +226,8 @@ Behaviour:
    forever.
 4. Run Once (`Single`): Manual -> write once. Sequences -> one full cycle (first to last value, one
    interval each). Then done.
-5. Stop: stop stepping. OUT lines **keep driving the last value**. They return to inputs
+5. Stop: stop stepping. OUT lines **keep driving the last value** (verified with NI I/O Trace: no
+   write at Stop; the LEDs keep the last value, e.g. `x D`). They return to inputs
    (`dioSetDirection(mask, false)`) when their direction is changed to In/Unused, when the panel is
    closed, when the session is closed or the app quits, and on Device reset.
 6. Changing the OUT set while running (MYBENCH): newly added lines become outputs and get their bit
@@ -330,15 +341,22 @@ No tasks. The poll/step loop runs in the controller's worker thread; the UI rece
 
 ## 12. Open questions / assumptions
 
-1. **Numeric value justification**: right-justified group values (0..15 for 4-line groups) are
-   assumed for both Reader and Writer; ELVISmx might show raw port positions (`x F0`).
-2. **LED on color** (bright blue-cyan) is assumed; only the off color is visible in the screenshots.
-3. **Toggle pattern** values 0x55/0xAA are assumed (could be all-zeros/all-ones).
-4. **Step interval** of the sequences (200 ms) and **poll interval** (100 ms) are MYBENCH choices.
-5. **Run Once for sequences** = one full cycle (our reading of "single signal").
-6. **Outputs after Stop** keep driving; released on direction change / close / reset (ELVISmx
-   behaviour unknown).
+1. **Numeric value justification** - resolved: right-justified (verified in UI and code).
+2. **LED on color** - resolved: bright cyan with a glow ring, off = dark navy blue (verified).
+3. **Second sequence** - resolved: named `Alternating 1/0's`, values 0x55/0xAA (0x5/0xA).
+4. **Step interval** - resolved: 100 ms (ELVISmx); reader: no pause in ELVISmx, MYBENCH 100 ms.
+5. **Run Once for sequences** = one full cycle (our reading; not verified).
+6. **Outputs after Stop** - resolved: keep driving (no write at Stop).
 7. **Single for the combined panel** (3.3) is our composition rule.
-8. **Timeline row order** DIO 7 at the top (matches the cards); logic analyzers often put line 0 at the
-   top - make it a view option if users ask.
+8. **Timeline row order** DIO 7 at the top (matches the cards).
 9. **Line labels** are stored in the session file (app.md), not on the device.
+
+## 13. Verified DAQmx usage (ELVISmx, observed with NI I/O Trace)
+
+- Writer, idle: every change of a setting creates a DO task on the group (`port0/line0:3`,
+  `line4:7` or `line0:7`, one channel for all lines) and clears it again without writing.
+- Writer, Run: one DO task; each value is written as one boolean per line
+  (`write 1 sample, N lines`, auto-start); sequences write every 100 ms; Manual writes on change.
+  Stop clears the task without writing (outputs hold).
+- Reader, Run: one DI task on the group; the port value is read as one unsigned 32-bit sample per
+  call, back to back without pacing; Stop clears the task.

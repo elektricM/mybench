@@ -149,168 +149,196 @@ See 3.5 (MYBENCH content; ELVISmx's version of this tab is for ELVIS II+ hardwar
 
 | Control | Type | Values | Default CH 0 / CH 1 | Enabled when | Live while running |
 |---|---|---|---|---|---|
-| Source | combo | `AI 0`, `AI 1`, `AudioInput Left`, `AudioInput Right` | `AI 0` / `AI 1` | always | yes (task restarts); rejected if it would mix AI and audio with the other enabled channel |
-| Enabled | checkbox | on/off | on / off | always | yes (task restarts) |
-| Probe | combo | `1x` | `1x` | never (myDAQ has no probe setting; 10x is ELVIS only) | - |
-| Coupling | combo | `DC`, `AC` | follows Source: `DC` for AI, `AC` for audio | never (value set automatically) | - |
-| Scale Volts/Div | ring knob + combo | `10 mV`, `20 mV`, `50 mV`, `100 mV`, `200 mV`, `500 mV`, `1 V`, `2 V`, `5 V` | `1 V` | always | yes |
-| Vertical Position (Div) | knob + numeric | -5.00 ... +5.00 div, increment 0.1, display up to 2 decimals (`0`, `-1.5`) | 0 | always | yes (display only, see 4.6) |
+| Source | combo | `AI 0`, `AI 1`, separator line (not selectable), `AudioInput Left`, `AudioInput Right` (verified in ELVISmx UI) | `AI 0` / `AI 1` | always | yes (next record) - see 4.1 for the AI/audio rule |
+| Enabled | checkbox | on/off | on / off | always | yes (next record; verified) |
+| Probe | combo | `1x` (ELVIS: `10x`) | `1x` | never (grayed, verified) | - |
+| Coupling | combo | `DC`, `AC` (ELVIS: `GND`) | follows Source: `DC` for AI, `AC` for audio (verified) | never (value set automatically) | - |
+| Scale Volts/Div | ring knob + combo | AI sources: `5 V`, `2 V`, `1 V`, `500 mV`, `200 mV`, `100 mV`, `50 mV`, `20 mV`, `10 mV`; audio sources: `1 V` ... `10 mV` only (verified in ELVISmx UI and code). The drop-down lists the largest value first. Switching a channel to audio coerces a larger value to `1 V` (verified) | `1 V` | always | yes |
+| Vertical Position (Div) | knob + numeric | -5 ... +5 div, increment 0.1 (verified in code); typed values are coerced (`10` -> `5`, verified in UI); shown without trailing zeros (`0`, `-1.5`) | 0 | always | yes (display only, see 4.6) |
 
-The controls of a disabled channel stay enabled (screenshot), so the channel can be prepared before
-it is enabled.
+The controls of a disabled channel stay enabled (verified), so the channel can be prepared before
+it is enabled. Every control has a tooltip equal to its name (ELVISmx); no right-click menus.
 
 ### 3.2 Timebase
 
 | Control | Type | Values | Default |
 |---|---|---|---|
-| Time/Div | ring knob + combo | `1 µs`, `2 µs`, `5 µs`, `10 µs`, `20 µs`, `50 µs`, `100 µs`, `200 µs`, `500 µs`, `1 ms`, `2 ms`, `5 ms`, `10 ms`, `20 ms`, `50 ms`, `100 ms`, `200 ms`, `500 ms` | `5 ms` |
+| Time/Div | ring knob + combo | `5 µs`, `10 µs`, `20 µs`, `50 µs`, `100 µs`, `200 µs`, `500 µs`, `1 ms`, `2 ms`, `5 ms`, `10 ms`, `20 ms`, `50 ms`, `100 ms`, `200 ms` (15 values; the drop-down lists `200 ms` first; ELVISmx writes `us`) - **verified in ELVISmx UI and code** | `5 ms` |
 
-Live while running (the next record uses the new timebase).
+Live while running (the next record uses the new timebase; verified). **[MYBENCH extension, may]**
+`1 µs`, `2 µs` and `500 ms` ... `10 s` (slow timebases with a rolling display) may be added after
+the ELVISmx list; they are marked as extensions in the UI and never used by default.
 
 ### 3.3 Trigger
 
 | Control | Type | Values | Default | Enabled when |
 |---|---|---|---|---|
-| Type | combo | `Immediate`, `Digital` (item disabled: ELVIS only), `Edge` | `Immediate` | always |
-| Source | combo | `TRIG`, `SYNC` (items disabled: ELVIS only), `Chan 0 Source`, `Chan 1 Source` | `TRIG` (shown grayed) | Type = Edge |
-| Slope | toggle button | Positive (rising, icon `slope-rising`) / Negative (falling) | Positive | Type = Edge |
-| Level (V) | numeric | -10.000 ... +10.000 V, increment 0.1 V | 0 | Type = Edge |
+| Type | combo | `Immediate`, `Digital` (item disabled: ELVIS only), `Edge` (verified) | `Immediate` | always |
+| Source | combo | `TRIG`, `SYNC` (items always disabled: ELVIS only), `Chan 0 Source`, `Chan 1 Source` (verified) | `TRIG` (shown grayed while Immediate) | Type = Edge |
+| Slope | toggle button | Positive (rising, icon `slope-rising`) / Negative (falling); click toggles (verified) | Positive | Type = Edge |
+| Level (V) | numeric | **-100 ... +100 V** (typed `150` is coerced to `100`, verified in UI and code), increment 0.1 V, shown without trailing zeros | 0 | Type = Edge |
 | Horizontal Position (%) | slider + numeric | 0 ... 100 %, increment 1 % | 50 | Type = Edge |
 
-Rules:
-- When Type becomes `Edge` and Source is `TRIG`/`SYNC`, Source becomes `Chan 0 Source` (or
-  `Chan 1 Source` if CH 0 is disabled).
-- `Chan N Source` is only selectable while channel N is enabled (the item is disabled otherwise). If
-  the selected trigger channel gets disabled, Source switches to the other channel's source; if no
-  channel is enabled nothing can run.
+Rules (verified in ELVISmx UI):
+- When Type becomes `Edge`, Source becomes `Chan 0 Source` (the TRIG/SYNC default is replaced).
+- `Chan N Source` is only selectable while channel N is enabled (`Chan 1 Source` is grayed while
+  CH 1 is disabled). If the selected trigger channel gets disabled, Source switches to the other
+  channel's source; if no channel is enabled nothing can run.
 - The trigger source is *the signal of that channel* (e.g. `Chan 1 Source` with CH 1 = AI 0 triggers
   on AI 0), after the channel's coupling.
-- All trigger controls are live while running.
+- All trigger controls are live while running (verified: Type, Level, Slope, Horizontal Position).
+- MYBENCH may limit the Level SiField to ±100 V as ELVISmx; values beyond the input range simply
+  never trigger.
 
 ### 3.4 Other controls
 
 | Control | Type | Values | Default | Enabled when |
 |---|---|---|---|---|
-| Cursors On | checkbox | | off | always |
+| Cursors On | checkbox | | off | always (also while running, verified) |
 | C1 | combo | `CH 0`, `CH 1` | `CH 0` | Cursors On |
-| C2 | combo | `CH 0`, `CH 1` | `CH 1` (screenshot; ELVISmx help says CH 0) | Cursors On |
+| C2 | combo | `CH 0`, `CH 1` | `CH 1` (verified) | Cursors On |
 | Display Measurements CH 0 | checkbox | | on | CH 0 enabled |
-| Display Measurements CH 1 | checkbox | | on | CH 1 enabled (disabled-but-checked at launch) |
+| Display Measurements CH 1 | checkbox | | on | CH 1 enabled (disabled-but-checked at launch; enabled as soon as CH 1 is enabled, verified) |
 | Graph Properties | button | opens dialog (4.9) | | always |
 | Autoscale | button | one-shot action (4.8) | | a device is selected; also while running |
-| Acquisition Mode | run bar Run (continuous) / Single (once) | Run Continuously, Run Once | Run Continuously | always (app.md) |
-| Log / Print (ELVISmx) | Export data / Export image actions | | | a completed record exists, also while running (data, app.md 10.1); any time (image) |
+| Acquisition Mode | run bar Run (continuous) / Single (once) | `Run Continuously`, `Run Once` | Run Continuously | always (app.md) |
+| Device | combo | DAQmx devices (`myDAQ1 (NI myDAQ)`) | first device | idle only (disabled while running, verified) |
+| Print | button | Print dialog (8) | | **idle and at least one record acquired** (disabled at launch and while running, verified) |
+| Log | button | Save Log File dialog (8) | | idle and at least one record acquired (verified) |
+| Help | button | help window at the Scope page | | always |
+| Toggle View | icon button top-right of the display | shrinks the window to the display area only; click again restores (verified) | | always |
 
-### 3.5 Advanced Settings tab (MYBENCH content)
+MYBENCH mapping: Print = `Export image/PDF...`, Log = `Export data...`, both available any time a
+record exists (also while running, app.md 10); Toggle View = Focus mode.
 
-ELVISmx's Advanced Settings tab holds ELVIS II+ oscilloscope-hardware settings (vertical offset,
-20 MHz filter) that the myDAQ does not have. MYBENCH shows, for each channel, a group
-`Channel 0 Settings` / `Channel 1 Settings` with:
+### 3.5 Advanced Settings tab
+
+Verified in ELVISmx UI: on a myDAQ the tab shows, per channel (`Channel 0 Settings` green,
+`Channel 1 Settings` cyan), a `Vertical Offset (V)` knob + numeric (0) and a `20MHz Filter` /
+`Enabled` checkbox, **all grayed** (ELVIS II+ hardware only). Nothing else.
+
+MYBENCH keeps these two items disabled (tooltip "NI ELVIS II+ only") and adds, per channel:
 
 | Control | Type | Values | Default | Notes |
 |---|---|---|---|---|
-| Input Range **[MYBENCH extension]** | combo | `Auto`, `±10 V`, `±2 V` | `Auto` | Audio sources: fixed `±2 V`, disabled. Auto = rule of 4.3. |
-| Vertical Offset (V) | numeric | 0 | 0 | always disabled, tooltip "NI ELVIS II+ only" |
-| 20 MHz Filter | checkbox | off | off | always disabled, tooltip "NI ELVIS II+ only" |
+| Input Range **[MYBENCH extension]** | combo | `Auto`, `±10 V`, `±2 V` | `Auto` | Audio sources: fixed `±2 V`, disabled. Auto = the ELVISmx rule of 4.3. |
 
 and a `Trigger` group with `Hysteresis (div)` **[MYBENCH extension]**: numeric 0.00 ... 2.00 div,
-increment 0.05, default 0.10 (see 4.4).
+increment 0.05, **default 0.00** (ELVISmx has no hysteresis, verified in code; see 4.4).
 
 ### 3.6 Indicators
 
 | Indicator | Content | Before first acquisition |
 |---|---|---|
-| Sample Rate | actual AI rate per channel (`AiTask::sampleRate()`), `formatEng(rate, "S/s", 4)` e.g. `200 kS/s` | empty |
-| Traces | last displayed record per enabled channel (CH 0 green, CH 1 cyan; 10 x 10 division graticule, no axis numbers) | none |
-| Measurement rows | `CH0 Meas:  RMS: <v>  Freq: <v>  Vp-p: <v>` in CH 0 color, same for CH 1; cursor row `C1: <v>  C2: <v>  dT: <v>` | |
+| Sample Rate | actual AI rate per channel (`AiTask::sampleRate()`), yellow label `Sample Rate:` + value with 2 decimals and SI prefix (`50.00 kS/s`, `200.00 kS/s`; verified) | empty |
+| Trigger status | `*** Waiting for Trigger ***` (yellow, left of the sample rate) while an Edge acquisition finds no trigger; hidden otherwise (verified) | hidden |
+| Traces | last displayed record per enabled channel (CH 0 green, CH 1 cyan; 10 x 10 division graticule, no axis numbers). Trigger level shown as a red horizontal line across the graph while Type = Edge (verified: the center line turns red at level 0, moves with Level) | none |
+| Measurement rows | `CH0 Meas:  RMS: <v>  Freq: <v>  Vp-p: <v>` in CH 0 color, same for CH 1 in CH 1 color; cursor row `Cursors:  C1: <v>  C2: <v>  dT: <v>` (yellow) above them when Cursors On (verified) | |
 | Timeout LED | see 4.5 | off |
-| RMS | `dsp::rms` of the displayed record (after coupling) | `?` |
-| Freq | `dsp::frequency` (mid-reference crossings, 10 % hysteresis) | `?` |
-| Vp-p | `dsp::peakToPeak` | `0.00 V` |
-| C1, C2 | linked channel's voltage at the cursor (linear interpolation between samples; true volts, independent of Vertical Position) | `?` |
+| RMS | RMS of the displayed record (after coupling), DC included | `?` |
+| Freq | see 4.7 | `?` |
+| Vp-p | max - min of the record | `0.00 V` |
+| C1, C2 | linked channel's voltage at the cursor (true volts, independent of Vertical Position); `0.00 V` when the linked channel is disabled (verified) | `0.00 V` |
 | dT | t(C2) - t(C1), signed, seconds | |
 | 1/dT **[MYBENCH extension]** | 1/|dT| in Hz, appended to the cursor line | |
 
-Measurement formatting: 3 significant digits with SI prefix and unit, trailing zeros kept
-(`707 mV`, `1.00 kHz`, `2.00 V`, `0.00 V` for zero); `?` when undefined (NaN: empty data, no complete
-period for Freq, disabled linked channel for cursors).
+Measurement formatting (verified in ELVISmx UI and code): engineering notation with SI prefix and
+unit; **3 decimals when the mantissa is ≥ 1, 2 decimals below 1**: `6.861 V`, `20.053 Hz`,
+`19.992 V`, `-299.39 mV`, `707.11 mV`, `0.00 V`, `25.00 us` (MYBENCH writes `µs`); `?` when the
+value is undefined (NaN/infinite: empty data, no detectable tone for Freq).
 
 ## 4. Behaviour and algorithms
 
 ### 4.1 Channel set and validation (at Run and on every live change)
 
 - Enabled channels in order CH 0, CH 1. At least one must be enabled ("Enable at least one channel.").
-- If both enabled channels use the same Source, the source is acquired once and shown twice.
-- Enabled sources must be all AI (AI 0/AI 1) or all audio: otherwise at Run "AI channels cannot be
-  used with AudioInput channels. Select the same kind of source for both channels." While running,
-  such a change is rejected: the combo reverts and a transient notification (app.md) shows the same
-  message.
-- Audio sources force Coupling = AC; AI sources force DC.
+- If both enabled channels use the same Source, the source is acquired once and shown twice
+  (verified with NI I/O Trace: CH 0 and CH 1 both `AudioInput Left` gave a one-channel task).
+- AI and audio sources can never be mixed. **ELVISmx behaviour (verified in UI):** choosing an audio
+  source on one channel switches the other channel's Source to an audio input as well (observed:
+  CH 0 -> `AudioInput Left` changed CH 1 from `AI 1` to `AudioInput Left`), and choosing an AI source
+  switches the other channel back to AI. MYBENCH does the same: the other channel follows to the
+  same kind (audio: the matching `AudioInput Right`/`Left` partner if the user never chose one,
+  else its last audio choice; AI: its last AI choice, default `AI 1`/`AI 0`), with a small toast
+  "CH 1 switched to AudioInput Right (AI and audio inputs cannot be mixed)". No error is needed.
+- Audio sources force Coupling = AC and limit Volts/Div to 1 V ... 10 mV; AI sources force DC.
 
 ### 4.2 Record, sample rate and acquisition
 
-For Time/Div = τ:
-- Screen time `Ts = 10 τ`.
-- Requested rate `r = min(maxAiRate(), 100 000 / Ts)`; actual rate `fs = coerceAiRate(r)` (never above
-  the max); the Sample Rate indicator shows `fs` (the task's `sampleRate()`).
-- Record length `N = floor(Ts * fs + 1e-9) + 1` samples, sample i at `t = i / fs` (the last sample sits on
-  the right edge when Ts*fs is an integer). N >= 2.
+ELVISmx rule (verified in ELVISmx code, algorithms/scope.md 2, and with NI I/O Trace): for
+Time/Div = τ, screen time `Ts = 10 τ`, `Rmax = maxAiRate()` (200 kS/s):
+- if `Rmax × Ts ≤ 2500`: rate `= Rmax`, `samples = Rmax × Ts`;
+- else rate `= 2500 / Ts` and `samples = 2500` (the rate never drops below 1500 S/s on the myDAQ
+  list except at 200 ms/div: 1250 S/s < 1500, so rate 2000 S/s and samples = 2000 × Ts = 4000);
+- record length `N = samples + 1` (first and last sample on the two screen edges); sample i at
+  `t = i / fs`; `fs = coerceAiRate(rate)` and the Sample Rate indicator shows the actual rate.
 
-Examples at 200 kS/s max: 5 ms/div -> 200 kS/s, N = 10 001; 500 ms/div -> 20 kS/s, N = 100 001;
-1 µs/div -> 200 kS/s, N = 3 (only three samples on screen: the myDAQ cannot do better).
+| Time/Div | rate | N | | Time/Div | rate | N |
+|---|---|---|---|---|---|---|
+| 5 µs | 200 kS/s | 11 | | 2 ms | 125 kS/s | 2501 |
+| 10 µs | 200 kS/s | 21 | | 5 ms | 50 kS/s | 2501 (verified) |
+| 20 µs | 200 kS/s | 41 | | 10 ms | 25 kS/s | 2501 |
+| 50 µs | 200 kS/s | 101 | | 20 ms | 12.5 kS/s | 2501 |
+| 100 µs | 200 kS/s | 201 | | 50 ms | 5 kS/s | 2501 |
+| 200 µs | 200 kS/s | 401 | | 100 ms | 2.5 kS/s | 2501 |
+| 500 µs | 200 kS/s | 1001 | | 200 ms | 2 kS/s | 4001 |
+| 1 ms | 200 kS/s | 2001 (verified) | | | | |
 
-Each acquisition cycle (worker):
-- **Immediate**: finite AI task (`SampleMode::Finite`, `samplesPerChannel = N`); `start()`,
-  `read(N, timeout = Ts*1000 + 2000 ms)`. The record is displayed as is. Horizontal Position has no
-  effect (trigger point = first sample).
-- **Edge**: finite AI task with `samplesPerChannel = M = 2N`. Let `pre = round(H/100 * (N-1))`
-  (H = Horizontal Position) and `post = N - 1 - pre`. Search the trigger source's samples with
-  `dsp::findEdge` (level, slope, hysteresis, 4.4) for the first armed crossing at fractional index
-  `k` with `pre <= k <= M - 1 - post`. If found, the displayed record is samples
-  `[floor(k) - pre, floor(k) - pre + N - 1]` of every channel, and its time axis is shifted by the
-  fractional part so the interpolated crossing lands exactly at H % of the screen
-  (`t_i = (i - frac(k)) / fs`; the drawing clips the tiny overhang at the edges). If no crossing
-  qualifies, the cycle has *no trigger* (4.5).
-  The ELVISmx limitation follows from this design: a trigger edge must occur within about one screen,
-  i.e. at least one period of a repetitive signal must fit on the screen.
-- The task object is reused between cycles (`start()` begins a new finite acquisition) and recreated
-  only when channels, ranges or rate change.
-- Run Continuously: cycles repeat back to back, but the worker posts at most **30 records per
-  second** (sleep to throttle at fast timebases). Run Once: exactly one displayed record, then idle
-  (Edge: see 4.5).
+**[MYBENCH extension]** `Record length` in the Advanced tab: `Standard (2500 points)` (default, the
+ELVISmx rule above) or `High resolution` (up to 100 000 samples per screen: rate
+`min(Rmax, 100 000 / Ts)`), useful for zooming and for FFT-based measurements.
+
+Each acquisition cycle (verified with NI I/O Trace):
+- ELVISmx creates a fresh finite AI task for **every record**: (a throw-away task on the enabled
+  channels only to read the maximum sample-clock rate, then) the acquisition task with the enabled
+  channels, sample clock at the rate above, finite, `N` samples per channel (**`2N` when Type =
+  Edge**), one read of all samples (timeout 10 s), then the task is cleared. MYBENCH may keep the
+  task between cycles (restart only), since the result is identical.
+- **Immediate**: the record is displayed as is. Horizontal Position has no effect.
+- **Edge** (verified in code): read `2N`; `pre = N × H / 100` (H = Horizontal Position);
+  scan the trigger channel's samples from index `pre` to `pre + N - 1` for the first crossing
+  (4.4); if found at index `k`, the displayed record of every channel is samples `[k - pre, k - pre + N)`,
+  so the trigger sample sits at H % of the screen (no sub-sample interpolation in ELVISmx;
+  **[MYBENCH extension, may]** sub-sample alignment by interpolation). If none: no trigger (4.5).
+  A trigger edge must therefore occur within about one screen.
+- Run Continuously: cycles repeat back to back (observed ~5 records/s on the emulated test PC; the
+  real rate depends on the PC); MYBENCH posts at most **30 records per second**. Run Once: one
+  displayed record, then idle (Edge: see 4.5).
 - A new record replaces the previous one entirely (no persistence / averaging).
-
-**[MYBENCH, may]** An implementation may use one continuous AI task and a ring buffer instead of
-repeated finite tasks, provided the display is identical (same record, same trigger placement,
-same timeout rules); this can reduce the dead time between records at slow timebases.
 
 ### 4.3 Input range (per channel)
 
-Audio sources: ±2 V always. AI sources, Input Range = Auto: the visible voltage window is
-`[(-5 - pos) * Vdiv, (5 - pos) * Vdiv]`; use ±2 V when both ends are within ±2.0 V, otherwise ±10 V.
-Input Range = ±10 V or ±2 V forces that range. A range change recreates the task at the next cycle.
-Signals beyond the range clip in hardware (the trace flattens at about ±range).
+ELVISmx rule (verified in code and with NI I/O Trace): the range depends only on Volts/Div:
+`5 V`, `2 V`, `1 V`, `500 mV` per div -> **±10 V**; `200 mV` ... `10 mV` per div -> **±2 V**. Vertical
+Position is not taken into account. Audio sources: always ±2 V. AI channels are configured
+differential; audio inputs referenced single-ended (RSE). MYBENCH Input Range `Auto` = this rule;
+`±10 V` / `±2 V` force the range. A range change recreates the task at the next cycle. Signals
+beyond the range clip in hardware.
 
 ### 4.4 Software edge trigger
 
-- `dsp::EdgeTrigger{ level = Level (V), slope, hysteresis }` applied to the trigger source channel's
-  samples (after coupling, i.e. mean-removed for audio).
-- Hysteresis in volts = `Hysteresis(div) * VoltsPerDiv(source channel)`, minimum 1 mV (default
-  0.1 div = 100 mV at 1 V/div). Rising: the signal must first be below `level - hysteresis`, then the
-  first sample pair crossing `level` upwards triggers; falling is symmetric. This rejects noise
-  retriggering near the level.
+- Applied to the trigger source channel's samples (after coupling, i.e. mean-removed for audio).
+- ELVISmx (verified in code): rising = `previous < Level ≤ sample`; falling = `previous > Level ≥
+  sample`; the first sample of the search window never triggers; **no hysteresis**.
+- **[MYBENCH extension]** Hysteresis (Advanced tab, default 0 = ELVISmx behaviour): with h > 0 the
+  signal must first be below `Level - h` (rising) / above `Level + h` (falling) before a crossing
+  counts, which rejects noise retriggering. `h = Hysteresis(div) × Volts/Div(source channel)`.
 
-### 4.5 Timeout LED and "no trigger" handling
+### 4.5 Timeout LED and "no trigger" handling (verified in ELVISmx UI)
 
 - Immediate trigger: the LED is always off.
-- Edge, Run Continuously: when a cycle ends without a trigger, the displayed traces are **not
-  updated** (the previous record stays; empty graph if none yet) and the Timeout LED turns on. The
-  worker keeps acquiring; the first triggered record turns the LED off and is displayed.
-  Measurements keep describing the displayed record.
-- Edge, Run Once: cycles repeat until a trigger is found or 10 s have elapsed (at least one full
-  cycle is always attempted). On success the record is displayed and the instrument stops with the
-  LED off; otherwise it stops with the LED on and the graph unchanged. No error notification (it is not an
-  error).
+- Edge, Run Continuously: when a record contains no trigger, **the graph is cleared** (no trace),
+  the measurements show `?` / `0.00 V`, the Timeout LED lights and `*** Waiting for Trigger ***`
+  appears at the top of the display. Acquisition continues; the first triggered record is displayed
+  and clears the LED and the message. (Observed with Level 15 V on a ±10 V signal and with an
+  audio signal that never reached the level.)
+- Edge, Run Once: ELVISmx makes **one** acquisition; without a trigger it shows the empty graph, the
+  LED and the waiting message, and stays in the running state (Run button pressed, Print/Log
+  disabled) without acquiring again until the user presses Stop (observed > 60 s; NI I/O Trace
+  shows a single read). MYBENCH: Single keeps acquiring until a trigger is found or the user
+  presses Stop (a more useful "single-shot arm"); the status shows `Waiting for trigger`.
+- **[MYBENCH extension]** `Keep last trace on timeout` (Advanced tab, default off = ELVISmx):
+  the last triggered record stays on screen, drawn dimmed, while waiting.
 - A `DeviceError::Timeout` from `read()` is a device problem, not a missing trigger: error message.
 
 ### 4.6 Drawing, vertical position, coupling
@@ -327,59 +355,71 @@ Signals beyond the range clip in hardware (the trace flattens at about ±range).
 
 ### 4.7 Measurements
 
-Computed per shown channel on the displayed record (N samples, after coupling), in the worker or on
-arrival, for channels whose Display Measurements box is checked and whose channel is enabled:
-- RMS: `sqrt(mean(x^2))` over the whole record (DC included for DC coupling).
-- Freq: reciprocal of the average period between adjacent crossings, in the same direction, of the
-  mid-reference level `(max + min) / 2` with 10 % of Vp-p hysteresis (`dsp::frequency(x, fs, 0.1)`).
-  Needs at least one complete period on screen, else `?`.
+Computed per shown channel on the displayed record (N samples, after coupling), for channels whose
+Display Measurements box is checked and whose channel is enabled (verified in ELVISmx code):
+- RMS: `sqrt(mean(x^2))` over the whole record (rectangular window, DC included).
+- Freq: frequency of the dominant tone found by an FFT-based single-tone estimate on the record
+  (`dsp::estimateTone`: windowed FFT peak refined by interpolation); shown only when the detected
+  tone amplitude is **greater than 0.2 × Volts/Div** of that channel, otherwise `?`.
+  **[MYBENCH extension]** option `Frequency method: Tone (ELVISmx) / Edge counting` (mid-level
+  crossings with 10 % hysteresis, `dsp::frequency`) for square/pulse signals.
 - Vp-p: `max - min` of the record.
 
 Graph Properties > Measurements can hide individual items (4.9).
 
 ### 4.8 Autoscale
 
-One-shot action on the button (works idle or running). It uses the most recent record; if the
-instrument is idle and no record exists, it first performs one Immediate acquisition (without
-changing the trigger settings) and then applies the result. For each enabled channel:
-1. `vmax`, `vmin` of the record (after coupling); `c = (vmax + vmin) / 2`, `a = vmax - vmin`.
-2. Volts/Div = the smallest list entry with `a / Vdiv <= 8` (signal fills at most 8 of the 10
-   divisions); for a flat signal (`a` < 1 mV) the smallest entry with `|c| / Vdiv <= 4`.
-3. Vertical Position = `-c / Vdiv` rounded to 0.1 div and clamped to ±5 (the signal is centered).
-Then Time/Div: take `f = dsp::frequency` of the trigger source channel (Edge) or of the first enabled
-channel (Immediate). If `f` is defined, Time/Div = the smallest entry with `10 * τ >= 2 / f` (2 to 5
-periods on screen); if not, Time/Div is unchanged. If Type = Edge, Level (V) is set to the trigger
-source's `c` (mid level) so that triggering works. Slope, Type, Source and Horizontal Position are
-not changed. While running, the new settings apply from the next cycle.
+One-shot action on the button (works idle or running; verified idle). ELVISmx (code: M/H
+confidence, algorithms/scope.md 6; UI: verified that it acquires by itself and changes Volts/Div):
+1. A separate acquisition per enabled channel on the ±10 V range (audio ±2 V). NI I/O Trace
+   observed one finite task per channel with 2001 samples at 200 kS/s (the current timebase's
+   record, 1 ms/div); the code study describes 16 000 samples at up to 50 kS/s with retries. MYBENCH:
+   one acquisition per channel of `max(N, 16 000)` samples at the current record's rate.
+2. Tone detection on that block (frequency and tone amplitude) and `A = (max - min) / 2 × 2.2`.
+3. Volts/Div = the entry nearest to `A × 3 / 10` in the channel's list (observed: a ±10 V ramp gave
+   `5 V`); the signal is not re-centered (Vertical Position unchanged).
+4. Time/Div = the entry nearest to `0.5 / f_min` (about 5 periods on screen), f_min = lowest detected
+   frequency over the channels; unchanged when no tone is found (observed: unchanged on the
+   simulator's noisy ramp).
+5. Trigger settings and Vertical Position are not changed. While running, the new settings apply
+   from the next cycle.
+**[MYBENCH extension]** `Autoscale` also sets the trigger level to the signal's mid level when
+Type = Edge (option, default off).
 
-### 4.9 Graph Properties dialog
+### 4.9 Graph Properties dialog (verified in ELVISmx UI)
 
-Non-modal dialog `Graph Properties`, three tabs, changes apply immediately, `Close` button,
-**[MYBENCH extension]** `Reset` button (restores defaults of the current tab).
+Modal dialog `Graph Properties`, three tabs, buttons `Reset to Default` (bottom left), `OK`,
+`Cancel`; changes apply on OK (MYBENCH: live preview while the dialog is open, `Cancel` reverts).
 
-- **Plots**: `Channel` selector (`CH 0`, `CH 1`); `Line Style` (Solid, Dash, Dot, Dash Dot,
-  Dash Dot Dot); `Line Width` (1, 2, 3, 4, 5 px); `Point Style` (None, Circle, Filled Circle, Square,
-  Filled Square, Diamond, Cross, X); `Plot Interpolation` (None = points only, Linear, Step);
-  `Line Color` (color button); `Point/Fill Color` (color button); `Fill to` (None, Zero, -Infinity,
-  +Infinity: area between the trace and the chosen baseline filled with Point/Fill Color at 50 %
-  alpha); `Background color` (graph background, default black). Defaults: solid, 1 px, no points,
-  linear, trace color, trace color, None, black.
-- **Cursors** (controls enabled only when Cursors On): `Cursor` selector (`C1`, `C2`); `Line Style`;
-  `Line Width`; `Point Style` (marker drawn where the cursor meets its plot; default Filled Circle);
-  `Cursor Style` (Vertical Line, Full Crosshair, Small Crosshair; default Vertical Line);
-  `Cursor Color` (defaults C1 yellow, C2 magenta); `Linked plot` (`CH 0`, `CH 1`: the same setting as
-  the C1/C2 combos of the Cursors Settings group, kept in sync).
-- **Measurements**: `Channel` selector (`CH 0`, `CH 1`); `Channel measurements` checkboxes `RMS`,
-  `Freq`, `Vp-p` (all on); `Cursor Measurements` checkboxes `C1`, `C2`, `dT` (all on; enabled only
-  when Cursors On) controlling which items appear in the cursor line.
+- **Plots**: plot selector `Channel 0 (Real)`, `Channel 1 (Real)` (ELVISmx also lists grayed
+  `Channel 0 (Simulated)`, `Channel 1 (Simulated)`; MYBENCH shows `CH 0`, `CH 1`, plus `Math`/`Ref`
+  when enabled); palettes: **Line Style** (solid, dash, dot, dash-dot, dash-dot-dot), **Line Width**
+  (none + 5 widths, 1 px default), **Point Style** (`<none>` + 16 marker shapes: open/filled circle,
+  open/filled square, small dot, point, cross, plus, x, diamond, ...), **Interpolation** (6 modes:
+  points only, step horizontal, linear (default), step vertical, horizontal center step, vertical
+  center step); color buttons **Line** and **Point/Fill** (color picker: grayscale ramp, hue ramp,
+  user colors, history, `LED On`-style named default); **Fill to**: `<none>`, `zero`, `-Infinity`,
+  `+Infinity` (and a grayed `Plot 0`); **Background color**: `Black`, `White`.
+- **Cursors**: cursor selector `C1`, `C2`; the same Line Style, Line Width and Point Style palettes
+  (defaults: dotted line style, 1 px, no marker - the cursors are drawn dashed); **Cursor Style**
+  palette (`<none>`, vertical line, horizontal line, full crosshair, small crosshair, and two dashed
+  crosshair variants; default vertical); **Cursor color** (both cursors yellow in the default look -
+  MYBENCH keeps its distinct `cursor1`/`cursor2` tokens); **Linked plot**: `Channel 0 (Real)`,
+  `Channel 1 (Real)` (same setting as the C1/C2 combos).
+- **Measurements**: channel selector `Channel 0`, `Channel 1`; table `Name` / `Display`:
+  `RMS Voltage`, `Frequency`, `Voltage Peak-to-Peak` (all checked); group `Cursor Measurements`:
+  `C1 Volts`, `C2 Volts`, `delta X-Value` (all checked).
 
-### 4.10 Cursors
+### 4.10 Cursors (verified in ELVISmx UI)
 
-- Cursors On shows two vertical cursors C1 and C2, initially at 2.5 div and 7.5 div (25 % / 75 % of
-  the screen) the first time; afterwards they keep their time positions.
-- Drag horizontally with the mouse (hit area ±4 px). The cursor snaps to the nearest sample time of
-  its linked channel's record. Arrow keys move the focused cursor by one sample **[MYBENCH extension]**.
-- Readouts as in 3.6, updated on every new record and while dragging.
+- Cursors On shows two vertical dashed cursors; each carries its name (`C1`, `C2`) as a label at
+  the point where it meets its linked trace. On first use both start at the **left edge** of the
+  graph (dT a few samples: `25.00 us` at 5 ms/div); afterwards they keep their positions.
+  MYBENCH starts them at 25 % / 75 % of the screen instead (more useful) - a documented difference.
+- Drag horizontally with the mouse (verified); the cursor snaps to samples of its linked channel.
+  Arrow keys move the focused cursor by one sample **[MYBENCH extension]**.
+- Readouts as in 3.6, updated on every new record and while dragging; a cursor linked to a
+  disabled channel reads `0.00 V`.
 
 ### 4.11 Live changes summary
 
@@ -427,22 +467,44 @@ Shown as banners/toasts (app.md), never blocking dialogs.
 
 ## 8. Export (ELVISmx Log and Print)
 
-- **Export data** (ELVISmx Log; whenever a completed record exists): `DataTable` with the common header
-  (app.md) and these comments
+ELVISmx (verified in UI): **Log** and **Print** are enabled only when idle and after at least one
+record was acquired.
+
+- **Log** opens a save dialog (`Save Log File`, default folder: the public Documents\National
+  Instruments folder) with the file types `TXT (*.txt)` (default), `TDMS (*.tdms)`, `All Files`.
+  The TXT file (observed) is a tab-separated LabVIEW waveform export of the displayed record:
+  row 1 `waveform` + one column pair per channel (channel names), row 2 `t0` + absolute start
+  date/time per channel, row 3 `delta t` (sample interval, `5.000000E-6`), a blank line, then a
+  header `time[0]  Ch0  time[1]  <ch1>` and N rows of *absolute timestamps* and values in
+  `%E` format (6 decimals).
+- **Print** opens a `Print` dialog: `Export to...` **Printer** (installed printers list) or **File**
+  (path + browse, PNG only), `Print Options`: `Print Ink Saver Mode`, `User name`, `Computer name`,
+  `Time stamp` (all checked), `Orientation` Portrait / Landscape, `Number of copies`; `OK`,
+  `Cancel`. The output page (observed) holds a header (computer name, user name, time stamp), a
+  plot legend (`CH0 Real`, `CH1 Real`), the display (white background in ink-saver mode, traces in
+  black/gray), the measurement and cursor rows, and a settings table: per channel Source,
+  Volts / Div (V), Vertical Position (Div); Device, Time Base (s), C1/C2 Linked Plot, Trigger Type
+  & Slope (e.g. `Edge & Falling`), Trigger Source, Trigger Level (V), Horizontal Position (%).
+
+MYBENCH:
+- **Export data** (Log; any time a completed record exists): CSV (default) / TSV, **TDMS is not
+  provided** (no free writer; CSV opens everywhere) and **[MYBENCH, should]** an `ELVISmx-compatible
+  TXT` option reproducing the layout above (for existing lab scripts). Common header (app.md) plus
 
   ```
   # Sample rate: <fs> S/s
   # Time/Div: <τ>
   # CH 0: <Source>, <Volts/Div>/div, position <pos> div, <DC|AC> coupling, range ±<r> V   (or "CH 0: disabled")
   # CH 1: ...
-  # Trigger: Immediate | Edge, <Chan N Source>, <rising|falling>, level <L> V, hysteresis <h> V, horizontal position <H> %
-  # Trigger time: <t> s from the first sample   (Edge only)
+  # Trigger: Immediate | Edge, <Chan N Source>, <rising|falling>, level <L> V, horizontal position <H> %
   ```
 
-  columns `Time (s)`, then `CH 0 (V)` and/or `CH 1 (V)` for enabled channels (volts after coupling,
-  without vertical position). Time = `i / fs` from the first displayed sample. `sampleRate = fs`.
-- **Export image** (ELVISmx Print): PNG/SVG/PDF of the panel's display area or of the whole panel
-  (app.md).
+  columns `Time (s)` (relative to the first displayed sample), then `CH 0 (V)` and/or `CH 1 (V)`.
+- **Export image / PDF** (Print): PNG/SVG/PDF of the display or the whole panel, with options
+  mirroring the Print dialog: `Ink saver` (white background, dark traces), `Include user / computer
+  name / time stamp`, `Include settings table` (the table above), orientation (PDF). Direct
+  printing: **[MYBENCH, should]** `Print...` through `QPrintDialog` with the same page layout, since
+  ELVISmx users print from the instrument.
 
 ## 9. Device API mapping
 
@@ -469,32 +531,52 @@ No AO/DMM/DIO calls.
 ## 11. Checks against the simulator
 
 - Defaults + Run: CH 0 = AI 0 test signal (1 kHz, 1 V peak): at 5 ms/div 50 periods on screen,
-  `Sample Rate: 200 kS/s`, RMS ≈ `707 mV`, Freq `1.00 kHz`, Vp-p ≈ `2.00 V`.
+  `Sample Rate: 50.00 kS/s` (2501 points), RMS ≈ `707.11 mV`, Freq `1.000 kHz`, Vp-p ≈ `2.000 V`.
 - Time/Div 500 µs, Edge, Chan 0 Source, rising, 0 V, 50 %: a rising zero crossing sits exactly at
   the screen center and the trace is stable.
-- Enable CH 1 (AI 1, 200 Hz ±0.5 V square, 20 % duty): RMS `500 mV`, Freq `200 Hz`, Vp-p `1.00 V`.
-- Level 3 V with a 1 V signal: Timeout LED on, trace frozen; back to 0 V: LED off.
-- CH 0 = AudioInput Left while CH 1 = AI 1 enabled -> Run shows the mixing error.
-- Autoscale on AI 0 (2 V p-p, centered on 0 V): 500 mV/div (smallest entry with 2 V / Vdiv <= 8),
-  position 0, Time/Div 200 µs (smallest τ with 10 τ >= 2 / 1 kHz).
+- Enable CH 1 (AI 1, 200 Hz ±0.5 V square, 20 % duty): RMS `500.00 mV`, Freq `200.000 Hz`, Vp-p
+  `1.000 V`.
+- Level 3 V with a 1 V signal: Timeout LED on, graph cleared, `*** Waiting for Trigger ***`; back to
+  0 V: LED off, trace back.
+- CH 0 = AudioInput Left while CH 1 = AI 1 -> CH 1 switches to an audio input (toast).
+- Autoscale on AI 0 (2 V p-p, centered on 0 V): A = 2.2 V -> 500 mV/div (nearest to 0.66 V),
+  position unchanged, Time/Div 500 µs (nearest to 0.5 / 1 kHz).
 - Run FGEN on AO 0 (sim loops AO 0 -> AI 0): the FGEN waveform appears on CH 0.
 
 ## 12. Open questions / assumptions
 
-1. **Volts/Div and Time/Div lists** are inferred from the knob pointer angles in the screenshot
-   (1 V at index 6 of 9 -> 10 mV...5 V; 5 ms at index 11 of 18 -> 1 µs...500 ms, assuming 270-degree
-   knobs). If the real lists differ, only the tables in 3.1/3.2 change. Slower timebases (1 s ... 10 s)
-   could be added later (with a rolling display).
-2. **Sample rate policy** (max 100 000 samples per screen, max rate otherwise) is ours; ELVISmx only
-   shows the resulting rate.
-3. **Missing trigger**: we behave like a "normal" trigger mode (keep the last trace, LED on). ELVISmx
-   may display untriggered data instead; an `Auto` behaviour could be added as an option.
-4. **Vertical Position range** (±5 div) and increment (0.1) are assumptions; the screenshot only shows 0.
-5. **Advanced Settings tab** content on a myDAQ is not documented (the help describes ELVIS II+ items
-   only). We keep the ELVIS items disabled and add Input Range + trigger hysteresis. A screenshot of
-   the real tab would settle it.
-6. **C2 default** is `CH 1` (screenshot) although the help says CH 0.
-7. **Autoscale algorithm** is ours (the help does not describe the button).
-8. **Instrument Control placement**: in the screenshot the group sits below the tab widget in the
-   white right column; we keep it outside the tabs so Run/Stop stay visible on both tabs.
-9. **Log content** uses the processed (coupled) data and time from the first displayed sample.
+1. **Volts/Div and Time/Div lists** - resolved (verified in ELVISmx UI and code): 5 µs ... 200 ms
+   (15 values), AI 10 mV ... 5 V, audio 10 mV ... 1 V.
+2. **Sample rate policy** - resolved: ELVISmx keeps 2500 points per screen (4.2 table); the
+   100 000-point mode is a MYBENCH option.
+3. **Missing trigger** - resolved: ELVISmx clears the graph and shows `*** Waiting for Trigger ***`
+   with the Timeout LED (4.5); keeping the last trace is a MYBENCH option.
+4. **Vertical Position range** - resolved: ±5 div, increment 0.1, typed values coerced.
+5. **Advanced Settings tab** - resolved: only the grayed ELVIS II+ items.
+6. **C2 default** - resolved: `CH 1`.
+7. **Autoscale** - partly resolved (4.8): observed acquisition size (2001 samples at the current
+   rate) differs from the code study (16 000 samples); both are listed. The exact Volts/Div snapping
+   could not be checked with the simulator's synthetic signal.
+8. **Instrument Control placement**: kept outside the tabs in MYBENCH (run bar).
+9. **Log content** - resolved for TXT (8). TDMS logging is not replicated.
+10. **Cursor start position**: ELVISmx starts both cursors at the left edge; MYBENCH uses 25 %/75 %.
+11. **Run Once without trigger**: ELVISmx acquires once and then waits for Stop; MYBENCH keeps
+    acquiring until triggered (documented difference).
+12. **Graph Properties** in ELVISmx is modal with OK/Cancel; MYBENCH previews live and reverts on
+    Cancel.
+
+## 13. Verified DAQmx usage (ELVISmx, observed with NI I/O Trace)
+
+Simulated NI myDAQ, ELVISmx 25.8; in our own words.
+- Idle: no task; the device list is polled twice per second.
+- Per record: a probe task (enabled channels, ±2 V, 1 kS/s finite) is created only to read the
+  maximum sample clock rate (200 kS/s) and cleared; then the acquisition task is created:
+  one voltage channel per enabled **distinct** source (`ai0`/`ai1` differential ±10 V or ±2 V per
+  4.3; audio inputs RSE ±2 V), sample clock at the rate of 4.2, rising edge, **finite**, `N`
+  samples (`2N` for Edge); the actual rate is read back for the indicator; one multi-channel
+  waveform read of all samples (10 s timeout); the task is cleared. Observed: 5 ms/div ->
+  50 kS/s × 2501; 1 ms/div -> 200 kS/s × 2001, Edge 4002; audio Edge 200 kS/s × 4002.
+- Stop aborts and clears the task in progress.
+- Autoscale (idle): one finite task per enabled channel (±10 V, default terminal configuration,
+  current rate and record length), read once, cleared; then the normal loop is not started.
+- Log / Print / Graph Properties do not touch the device.

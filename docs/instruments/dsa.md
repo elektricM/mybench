@@ -51,27 +51,27 @@ behaviour of sections 2-8). Panel name "Spectrum Analyzer", id `dsa`.
 |---|---|---|---|---|---|
 | Source Channel | combo | `AI 0`, `AI 1`, `AudioInput Left`, `AudioInput Right` | `AI 0` | always | restarts acquisition + averaging |
 | Voltage Range | combo | `+/- 10V`, `+/- 2V` | `+/- 10V` | AI sources (audio: shows `+/- 2V`, disabled) | restarts acquisition + averaging |
-| Frequency Span | numeric (Hz) | 10 Hz ... `maxAiRate()/2` (100 kHz); integer display (`40000`), increment 1 % of the value's decade | 40000 | always | restarts acquisition + averaging |
-| Resolution (lines) | combo | 100, 200, 400, 800, 1600, 3200, 6400 | 400 | always | restarts acquisition + averaging |
+| Frequency Span | numeric (Hz) | **405 Hz ... `maxAiRate()/2` (100 kHz)** - typed `5` -> `405`, `500000` -> `100000` (verified in ELVISmx UI); integer display (`40000`), increment 1 (ELVISmx) / 1 % of the decade (MYBENCH arrows) | 40000 | always | restarts acquisition + averaging |
+| Resolution (lines) | combo | **200, 400, 800, 1600, 3200** (verified in UI and code) | 400 | always | restarts acquisition + averaging |
 | Window | combo | `None`, `Hanning`, `Hamming`, `Blackman-Harris`, `Exact Blackman`, `Blackman`, `Flat Top`, `4 Term B-Harris`, `7 Term B-Harris`, `Low Sidelobe` (`dsp::windowTypes()` / `windowName()`) | `None` | always | restarts averaging |
-| Averaging Mode | combo | `None`, `Vector`, `RMS`, `Peak hold` | `RMS` | always | restarts averaging |
+| Averaging Mode | combo | `None`, `Vector`, `RMS`, `Peak Hold` (verified) | `RMS` | always | restarts averaging |
 | Weighting | combo | `Linear`, `Exponential` | `Exponential` | Mode = Vector or RMS | restarts averaging |
-| # of Averages | numeric | integer 1 ... 1000, increment 1 | 5 | Mode = Vector, RMS or Peak hold (Peak hold: used only by Run Once, 3.6) | restarts averaging |
+| # of Averages | numeric | integer 1 ... 1000, increment 1 (ELVISmx accepts 0 ... 99999, verified; MYBENCH coerces 0 to 1) | 5 | Mode = Vector, RMS or Peak Hold (Peak Hold: used only by Run Once, 3.6) | restarts averaging |
 | Trigger Type | combo | `Immediate` | `Immediate` | never (myDAQ: immediate only) | - |
 | Trigger Source | combo | `TRIG` | `TRIG` | never | - |
 | Trigger Slope | toggle | rising | rising | never | - |
 | Trigger Level (V) | numeric | 0 | 0 | never | - |
-| Units | combo | `dB`, `dBm`, `Linear` | `dB` | always | display only |
-| Mode (Frequency Display) | combo | `RMS`, `Peak` | `RMS` | always | display only |
-| Averaging Restart | button | restart the averaging | | running and Averaging Mode ≠ None | |
+| Units | combo | `Linear`, `dB`, `dBm` (list order verified) | `dB` | always | display only |
+| Mode (Frequency Display) | combo | `RMS`, `Peak` | `RMS` | Units ≠ dBm (grayed for dBm, verified) | display only |
+| Averaging Restart | button | restart the averaging | | **running and Weighting = Linear** (verified: grayed with Exponential, enabled as soon as Linear is chosen while running) | |
 | Display Mode | ring under the spectrum | `Power Spectrum`, `Power Spectral Density` | `Power Spectrum` | always | display only |
 | Scale | combo | `Auto`, `Manual` | `Auto` | always | display only |
-| Maximum | numeric | any; 3 decimals (`0.000`) | dB/dBm: 10, Linear: 1.0 | Scale = Manual | display only |
-| Minimum | numeric | any, < Maximum | dB/dBm: -120, Linear: 0.0 | Scale = Manual | display only |
+| Maximum | numeric | any; 3 decimals; shows `0.000` grayed in Auto | dB/dBm: 10.000, Linear: 1.0 (verified 10 / -120 for dBm) | Scale = Manual | display only |
+| Minimum | numeric | any, < Maximum | dB/dBm: -120.000, Linear: 0.0 | Scale = Manual | display only |
 | Cursors On | checkbox | | off | always | |
-| C1, C2 | combo | plot the cursor is attached to: `Spectrum`, `Time` | `Spectrum` | Cursors On | |
-| Cursor Select | combo | `C 1`, `C 2` | `C 1` | Cursors On | |
-| Position Left / Right | diamond buttons | move the selected cursor by one point | | Cursors On | |
+| C1, C2 | combo | ELVISmx: `Real` (plot binding), **always grayed** - the cursors live on the spectrum only (verified). MYBENCH: `Spectrum` (default), `Time` **[MYBENCH extension]** | `Spectrum` | Cursors On | |
+| Cursor Select | combo | `C 1`, `C 2` (verified) | `C 1` | Cursors On | |
+| Position Left / Right | diamond buttons | move the selected cursor by one bin (verified: 10 clicks = 1000 Hz at df = 100 Hz) | | Cursors On | |
 | Run / Single / Stop | run bar | Run Continuously / Run Once | Run Continuously | app.md | |
 | Log / Print (ELVISmx) | Export data / Export image | | | a spectrum exists, also while running (data, app.md 10.1); any time (image) | |
 
@@ -113,7 +113,12 @@ Frequency Span values above `maxAiRate()/2` are coerced.
    |---|---|---|---|---|
    | dB | `dBVrms` | `dBVpk` | `dBVrms/√Hz` | `dBVpk/√Hz` |
    | dBm | `dBm` | `dBm` | `dBm/Hz` | `dBm/Hz` |
-   | Linear | `Vrms` | `Vpk` | `Vrms/√Hz` | `Vpk/√Hz` |
+   | Linear | `Vrms^2` | `Vpk^2` | `Vrms^2/Hz` | `Vpk^2/Hz` |
+
+   ELVISmx (verified): Linear shows **power** (`Magnitude (Vpk^2)`), not volts; the PSD view lowers
+   the curve by `10 log10(df)` but keeps the power-spectrum axis title (`Magnitude (dBm)`).
+   MYBENCH: Linear = power as ELVISmx (**[MYBENCH extension]** `Linear (V)` amplitude option) and
+   PSD titles with `/Hz` / `/√Hz` as in the table.
 
 ### 3.3 Averaging (`dsp::SpectrumAverager`)
 
@@ -132,6 +137,12 @@ Frequency Span values above `maxAiRate()/2` are coerced.
 
 ### 3.4 Measurements (on the averaged spectrum `P`)
 
+- ELVISmx (verified in UI and code): the harmonic analyzer uses harmonics 2 ... 10; the
+  fundamental power is estimated over 7 bins around the peak and shown as a **linear power** -
+  `Fundamental Frequency Power (Vrms^2)` in RMS mode, `(Vpk^2)` (value doubled) in Peak mode -
+  **whatever the Units** (observed `47.17` Vrms² with Units = dB for a 10 V-peak sine; the caption
+  does not follow dB/dBm). MYBENCH shows the same linear value by default and **[MYBENCH extension]**
+  offers `Power in display units`.
 - **Detected Fundamental Frequency (Hz)** and **Fundamental Frequency Power**:
   `pk = dsp::findPeak(P, span = 3)` (largest bin outside the DC lobe, refined by the power-weighted
   centroid of the lines around it; power = sum of those lines / ENBW). Frequency formatted with 2
@@ -141,8 +152,8 @@ Frequency Span values above `maxAiRate()/2` are coerced.
 - **THD (%)**: `dsp::analyzeHarmonics(P)`: harmonic powers integrated over the window main lobe at
   `k * f0` for every harmonic k >= 2 below the span (fs/2); `THD = 100 * sqrt(sum P_k / P_1)`.
 - **SINAD (dB)**: `10 log10(total / (total - fundamental))`, total excluding the DC lobe.
-- **Vpk (V)**: `max - min` of the latest time block (the ELVISmx definition, although the name says
-  "peak").
+- **Vpk (V)**: `(max - min) / 2` of the latest time block (verified: `9.96` for a ±10 V sine;
+  code: peak-to-peak amplitude divided by 2).
 - No signal / only DC: frequency and power `0.00`, THD and SINAD `0.00` (never NaN on screen).
 
 ### 3.5 Plots and scale
@@ -268,8 +279,8 @@ ELVISmx window `Dynamic Signal Analyzer`, about 828 x 654 px, fixed; black displ
 AI 0 test signal: 1 kHz sine, 1 V peak, 1 % third harmonic, 0.5 mV rms noise.
 - Defaults (40 kHz span, 400 lines, None, RMS/Exponential/5): `Sample Rate 80 kS/s`, df = 100 Hz,
   fundamental `1000.00` Hz, power `-3.01` dBVrms (0.5 Vrms²), THD ≈ `1.00` %, SINAD ≈ `40.0` dB,
-  Vpk ≈ `2.00`.
-- Units Linear: fundamental power `0.50` (Vrms^2), peak line at 0.707 Vrms; Mode Peak: 1.00 Vpk.
+  Vpk ≈ `1.00`.
+- Units Linear: fundamental power `0.50` (Vrms^2), peak line at 0.50 Vrms²; Mode Peak: 1.00 Vpk².
 - Units dBm: power ≈ +10.0 dBm.
 - Window Hanning: same power (window-compensated), wider peak.
 - Source AudioInput Left (440 Hz, 0.5 V peak): Voltage Range shows `+/- 2V` disabled; fundamental
@@ -278,16 +289,29 @@ AI 0 test signal: 1 kHz sine, 1 V peak, 1 % third harmonic, 0.5 mV rms noise.
 
 ## 12. Open questions / assumptions
 
-1. **Sample rate = 2 x span** is taken from the screenshot (40000 Hz span, 80 kS/s); block length
-   `2 x lines` follows from it (df = span/lines).
-2. **Resolution list** (100 ... 6400 lines) and **span limits** (10 Hz ... 100 kHz) are assumptions.
-3. **Fundamental power units**: the help says it follows the Units control; the screenshot shows the
-   label `(Vrms^2)` while Units = dB at launch. We follow the help (dBVrms in dB) and use Vrms² in
-   Linear.
-4. **Linear weighting** holds the completed average (as `dsp::SpectrumAverager` does, LabVIEW
-   style); a moving-window average would be an alternative.
-5. **Cursor plot choices**: the screenshot shows `Real` (a LabVIEW plot name) in both C1/C2 combos;
-   we offer `Spectrum` / `Time`.
-6. **Vpk** is computed as max - min (help text), despite its name.
-7. **Time-plot X range** in the screenshot (0 ... 0.019987 s) is a stale default (1600 samples at
-   80 kS/s), not the default block (800 samples); ignore it.
+1. **Sample rate = 2 x span**, block length `2 x lines` - resolved (verified with NI I/O Trace:
+   ELVISmx reads `2 × lines + 2` samples per record, 802 at 400 lines; MYBENCH analyses `2 × lines`).
+2. **Resolution list** - resolved: 200 ... 3200 lines. **Span limits** - resolved: 405 Hz ...
+   100 kHz on a myDAQ.
+3. **Fundamental power units** - resolved: always linear power (Vrms² / Vpk²), caption per Mode.
+4. **Linear weighting** holds the completed average (verified: the display stops changing and
+   `Restart` becomes available).
+5. **Cursor plot choices** - resolved: ELVISmx cursors are on the spectrum only (attach combos
+   grayed); MYBENCH adds `Time`.
+6. **Vpk** - resolved: `(max - min) / 2`.
+7. **Time-plot X range** 0 ... 0.019987 s at launch is a stale default; running shows 0 ... (N-1)/fs
+   (0.009987 s at the defaults, verified).
+8. **Linear units show power** in ELVISmx (V²); MYBENCH keeps that default.
+
+## 13. Verified DAQmx usage and Log format (ELVISmx)
+
+- Each edit of Span (and at Run) creates a probe task (AI 0, ±2 V, 1 kS/s finite) only to read the
+  maximum sample-clock rate, then clears it.
+- Run Continuously: **a new finite task per record**: one voltage channel (`ai0`/`ai1` default
+  terminal configuration, or audio), range from Voltage Range, sample clock `2 × Span`, finite
+  `2 × lines + 2` samples, reference trigger disabled, read all samples, read back the actual rate,
+  clear. About 10 records/s on the emulated test PC.
+- Log (verified): `Save Log File` (TXT / TDMS). The TXT file contains the time record as a LabVIEW
+  waveform export (`waveform`, `t0` absolute, `delta t`, then absolute timestamp + value rows,
+  channel named `Source signal`), a blank line, `FFT waveform`, `Units: <unit>`, then one row per
+  line `frequency <TAB> value` exactly as displayed (400 rows 0 ... 39 900 Hz at the defaults).

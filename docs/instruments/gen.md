@@ -220,15 +220,15 @@ ELVISmx window `Function Generator`, about 420 x 480 px, fixed.
 | Control | Type | Values / range | Format, increment | Default | Enabled when | Live while running |
 |---|---|---|---|---|---|---|
 | Sine / Triangle / Square | exclusive buttons | 3 shapes | | Sine | always | yes |
-| Frequency | log knob + SiField | 0.2 Hz ... 20 kHz | up to 4 significant digits with SI suffix, trailing zeros trimmed (`100`, `1.5k`, `20k`, `200m`); arrow increment = 1 % of the value's decade (`10^(floor(log10 f) - 2)`: 100 -> 101, 1k -> 1.01k); knob values rounded to 3 significant digits | 100 Hz | not during a sweep | yes (phase-continuous) |
-| Amplitude | linear knob + SiField | 0.00 ... 10.00 Vpp | 2 decimals; increment 0.1 | 1.00 Vpp | always | yes (ramped over one block) |
-| DC Offset | linear knob + SiField | -5.00 ... +5.00 V | 2 decimals; increment 0.1 | 0.00 V | always (audio pair: forced 0, disabled) | yes (ramped) |
-| Duty Cycle | SiField | 1 ... 99 % | integer; increment 1 | 50 % | Square selected | yes |
-| Modulation Type | combo | `None` (ELVIS: AM, FM; see enhancement) | | None | never (default build) | - |
-| Start Frequency | SiField | 0.2 Hz ... 20 kHz | like Frequency | 100 Hz | channel not sweeping | - |
-| Stop Frequency | SiField | 0.2 Hz ... 20 kHz | like Frequency | 1 kHz (`1k`) | not sweeping | - |
-| Step | SiField | 0.001 Hz ... 20 kHz | like Frequency | 100 Hz | not sweeping | - |
-| Step Interval | SiField (ms) | 1 ... 100 000 ms | integer; increment 100 | 1000 ms | not sweeping | - |
+| Frequency | log knob (end labels `200m` / `20k`) + SiField | 0.2 Hz ... 20 kHz (typed values coerced: `50000` -> `20k`, `0.01` -> `200m`; verified in ELVISmx UI) | up to 5 significant digits with SI suffix, trailing zeros trimmed (`100`, `1.2345k`, `20k`, `200m`; verified); arrow increment = 1 % of the value's decade (MYBENCH; ELVISmx code: 10); knob values rounded to 3 significant digits | 100 Hz | not during a sweep | yes (phase-continuous) |
+| Amplitude | linear knob (`0.0` ... `10.0`) + SiField | 0.00 ... 10.00 Vpp (coerced, verified) | 2 decimals; increment 0.01 (ELVISmx code) | 1.00 Vpp | not during a sweep | yes (ramped over one block) |
+| DC Offset | linear knob (`-5.0` ... `5.0`) + SiField | -5.00 ... +5.00 V (coerced, verified) | 2 decimals; increment 0.02 (ELVISmx code) | 0.00 V | not during a sweep (audio pair: forced 0, disabled) | yes (ramped) |
+| Duty Cycle | SiField | **0 ... 100 %** (coerced, verified; 0 and 100 give a constant level) | integer; increment 1 | 50 % | Square selected and not sweeping (grayed otherwise, verified) | yes |
+| Modulation Type | combo | `None` (ELVIS: AM, FM; see enhancement) | | None | never (grayed, verified) | - |
+| Start Frequency | SiField | 0.2 Hz ... 20 kHz (coerced, verified) | 2 decimals with SI suffix trimmed (`100`, `1k`, `200m`) | 100 Hz | not sweeping (grayed during a sweep, verified) | - |
+| Stop Frequency | SiField | 0.2 Hz ... 20 kHz | as Start | 1 kHz (`1k`) | not sweeping | - |
+| Step | SiField | **0** ... 20 kHz (coerced at 0, verified); a step of 0 is refused at Sweep by MYBENCH ("Step must be greater than 0 Hz") | 2 decimals (`123.46`) | 100 Hz | not sweeping | - |
+| Step Interval | SiField (ms) | **1 ... 300 000 ms** (coerced, verified in UI and code) | integer; increment 1 | 1000 ms | not sweeping | - |
 | Output toggle (Run/Stop of the channel) | toggle + LED | on/off | | off | Mode = Function | - |
 | Sweep | button | start a single sweep on this channel | | | channel not generating | - |
 | Manual Mode | (not shown) | ELVIS II front-panel knobs | | off | never | - |
@@ -265,8 +265,8 @@ Amplitude 0 outputs the DC offset only.
 #### 4.1.5 Frequency display
 
 While generating, the channel readout shows the frequency actually generated (the NCO frequency,
-3.4) with 5 significant digits, SI prefix and unit, trailing zeros kept: `100.00 Hz`, `1.0000 kHz`,
-`20.000 kHz`, `200.00 mHz`. During a sweep it shows the current step's frequency. Not generating:
+3.4) with **4 decimals**, SI prefix and unit, as ELVISmx (verified in ELVISmx UI): `100.0000 Hz`,
+`1.0000 kHz`, `1.2345 kHz`, `20.0000 kHz`, `200.0000 mHz`. During a sweep it shows the current step's frequency. Not generating:
 `OFF`. (ELVIS hardware measures its output with a counter and shows dashes when that measurement
 times out; the myDAQ has no readback path, so MYBENCH shows the exact synthesized frequency and never
 shows dashes.)
@@ -278,15 +278,28 @@ shows dashes.)
   has not passed Stop (Stop is included when it falls on a step: 1e-9 relative tolerance). Start =
   Stop gives a single step. Each frequency lasts exactly `round(StepInterval * fs / 1000)` task
   samples; frequency changes are phase-continuous and sample-exact (3.4).
-- The readout follows the current step (and the progress `step k/n`). The Frequency control and the
-  Sweep Settings are disabled during the sweep and keep their values; shape, amplitude, offset and
-  duty remain live.
+- The readout follows the current step (and the progress `step k/n`). Verified in ELVISmx UI
+  (100 Hz -> 1 kHz, Step 300 Hz, 1000 ms: `100.0000 Hz`, `400`, `700`, `1.0000 kHz`, then `OFF`):
+  during a sweep **every control is grayed** in ELVISmx (waveform buttons, Frequency, Amplitude,
+  DC Offset, Duty Cycle, the Sweep Settings, Signal Route, Device, Run, Sweep) except Stop and Help;
+  the Frequency control keeps its own value (it is not updated by the sweep). MYBENCH grays the
+  Frequency and Sweep Settings and **[MYBENCH extension]** keeps shape, amplitude, offset and duty
+  live.
+- ELVISmx step timing (verified with NI I/O Trace): the sweep streams 0.25 s blocks, so a step lasts
+  Step Interval rounded up to a multiple of 250 ms. MYBENCH steps exactly at Step Interval
+  (sample-exact; documented improvement).
 - After the last step the channel stops (single sweep): its output goes to the safe level and the
   readout shows `OFF` (if it was the last generating channel, the task is destroyed, 3.1). The
   channel Output toggle, the run bar Stop, or a mode change abort the sweep at any time.
 - A sweep is not resumed after an arbiter pause (6): the channel reports "Sweep aborted".
 
 #### 4.1.7 Stop and safe state
+
+ELVISmx (verified with NI I/O Trace and code): Stop and the end of a sweep write a 0 V signal on the
+routed output and clear the task, so the output rests at **0 V**. Verified UI states: while
+generating (Run) the Device combo and the Sweep button are grayed, Stop is enabled; Signal Route,
+the waveform settings and the Sweep Settings stay editable and apply live (a route change moves the
+signal to the other output at once); `OFF` returns on Stop.
 
 Channel stop (Output off, run bar Stop, end of sweep, panel close): the channel outputs 0 V inside
 the stream; when no channel generates any more, the task is destroyed and `aoWriteStatic(ch, 0.0)`
@@ -359,16 +372,17 @@ ELVISmx window `Arbitrary Waveform Generator`, about 564 x 535 px, fixed.
 | Recent / Library **[MYBENCH extension]** | menus | last 10 files; built-in presets | | always | yes |
 | Clear waveform | button / context menu (+ `Delete` on the name) | | | a waveform is loaded and the channel is not generating | no |
 | Edit | button | opens the Waveform Editor on this channel's document (a copy of the loaded `.mbw`; for WAV/CSV a new document with one Sketch component holding the samples) | | always | yes (4.3.8 "Use in channel") |
-| Gain | SiField | -10.00 ... +10.00, increment 0.01, 2 decimals | 1.00 | always | yes (next block) |
-| Update Rate | SiField (S/s) | 1 S/s ... task rate (200 kS/s; 200 kS/s when no device); display with SI prefix and at least one decimal (`1.0k`, `44.1k`, `11.025k`, `200.0k`, `500.0`); arrows step through the 1-2-5 sequence (1, 2, 5, 10, 20, ... 100k, 200k) to the next entry above/below | 1000 (`1.0k`) | always | yes (next block, 3.5) |
+| Gain | SiField | -10.00 ... +10.00, increment 0.01, 2 decimals. (ELVISmx has **no limit**: gain 50 was accepted and the generation then failed with a DAQmx "value out of range" error dialog - verified in ELVISmx UI; MYBENCH coerces and clips, 4.2.4) | 1.00 | always | yes (next block; ELVISmx rewrites the buffer, verified) |
+| Update Rate | SiField (S/s) | **0.1 S/s** ... task rate (200 kS/s): ELVISmx accepted `0.1` (shown `100.0m`) and coerced `900k` to `200.0k` (verified); display with SI prefix and one decimal (`1.0k`, `5.0k`, `200.0k`, `100.0m`); arrows step through the 1-2-5 sequence to the next entry above/below | 1000 (`1.0k`) | always | yes (ELVISmx restarts the task at the new rate, verified) |
 | Link update rates **[MYBENCH extension]** | toggle (Output card) | on: both Arbitrary channels share one Update Rate (ELVISmx behaviour); off: per channel | on | always | yes |
 | Interpolation **[MYBENCH extension]** | combo | `Hold` (zero-order), `Linear` | Hold | always | yes |
 | Trigger Source | combo | `Immediate` | Immediate | never (the myDAQ has no ARB trigger input) | - |
-| Generation Mode | combo | `Run Continuously`, `Run Once` | Run Continuously | channel not generating | no |
+| Generation Mode | combo | `Run Continuously`, `Run Once` (verified) | Run Continuously | channel not generating | no |
 
 | Indicator | Content |
 |---|---|
-| Channel readout (ELVISmx "Update Rate") | `OFF` when the channel is not generating; the update rate `formatEng(R, "S/s", 4)` (e.g. `1.000 kS/s`) while generating; `Done` after a Run Once finished (holding) |
+| Channel readout (ELVISmx "Update Rate") | `OFF` when the channel is not generating; the update rate with 2 decimals and SI prefix (`1.00 kS/s`, `5.00 kS/s`, `200.00 kS/s`, verified) while generating; `Done` after a Run Once finished (MYBENCH; ELVISmx shows `OFF` again) |
+| Error flag | ELVISmx shows a small red `Error` box at the top right of the display while an error dialog is pending (verified); MYBENCH uses its error banner |
 | Waveform Points | number of samples of the loaded waveform (`0` when nothing is loaded) |
 | Preview | the gain-applied, clipped waveform (4.2.5) |
 
@@ -396,7 +410,14 @@ Open shows the file dialog (last waveform directory) with filters `Waveforms (*.
 - On failure: toast/banner "Could not load <file name>: <reason>." (unsupported WAV encoding, no
   numeric data, not a MYBENCH waveform, too many samples (max 10 000 000), I/O error, render error).
   The channel keeps its previous waveform.
-- Loading never starts the output (ELVISmx: loading does not tick Enabled).
+- Loading never starts the output (ELVISmx: loading does not tick Enabled; verified).
+- ELVISmx (verified): the preview graph stays empty after loading/enabling; it shows the enabled
+  channels' waveforms (after gain; AO 0 yellow, AO 1 white) only **while generating**, and is cleared
+  on Stop; `Waveform Points` is `0` until Run. MYBENCH previews at once (improvement).
+- ELVISmx ships four example `.wdt` files in the public Documents `National Instruments\Waveforms`
+  folder (a 1 V sine and a 2 V square of 1000 points, a 2 V triangle and a sine+square of 2000
+  points) and opens the file dialog there. **[MYBENCH, should]** ship equivalent example waveforms
+  (our own `.mbw` documents) in the Library menu.
 - `.wdt` (LabVIEW waveform files written by NI's editor) is not supported (open question 1).
 
 #### 4.2.4 Playback
@@ -413,8 +434,14 @@ Open shows the file dialog (last waveform directory) with filters `Waveforms (*.
     keep the task alive on its own: when every channel is Off or Done, the task is destroyed and the
     held values are written statically (3.1); the panel returns to idle.
 - Two channels may have different lengths and update rates: each loops (or plays once)
-  independently. (ELVISmx, with one buffer for both channels, needs equal lengths; the regenerate
-  fallback 3.6 keeps that rule.)
+  independently. (ELVISmx, with one buffer for both channels, needs equal lengths: verified in
+  ELVISmx UI, enabling a 1000-point and a 2000-point file and pressing Run gives a DAQmx error dialog
+  "number of samples to write must be the same for every channel" and nothing is generated; the
+  regenerate fallback 3.6 keeps that rule.)
+- ELVISmx Run Once (verified with NI I/O Trace): a finite task of the waveform length plays once,
+  then both AO 0 and AO 1 are written to **0 V** statically; the readout returns to `OFF`. MYBENCH
+  default: hold the last sample (`Done`); **[MYBENCH option]** `Return to 0 V after Run Once`
+  (ELVISmx behaviour).
 - A waveform shorter than 2 samples is treated as a 2-sample repetition (DC).
 
 #### 4.2.5 Preview (Display ring)
@@ -522,8 +549,9 @@ preview, by Arbitrary channels and by tests: `parse(json) -> Document`, `seriali
 
 1. Segment k gets `N_k = round(D_k * fs)` samples (at least 1); sample n has local time `t = n / fs`
    (from the segment start). The waveform is the concatenation of all segments. Total samples are
-   limited to 10 000 000: an edit that would exceed it (duration, sample rate, import) is refused
-   with a status message "The waveform would have <N> samples (max 10 000 000)."
+   limited to `Max Points` (Settings, default 500 000 as ELVISmx; hard cap 10 000 000): an edit that
+   would exceed it (duration, sample rate, import) is refused with a status message "The waveform
+   would have <N> samples (max <Max Points>)."
 2. An empty segment is 0 V.
 3. Components are evaluated left to right: `acc = c_1`, then `acc = acc op_k c_k`:
    - `+`, `-`, `x` (multiply), `/`: sample-wise; for `/`, samples with `|c_k| < 1e-12` give 0 and a
@@ -541,54 +569,59 @@ preview, by Arbitrary channels and by tests: `parse(json) -> Document`, `seriali
 
 #### 4.3.4 Library components (21 functions)
 
-Parameters shown for every function: `Amplitude` A (V, default 1.0000, range -1000...1000,
-increment 0.1), `Offset` O (V, 0.0000, -1000...1000, increment 0.1), `Freq (<units>)` f (default
-1.0000 Hz, 0 ... 10 MHz stored in Hz, increment 1 in the displayed unit), `Phase` p (degrees,
-0.0000, -360...360, increment 1). All with 4 decimals. Output `y = O + A * s`. For periodic shapes
-the cycle position is `u = frac(f * t + p / 360)` (t = local time, or τ under FM). Extra parameters
-appear under the four common ones only for functions that need them; parameters a function ignores
-are disabled. A warning icon appears next to Freq when a frequency component exceeds `fs_doc / 2`
-("above half the sample rate: the waveform will alias").
+The function list, the order, the parameter names and the defaults below are **verified in the
+ELVISmx UI** (each function selected in the `Function Library:` combo, defaults read from the
+parameter pane; screens `ni-local/screens/explore/weditor/07-*`, `08-*`) and match the code study
+(algorithms/gen.md 3.4). The formulas are MYBENCH definitions that reproduce the shapes observed with
+the default parameters on a 10 s segment (NI's exact formulas are not public). All numerics have
+4 decimals; Amplitude/Offset/Level/Start/End/Stop in V (range -1000 ... 1000, increment 0.1),
+frequencies in the document Units (`Freq (Hz)`, `Start (Hz)`, `Stop (Hz)`; 0 ... 10 MHz stored in
+Hz, increment 1 unit), Phase in degrees (-360 ... 360), percentages 0 ... 100.
 
-The ELVISmx help says "20 waveform types" but lists 21 names; MYBENCH provides all 21. The formulas
-below are **MYBENCH definitions** (the NI help does not define them):
+Notation: `t` local time in the segment (or τ under FM), `D` segment duration, `v = t / D`
+(0 ... 1 across the segment), for periodic functions `u = frac(f t + p/360)`.
 
-| # | Function (id) | s | Extra parameters (default, range) |
+| # | Function (combo name, id) | Parameters (default) | Shape (`y`) |
 |---|---|---|---|
-| 1 | Sine (`sine`) | `sin(2πu)` | - |
-| 2 | Square (`square`) | `+1` if `u < d` else `-1` | Duty Cycle (%) d (50, 0...100) |
-| 3 | Triangle (`triangle`) | `4u` (u < 1/4), `2 - 4u` (1/4 <= u < 3/4), `4u - 4` (u >= 3/4) | - |
-| 4 | Sawtooth (`sawtooth`) | `2u` (u < 1/2), `2u - 2` (u >= 1/2): rises from 0, jumps from +1 to -1 at half period (the `dsp::waveformShape` convention) | - |
-| 5 | Uniform Noise (`uniformNoise`) | uniform in [-1, 1) | Seed (1, 0...2^31-1); Freq/Phase disabled |
-| 6 | Gaussian Noise (`gaussianNoise`) | standard normal (A = RMS) via Box-Muller | Seed |
-| 7 | Triangle Noise (`triangleNoise`) | `r1 + r2 - 1`, r1, r2 uniform in [0, 1) (triangular distribution on [-1, 1]) | Seed |
-| 8 | Rising Exponential (`risingExponential`) | `(e^(k u) - 1) / (e^k - 1)` (0 -> 1 each cycle) | Rate k (5, 0.01...100) |
-| 9 | Falling Exponential (`fallingExponential`) | `(e^(-k u) - e^(-k)) / (1 - e^(-k))` (1 -> 0 each cycle) | Rate k (5, 0.01...100) |
-| 10 | Hanning (`hanning`) | `0.5 - 0.5 cos(2πu)` (0 -> 1 -> 0 bump) | - |
-| 11 | Haversine (`haversine`) | `0.5 + 0.5 cos(2πu)` (1 -> 0 -> 1, peak first) | - |
-| 12 | Linear Sweep (`linearSweep`) | `sin(φ)`, `φ(t) = 2π (f t + (f2 - f) t^2 / (2D)) + p π/180` (f -> f2 across the segment) | Stop Freq f2 (10 Hz, 0...10 MHz) |
-| 13 | Log Sweep (`logSweep`) | `sin(φ)`, `φ(t) = 2π f D / ln(r) (r^(t/D) - 1) + p π/180`, `r = f2 / f` (f, f2 coerced >= 1e-6 Hz; r = 1 gives a sine) | Stop Freq f2 (10 Hz) |
-| 14 | Multitone (`multitone`) | `(1/K) Σ_{k=1..K} sin(2π k f t + p π/180 - π k (k-1) / K)` (harmonic tones, Schroeder phases, peak <= 1) | Tones K (3, 1...100) |
-| 15 | Pulse (`pulse`) | `1` if `u < d` else `0` (unipolar) | Duty Cycle (%) d (10, 0...100) |
-| 16 | Ramp (`ramp`) | `u` (0 -> 1 each cycle, unipolar) | - |
-| 17 | Circle (`circle`) | `sqrt(1 - (4u - 1)^2)` (u < 1/2), `-sqrt(1 - (4u - 3)^2)` (u >= 1/2): an upper then a lower half circle | - |
-| 18 | DC Level (`dcLevel`) | `1` (y = O + A) | Freq/Phase disabled |
-| 19 | sin x/x (`sinc`) | `sin(πz) / (πz)` with `z = (u - 1/2) * 2Z`, 1 at z = 0: peak in the middle of each cycle | Zero Crossings Z per side (5, 1...1000) |
-| 20 | Trapezoid (`trapezoid`) | `u/r` (u < r), `1` (r <= u < r+h), `1 - (u - r - h)/g` (r+h <= u < r+h+g), `0` otherwise | Rise (%) r (25), High (%) h (25), Fall (%) g (25); coerced so r+h+g <= 100 |
-| 21 | Stairstep (`stairstep`) | `floor(u K) / (K - 1)` (0 -> 1 in K steps) | Steps K (5, 2...1000) |
+| 1 | DC Level (`dcLevel`) | Offset (1) | `Offset` |
+| 2 | Sine (`sine`) | Amplitude (1), Offset (0), Freq (1), Phase (0) | `O + A sin(2πu)` |
+| 3 | Square (`square`) | Amplitude (1), Offset (0), Freq (1), Phase (0), Duty Cycle % (50) | `O + A` if `u < d` else `O - A` |
+| 4 | Triangle (`triangle`) | Amplitude (1), Offset (0), Freq (1), Phase (0) | `O + A tri(u)`, tri = `4u` (u < 1/4), `2 - 4u` (< 3/4), `4u - 4` |
+| 5 | Sawtooth (`sawtooth`) | Amplitude (1), Offset (0), Freq (1), Phase (0) | `O + A saw(u)`, saw = `2u` (u < 1/2), `2u - 2`: rises from 0, jumps +1 -> -1 at half period (observed) |
+| 6 | Uniform Noise (`uniformNoise`) | Amplitude (1), Offset (0) | `O + A U`, U uniform in [-1, 1) |
+| 7 | Triangular Noise (`triangleNoise`) | Amplitude (1), Offset (0) | `O + A (U1 + U2 - 1)` with U1, U2 in [0, 1) |
+| 8 | Gaussian Noise (`gaussianNoise`) | **Level** (1) = standard deviation, Offset (0) | `O + Level N(0,1)` |
+| 9 | Rising Exp (`risingExponential`) | Amplitude (1), Offset (0), Freq (1), **Tau** (5) | per period `O + A (e^(Tau u) - 1) / (e^Tau - 1)` (0 -> A, steep at the end of each period; observed) |
+| 10 | Falling Exp (`fallingExponential`) | Amplitude (1), Offset (0), Freq (1), Tau (5) | per period `O + A (e^(-Tau u) - e^(-Tau)) / (1 - e^(-Tau))` (A -> 0, steep at the start) |
+| 11 | Hanning (`hanning`) | Amplitude (1), Offset (0) | **one bump over the whole segment**: `O + A (0.5 - 0.5 cos(2πv))` |
+| 12 | Ramp (`ramp`) | **Start** (-1), **End** (1) | linear `Start + (End - Start) v` across the segment |
+| 13 | Lin Sweep (`linearSweep`) | Amplitude (1), Offset (0), **Start (Hz)** (0.1), **Stop (Hz)** (1) | `O + A sin(2π (f1 t + (f2 - f1) t² / (2D)))` |
+| 14 | Log Sweep (`logSweep`) | Amplitude (1), Offset (0), Start (Hz) (0.1), Stop (Hz) (1) | `O + A sin(2π f1 D / ln(r) (r^v - 1))`, `r = f2/f1` (r = 1: sine) |
+| 15 | Sin x/x (`sinc`) | Amplitude (1), Offset (0), Freq (1) | `O + A sinc(2 f (t - D/2))`, `sinc(z) = sin(πz)/(πz)`: main lobe centred in the segment (observed), zero crossings every 1/(2f) |
+| 16 | Multitone (`multitone`) | Amplitude (1), Offset (0), Start (Hz) (0.1), Stop (Hz) (1) | sum of equal-amplitude tones from Start to Stop (spacing 1/D, Schroeder phases), scaled so the peak equals A, + O |
+| 17 | Trapezoid (`trapezoid`) | Amplitude (1), **Delay %** (20), **Rise %** (20), **Hold %** (20), **Fall %** (20) | over the whole segment: 0 until Delay, linear rise to A over Rise, A for Hold, linear fall to 0 over Fall, 0 afterwards (percentages of D, coerced so their sum ≤ 100) |
+| 18 | Stairstep (`stairstep`) | **Start** (-1), **Stop** (1), **Steps** (10) | `Steps` equal levels from Start to Stop across the segment: `Start + (Stop - Start) floor(v Steps) / (Steps - 1)` |
+| 19 | Circle (`circle`) | Amplitude (1), Offset (0), Freq (1) | one arch per period spanning -A ... +A: `O + A (2 sqrt(1 - (2u - 1)²) - 1)` (observed arches) |
+| 20 | Haversine (`haversine`) | **Start** (0), **End** (1) | half cosine across the segment from Start to End: `(Start + End)/2 + (Start - End)/2 cos(πv)` |
+| 21 | Pulse (`pulse`) | Amplitude (1), Delay % (20), Rise % (20), Hold % (20), Fall % (20) | like Trapezoid but with raised-cosine (smooth) rise and fall edges (observed) |
+
+Seeds: the noise functions have no Seed parameter in ELVISmx (a new random sequence at every
+render). **[MYBENCH extension]** a `Seed` field (default 1, 0 = random each render) is shown under
+the noise parameters so files render identically everywhere.
 
 Noise generator (normative for reproducibility): xoshiro256** seeded through SplitMix64 from
 `seed`; uniform `U = (next() >> 11) * 2^-53` in [0, 1). Each noise component starts its own generator
 from its seed at the start of its segment.
 
-List names in the Function Library combo, in this order: Sine, Square, Triangle, Sawtooth, Uniform
-Noise, Gaussian Noise, Triangle Noise, Rising Exponential, Falling Exponential, Hanning, Haversine,
-Linear Sweep, Log Sweep, Multitone, Pulse, Ramp, Circle, DC Level, sin x/x, Trapezoid, Stairstep.
-Segment-list short names: the same, except `Rising Exp`, `Falling Exp`, `Uniform Noise`,
-`Gaussian Noise`, `Triangle Noise`, `Lin Sweep`, `Log Sweep`, `Sin x/x`.
+List names in the `Function Library:` combo, in this order (verified): DC Level, Sine, Square,
+Triangle, Sawtooth, Uniform Noise, Triangular Noise, Gaussian Noise, Rising Exp, Falling Exp,
+Hanning, Ramp, Lin Sweep, Log Sweep, Sin x/x, Multitone, Trapezoid, Stairstep, Circle, Haversine,
+Pulse. Segment-list rows use the same names.
 
-A new component is `Sine`, A = 1, O = 0, f = 1 Hz, p = 0, operator `+`. Tip for the user (help):
-set Freq = 1 / Duration to get exactly one shape per segment.
+A new component is a Library component. ELVISmx (observed) gives it the **function last chosen in
+the combo** (e.g. `Pulse` after Pulse was used) with that function's defaults; the first component
+of a session is `Sine`. MYBENCH: the same rule. A frequency above `fs_doc / 2` shows the alias
+warning next to the frequency field.
 
 #### 4.3.5 Expression components
 
@@ -639,15 +672,15 @@ Left column (ELVISmx) / editor toolbar (MYBENCH):
 | Control | Type | Values | Default | Notes |
 |---|---|---|---|---|
 | X autoscale / Y autoscale | buttons + lock switches | once / continuous | both locked on | a flat waveform gets a ±1 V window around its value |
-| X format / Y format | menus | Format: Decimal, Scientific, SI, Hexadecimal, Octal, Binary; Precision 0...6 digits; Mapping: Linear, Logarithmic | Decimal, 1 (X) / 1 (Y) digits, Linear | |
+| X format / Y format | menus (verified items) | `Format ▸` (Decimal, Scientific, SI, Hexadecimal, Octal, Binary), `Precision ▸` (0...6 digits), `Mapping Mode ▸` (Linear, Logarithmic), `Visible Scale` (check), `Visible Scale Label` (check), `Grid Color ▸` | Decimal, 1 (X) / 1 (Y) digits, Linear, scale visible | |
 | Zoom | tool + menu | zoom rectangle, zoom X, zoom Y, undo zoom, zoom in about point, zoom out about point | | |
 | Standard (+) | tool | normal pointer: click on the plot selects the segment under the pointer **[MYBENCH extension]**, drags cursors | active | |
 | Pan | tool | drag to scroll | | |
-| Plot Style | legend button + menu | Common Plots (Line, Line + Points, Points), Color, Line Style (Solid, Dash, Dot, Dash Dot), Line Width (1...5), Anti-Aliased (check), Interpolation (None, Linear, Step), Point Style (None, Circle, Square, Diamond, Cross), Fill Base Line (None, Zero, -Infinity, +Infinity) | blue line, 1 px, linear, anti-aliased | |
+| Plot Style | legend button + menu (verified items, in order) | `Plot Visible` (check), `Common Plots ▸` (6 presets: line, points, line + points, filled, bars, stepped bars), `Color ▸`, `Line Style ▸`, `Line Width ▸`, `Anti-Aliased` (check), `Bar Plots ▸` (none, 5 vertical and 5 horizontal bar styles), `Fill Base Line ▸` (None, Zero, -Infinity, +Infinity), `Interpolation ▸`, `Point Style ▸`, `X Scale ▸`, `Y Scale ▸`, `Export ▸` (`Export Data To Clipboard`; `Export Data To Excel` and `Export Data To DIAdem` grayed) | blue line, 1 px, linear, anti-aliased | MYBENCH: the same items except Bar Plots (**[MYBENCH, may]**); `Export ▸ Copy data` (clipboard, tab-separated) and `Export data...` (CSV) |
 | View | combo | `Waveform` (whole waveform, absolute time), `Segment` (the selected component's or segment's segment only, local time 0...D), `Component` (the selected component alone, before combination, local time; falls back to Segment when no component is selected) | Waveform | |
 | X Axis | combo | `Time`, `Frequency` | Time | Frequency: power spectrum of the viewed part, Hann window (`dsp::powerSpectrum` + `formatSpectrum` Db): Y `Power (dBVrms)` floored at -200 dB, X `Frequency (<units>)` |
-| Sample Rate | SiField (S/s) | 1.0 ... 1 000 000.0, 1 decimal; arrows step through the 1-2-5 sequence | 10000.0 | re-renders; durations are kept, sample counts change |
-| Units | combo | `Hz`, `kHz`, `MHz` | Hz | frequency display unit: Freq/Stop Freq labels (`Freq (kHz)`) and values, X axis in Frequency view; storage stays in Hz |
+| Sample Rate | SiField (samples per second **in the current Units**, 1 decimal) | 1.0 ... 1 000 000.0; arrows step through the 1-2-5 sequence | 10000.0 | re-renders; durations are kept, sample counts change |
+| Units | combo | `Hz`, `kHz`, `MHz` | Hz | **unit system of the whole document** (verified in ELVISmx UI): Hz ↔ seconds (`sec`), kHz ↔ milliseconds (`ms`), MHz ↔ microseconds (`µs`). The numbers stay the same and are reinterpreted: Sample Rate 10000.0 means 10 kS/s in Hz, 10 MS/s in kHz; Duration 10.0000 means 10 s in Hz, 10 ms in kHz; frequency labels read `Freq (kHz)`; the time axis title changes to `ms`. Opening a waveform file may select kHz/MHz automatically so the numbers stay readable (observed). Storage (`.mbw`) keeps SI values plus the chosen unit |
 
 Plot: white plot area, the selected segment's time span filled `#FFFF99` (the whole plot when the
 only segment is selected, as at launch), grid `#CCCCCC`, trace `#0000FF`, black axis labels, X title
@@ -675,11 +708,33 @@ Parameter pane (right), depending on the selection:
 Every edit re-renders the preview immediately (debounced to 50 ms for text/drag input; rendering of
 large documents runs in a worker and shows a progress indicator beyond 200 ms).
 
-Cursors (Settings > Show Cursors): two cursors C1/C2 on the plot, dragged horizontally, each labelled
-with `(x, y)` of the point it touches (snapping to samples); **[MYBENCH extension]** a readout
-`dX`, `dY`, `1/dX` in the status line.
+Cursors (Settings > Show Cursors): a cursor on the plot, dragged horizontally, labelled with
+`<x> sec, <y> V` of the point it touches (observed: `0 sec, 0 V` at the left edge), snapping to
+samples; **[MYBENCH extension]** a second cursor and a readout `dX`, `dY`, `1/dX` in the status line.
+
+Draw mode (verified): pressing `Draw` replaces the graph palette with a `Mouse Position` indicator
+(`x: <time>`, `y: <voltage>`) and the two tools (pencil = freehand, line), hides View, keeps
+X Axis / Sample Rate / Units, and grays the segment list, Index, New Segment, New Component and the
+component type radios until Draw is released. The Y range stays fixed while drawing.
+
+No right-click menus exist on the editor graph or controls (verified); everything is in the menus,
+the palette and the Plot Style legend.
 
 #### 4.3.8 Commands (ELVISmx File / Edit / Help menus)
+
+Verified menu contents (ELVISmx): **File** `New` (Ctrl+N), `Open` (Ctrl+O), `Close` (Ctrl+W),
+`Save` (Ctrl+S), `Save As...`, `Exit` (Ctrl+Q); **Edit** `Undo` (Ctrl+Z), `Cut` (Ctrl+X), `Copy`
+(Ctrl+C), `Paste` (Ctrl+V), `Clear`, `Select All` (Ctrl+A), `Import from File...`, `Scale
+Selection...`, `Settings...`, `Info...` (Ctrl+I); **Help** `Show Context Help` (Ctrl+H: floating
+context-help window describing the control under the pointer), `Online Reference...`, `About Waveform
+Editor...`. ELVISmx closed a modified document without asking (observed); MYBENCH asks.
+
+File formats (verified): `Save`/`Save As` offer only `*.wdt` - the **rendered** waveform (e.g. a
+100 000-sample document gave a 800 631-byte file); the segment/component structure is **not** kept:
+re-opening it (Open dialog pattern `*.wfm;*.txt;*.wdt;*.bin;...`) shows the `Open Waveform File
+Wizard` (preview by sample index, OK/Cancel) and creates one segment named after the file holding
+one Sketch component with all the samples. MYBENCH saves `.mbw` (structure kept) and exports rendered
+data to CSV/WAV (below); LabVIEW `.wdt` datalogs are not read or written (open question 1).
 
 File:
 - `New`: new Untitled document (unsaved-changes prompt: Save / Discard / Cancel).
@@ -707,15 +762,20 @@ Edit:
   Clear resets to one empty 10 s segment after confirmation).
 - `Import from File...`: inserts after the current segment a new segment holding a Sketch component
   of the imported data (wizards 4.3.9); duration = samples / (file rate or `fs_doc`).
-- `Scale Selection...`: dialog with `Time scale factor` (default 1.0, > 0) and `Amplitude scale
-  factor` (default 1.0). Segment(s): duration x time factor and every Library frequency (Freq, Stop
+- `Scale Selection...`: dialog `Scale Selection` with two groups, `Time Axis` `Multiply by:` and
+  `Voltage axis` `Multiply by:` (both 1.000, 3 decimals, verified), OK / Cancel. MYBENCH labels:
+  `Time scale factor` (default 1.0, > 0) and `Amplitude scale factor` (default 1.0). Segment(s): duration x time factor and every Library frequency (Freq, Stop
   Freq) / time factor, so the content is stretched without changing its shape; gain x amplitude
   factor. Component: Library - Freq / time factor, A and O x amplitude factor; Expression - Cycles /
   time factor, gain x amplitude factor; Sketch - Cycles / time factor, values x amplitude factor.
-- `Info...`: dialog to edit the document description (`info`).
-- `Settings...`: dialog, tab `Display`: `Show Cursors` (off), colors: plot background (white),
-  selection background (#FFFF99), grid (#CCCCCC), trace (#0000FF), cursor colors. Saved as user
-  preferences.
+- `Info...`: dialog `Information`: the document's file path (read-only, empty for Untitled) and a
+  multi-line `Description:` (verified), OK / Cancel.
+- `Settings...`: dialog `Waveform Editor Settings` (verified): `Plot Color` (blue), `Selection
+  Color` (light yellow), `Grid Color` (light gray), `Cursor Color` (black), `Max Points` (500000:
+  the largest number of samples a document may render), `Animate Graphs` (off: animates the plot
+  when the selection changes), `Show Cursors` (off); OK / Cancel. Saved as user preferences.
+  MYBENCH: same items plus plot background; `Max Points` default 500 000, adjustable up to
+  10 000 000 (4.3.3).
 
 Help: `Waveform Editor Help` (help drawer, `docs/help/gen.md` editor section), `About MYBENCH`.
 
@@ -905,32 +965,67 @@ Arbiter
 
 ## 11. Open questions / assumptions
 
-1. **`.wdt` files** (LabVIEW waveform datalog of NI's editor) are not supported; supporting them
-   needs a clean-room study of sample files.
+1. **`.wdt` files** (LabVIEW waveform datalog; the only format the ELVISmx ARB loads and the only
+   format its Waveform Editor saves - verified) are not supported; supporting them needs a
+   clean-room study of sample files (four example files exist in the ELVISmx install, kept in
+   `ni-local/` only). CSV/WAV cover data exchange.
 2. **Streaming at 200 kS/s** for two channels over USB is assumed feasible (single-channel continuous
    AO was verified; two-channel AO is still an open hardware question in HANDOFF.md). The 100 kS/s
    fallback and the regenerate path (3.6) cover failures.
-3. **Frequency readback** is computed (NCO), not measured.
-4. **Sweep end**: the channel stops after the last step ("single-sweep generation"); an alternative is
-   to keep generating the Stop frequency. **Stop included only when it falls on a step.**
-5. **Step Interval minimum** is 1 ms (sample-exact steps in the streaming engine); ELVISmx's minimum is
-   unknown. The regenerate fallback needs >= 50 ms.
-6. **Increments** (1 % of decade for frequencies, 0.1 V amplitude/offset, 1 % duty, duty 1-99 %, gain
-   ±10 in 0.01 steps, 1-2-5 arrows for rates) are our choices; ELVISmx's are not documented.
-7. **Safe state**: 0 V after a user stop; a completed Run Once holds its last sample. ELVISmx behaviour
-   on stop is not documented.
-8. **Update Rate adopted from the file** on load, and **linked update rates** by default (ELVISmx has
-   one Update Rate for both channels); per-channel rates are an option.
-9. **Library formulas**, extra parameters, the Haversine vs Hanning distinction, and the choice that
-   every non-noise function repeats with Freq (instead of some shapes spanning the whole segment) are
-   MYBENCH definitions; the NI help gives names only (and says 20 functions while listing 21).
-10. **FM operator** semantics (time warp by 1 + acc, carrier replaces acc) are ours; the help only says
-    FM "modulates the frequency of the second waveform by the first".
-11. **New Segment duration** 1 s (the first segment of a new document is 10 s, as in ELVISmx).
-12. **Editor Frequency view** shows a Hann-windowed power spectrum in dBVrms (the help only says "power
-    spectrum").
+3. **Frequency readback** is computed (NCO), not measured - as ELVISmx on a myDAQ, which displays the
+   requested/stepped frequency (verified).
+4. **Sweep end** - resolved: single sweep, Stop included when it falls on a step, then `OFF` and
+   0 V (verified in ELVISmx UI and trace).
+5. **Step Interval** - resolved: 1 ... 300 000 ms accepted (verified); ELVISmx steps are multiples of
+   250 ms in practice, MYBENCH steps exactly.
+6. **Increments**: ELVISmx code gives Amplitude 0.01, Offset 0.02, Frequency 10, Duty 1 (0-100 %,
+   verified range); MYBENCH keeps SiField per-digit tuning plus these arrow increments.
+7. **Safe state** - resolved: ELVISmx FGEN Stop and sweep end drive 0 V; ARB Stop, errors and the
+   end of Run Once write 0 V to AO 0 and AO 1 (verified with NI I/O Trace). MYBENCH holds the last
+   sample after Run Once by default (option for ELVISmx behaviour).
+8. **Update Rate** shared by both channels in ELVISmx (verified: one task); MYBENCH links rates by
+   default. ELVISmx left the Update Rate at `1.0k` when the example files were loaded (their own rate is
+   not known); MYBENCH adopts the
+   file's rate when it carries one (toast).
+9. **Library formulas** - parameter sets, defaults and order verified (4.3.4); exact NI formulas
+   unknown, MYBENCH formulas reproduce the observed shapes.
+10. **FM operator** semantics are ours; ELVISmx lists `+`, `--`, `x`, `/`, `FM` (verified).
+11. **New Segment duration** 1 s (first segment 10 s) - from the code study; not re-checked in the UI.
+12. **Editor Frequency view** shows a Hann-windowed power spectrum in dBVrms; the ELVISmx ARB
+   Frequency display is an FFT power spectrum in dB (`Magnitude (dB)`, verified).
 13. **WAV scaling**: full scale = 1 V (gain 2 fills the audio range, 10 the AO range).
 14. **Default modes** (AO 0 Function, AO 1 Off) and **Single** semantics (Arbitrary channels only) are
     MYBENCH panel decisions.
 15. **Resume after preemption** restarts Function phases and Arbitrary playback from the beginning;
     sweeps are not resumed.
+16. **Controls during a sweep**: ELVISmx grays everything but Stop/Help; MYBENCH keeps shape,
+    amplitude, offset and duty live (extension).
+
+## 12. Verified DAQmx usage (ELVISmx, observed with NI I/O Trace)
+
+Simulated NI myDAQ, ELVISmx 25.8; in our own words.
+
+Function Generator
+- Every edit of a numeric while **idle** creates an AO task on the routed channel and clears it
+  again (about one per Enter; used to validate against the device) - no output change.
+- Run: one AO voltage task on `ao0` or `ao1` (±10 V, default terminal configuration); the maximum
+  sample clock rate is read (200 kS/s); the buffer is **one period**; `use only onboard memory` is
+  set when the period has fewer than 200 samples; timing is taken from the waveform (continuous,
+  regeneration); one write with auto-start. Observed: 1 kHz -> 200 samples at 5 µs; 1234.5 Hz ->
+  162 samples at 5 µs (onboard memory only).
+- Any live change (frequency, shape, amplitude, offset, duty, route) clears the task and creates a
+  new one with the new buffer (not phase-continuous).
+- Sweep: regeneration not allowed, continuous, 100 kS/s (frequencies below 5 kHz), writes of 25 000
+  samples (0.25 s) with a 10 s timeout; 100 -> 1000 Hz in 300 Hz steps of 1 s took 20 writes.
+- Stop / end of sweep: a task on the channel at 2 kS/s writes 10 000 zero samples, then is
+  cleared (output 0 V).
+
+Arbitrary Waveform Generator
+- While idle, every change of Enabled, file or Update Rate re-creates (without starting) an AO task
+  with the enabled channels (`ao0`, `ao1` or `ao0:1`), **RSE**, ±10 V, sample clock at the Update
+  Rate, continuous (Run Continuously) or finite (Run Once) with the waveform length.
+- Run: the gain-scaled waveform(s) are written in one multi-channel write, the task is started and
+  the actual rate is read back for the readout; a gain change rewrites the buffer; an Update Rate
+  change recreates the task.
+- Stop, the end of Run Once and errors: the task is cleared and AO 0 and AO 1 each get a static
+  single-sample write of 0 V.
