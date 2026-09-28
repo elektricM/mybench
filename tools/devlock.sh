@@ -6,12 +6,16 @@
 #   tools/devlock.sh native OWNER -- CMD...   run CMD holding the lock, device detached from the VM so
 #                                             libusb on the Mac can open it; re-attached afterwards
 #   tools/devlock.sh status                   who holds the lock
+#   tools/devlock.sh session start|end        manual session (Martin at the bench): while the file
+#                                             .devlock-session exists, only owners "martin" and
+#                                             "usb-manual" may take the lock; everyone else is refused
 #
 # The lock is the directory .devlock/ in the repo (atomic mkdir); a lock whose holder process is gone
 # is broken automatically. Keep each hold short (one capture / one test run) so others can interleave.
 set -eu
 R="$(cd "$(dirname "$0")/.." && pwd)"
 L="$R/.devlock"
+S="$R/.devlock-session"
 V="${MYDAQ_VM:-$HOME/projects/mydaq-mac/scripts/mydaq-vm}"
 
 holder() { cat "$L/owner" 2>/dev/null || echo "?"; }
@@ -35,9 +39,19 @@ acquire() {
 
 case "${1:-status}" in
     status)
-        if [ -d "$L" ]; then echo "held by $(holder) since $(cat "$L/since" 2>/dev/null)"; else echo "free"; fi ;;
+        if [ -d "$L" ]; then echo "held by $(holder) since $(cat "$L/since" 2>/dev/null)"; else echo "free"; fi
+        [ -f "$S" ] && echo "manual session in progress since $(cat "$S")"; exit 0 ;;
+    session)
+        case "${2:-}" in
+            start) date '+%H:%M:%S' > "$S"; echo "manual session started: agents are refused" ;;
+            end) rm -f "$S"; echo "manual session ended" ;;
+            *) echo "usage: $0 session start|end" >&2; exit 1 ;;
+        esac ;;
     vm|native)
         mode=$1; owner=${2:?owner}; shift 2; [ "${1:-}" = "--" ] && shift
+        if [ -f "$S" ] && [ "$owner" != martin ] && [ "$owner" != usb-manual ]; then
+            echo "devlock: manual session in progress (since $(cat "$S")): $owner refused" >&2; exit 75
+        fi
         acquire "$owner ($mode)"
         if [ "$mode" = native ]; then
             if vm_running && attached; then "$V" mon "device_del mydaq" >/dev/null; sleep 3; fi
@@ -54,5 +68,5 @@ case "${1:-status}" in
             set +e; "$@"; rc=$?; set -e
         fi
         exit $rc ;;
-    *) sed -n '2,13p' "$0"; exit 1 ;;
+    *) sed -n '2,16p' "$0"; exit 1 ;;
 esac
