@@ -8,7 +8,8 @@
 #   tools/devlock.sh status                   who holds the lock
 #   tools/devlock.sh session start|end        manual session (Martin at the bench): while the file
 #                                             .devlock-session exists, only owners "martin" and
-#                                             "usb-manual" may take the lock; everyone else is refused
+#                                             "usb-manual" (or a run with DEVLOCK_MANUAL=1, e.g. his
+#                                             hw ctest) may take the lock; everyone else is refused
 #
 # The lock is the directory .devlock/ in the repo (atomic mkdir); a lock whose holder process is gone
 # is broken automatically. Keep each hold short (one capture / one test run) so others can interleave.
@@ -49,7 +50,7 @@ case "${1:-status}" in
         esac ;;
     vm|native)
         mode=$1; owner=${2:?owner}; shift 2; [ "${1:-}" = "--" ] && shift
-        if [ -f "$S" ] && [ "$owner" != martin ] && [ "$owner" != usb-manual ]; then
+        if [ -f "$S" ] && [ "$owner" != martin ] && [ "$owner" != usb-manual ] && [ "${DEVLOCK_MANUAL:-}" != 1 ]; then
             echo "devlock: manual session in progress (since $(cat "$S")): $owner refused" >&2; exit 75
         fi
         acquire "$owner ($mode)"
@@ -68,5 +69,5 @@ case "${1:-status}" in
             set +e; "$@"; rc=$?; set -e
         fi
         exit $rc ;;
-    *) sed -n '2,16p' "$0"; exit 1 ;;
+    *) sed -n '2,17p' "$0"; exit 1 ;;
 esac
