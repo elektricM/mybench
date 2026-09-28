@@ -3,10 +3,13 @@
 #include "bodemath.h"
 #include "bodesweep.h"
 
+#include <mybench/dataexport.h>
 #include <mybench/devicehub.h>
 
 #include <mydaq/dsp/units.h>
 
+#include <QDateTime>
+#include <QIODevice>
 #include <QJsonArray>
 #include <QJsonObject>
 
@@ -121,8 +124,9 @@ void BodeController::setCursorsOn(bool on)
 {
     if (on != m_cursorsOn) {
         m_cursorsOn = on;
-        if (on && (m_cursorIndex < 0 || m_cursorIndex >= pointCount()) && !m_points.empty())
-            m_cursorIndex = pointCount() / 2;
+        // ELVISmx: the cursor starts on the first point.
+        if (on)
+            m_cursorIndex = 0;
         emit cursorsOnChanged();
         emit cursorChanged();
         emit readoutChanged();
@@ -153,6 +157,14 @@ void BodeController::setLogFrequencyAxis(bool on)
     if (on != m_logFrequencyAxis) {
         m_logFrequencyAxis = on;
         emit logFrequencyAxisChanged();
+    }
+}
+
+void BodeController::setElvisColors(bool on)
+{
+    if (on != m_elvisColors) {
+        m_elvisColors = on;
+        emit elvisColorsChanged();
     }
 }
 
@@ -352,7 +364,9 @@ void BodeController::clearSweep()
 InstrumentController::WorkerFunction BodeController::createWorker()
 {
     if (m_start > m_stop)
-        throw std::runtime_error(tr("Start Frequency must not be higher than Stop Frequency.").toStdString());
+        throw InvalidInput(tr("Start Frequency must not be higher than Stop Frequency."));
+    if (!(m_amplitude > 0))
+        throw InvalidInput(tr("Peak Amplitude must be greater than 0 V."));
 
     struct Job {
         int index;
@@ -369,8 +383,7 @@ InstrumentController::WorkerFunction BodeController::createWorker()
         if (!resume) {
             m_sweepFrequencies = bode::sweepFrequencies(m_start, m_stop, m_steps);
             m_sweepKey = sweepKey();
-            m_points.clear();
-            m_cursorIndex = -1;
+            m_points.clear();   // the cursor keeps its index: it moves along as the new points arrive
             m_lastIndex = -1;
             m_clipWarned = false;
             setHasData(false);
@@ -474,7 +487,7 @@ void BodeController::onFinished()
         setStatusText({});
     m_remeasuring = false;
     if (m_cursorsOn && (m_cursorIndex < 0 || m_cursorIndex >= pointCount()) && !m_points.empty()) {
-        m_cursorIndex = pointCount() / 2;   // ELVISmx: the cursor starts on the middle point
+        m_cursorIndex = 0;   // ELVISmx: the cursor starts on the first point
         emit cursorChanged();
         emit readoutChanged();
     }
@@ -723,8 +736,12 @@ DataTable BodeController::exportTable() const
                                        .arg(pointCount())
                                        .arg(m_total));
     table.addMetadata(tr("Peak amplitude"), tr("%1 V, Op-amp signal polarity: %2")
-                                                .arg(DataExport::formatNumber(key.amplitude),
+                                                .arg(QString::number(key.amplitude, 'f', 2),
                                                      m_polarity == Inverted ? tr("Inverted") : tr("Normal")));
+    table.addMetadata(tr("Graph mapping"), m_mapping == Linear ? tr("Linear") : tr("Logarithmic"));
+    table.addMetadata(tr("Cursors"), m_cursorsOn && m_cursorIndex >= 0 && m_cursorIndex < pointCount()
+                                         ? tr("On, at %1 Hz").arg(DataExport::formatNumber(cursorFrequency()))
+                                         : tr("Off"));
     table.addMetadata(tr("Sweep mode"), key.mode == Standard ? tr("Standard (range pre-measurement per point)")
                                                              : tr("Fast (MYBENCH, no pre-measurement)"));
     table.addMetadata(tr("Averages per point"), QString::number(key.averages));
@@ -739,6 +756,8 @@ DataTable BodeController::exportTable() const
         clipped.push_back(p.clipped ? 1 : 0);
     }
     addPointColumns(table, f, g, gdb, ph, clipped);
+    table.extra.insert(u"amplitude"_s, key.amplitude);
+    table.extra.insert(u"linear"_s, m_mapping == Linear);
     return table;
 }
 
@@ -800,8 +819,57 @@ void BodeController::restoreExtraSettings(const QJsonObject& settings)
     emit referencesChanged();
 }
 
+namespace {
+
+// ELVISmx text log (bode.md 7): date and time, `Amplitude: 2.00 V`, a header per Mapping and one
+// tab-separated row per measured point with 3 decimals.
+class BodeTxtWriter : public TableWriter
+{
+public:
+    QString name() const override { return QObject::tr("ELVISmx text log"); }
+    QStringList extensions() const override { return {u"txt"_s}; }
+    bool write(const DataTable& table, const QStringList&, QIODevice& out, QString* error) const override
+    {
+        const DataColumn* freq = nullptr;
+        const DataColumn* gain = nullptr;
+        const DataColumn* gainDb = nullptr;
+        const DataColumn* phase = nullptr;
+        for (const DataColumn& column : table.columns) {
+            if (column.name == QObject::tr("Frequency"))
+                freq = &column;
+            else if (column.name == QObject::tr("Gain") && column.unit.isEmpty())
+                gain = &column;
+            else if (column.name == QObject::tr("Gain") && column.unit == u"dB"_s)
+                gainDb = &column;
+            else if (column.name == QObject::tr("Phase"))
+                phase = &column;
+        }
+        const bool linear = table.extra.value(u"linear"_s).toBool();
+        const DataColumn* g = linear ? gain : gainDb;
+        if (!freq || !g || !phase) {
+            if (error)
+                *error = QObject::tr("No sweep data to write.");
+            return false;
+        }
+        const QDateTime now = QDateTime::currentDateTime();
+        QString text = now.date().toString(Qt::ISODate) + u'\t' + now.time().toString(u"HH:mm:ss"_s) + u'\n';
+        text += u"Amplitude: %1 V\n"_s.arg(table.extra.value(u"amplitude"_s).toDouble(), 0, 'f', 2);
+        text += u"Freq (Hz)\t%1\tPhase (deg)\n"_s.arg(linear ? u"Gain (Linear)"_s : u"Gain (dB)"_s);
+        for (size_t i = 0; i < freq->values.size(); ++i) {
+            const auto cell = [i](const DataColumn* c) {
+                return i < c->values.size() ? QString::number(c->values[i], 'f', 3) : QString();
+            };
+            text += cell(freq) + u'\t' + cell(g) + u'\t' + cell(phase) + u'\n';
+        }
+        return out.write(text.toUtf8()) >= 0;
+    }
+};
+
+}  // namespace
+
 void registerBode(InstrumentRegistry& registry)
 {
+    DataExport::instance()->registerWriter(std::make_unique<BodeTxtWriter>(), u"bode"_s);
     registry.registerInstrument({
         .id = u"bode"_s,
         .title = QObject::tr("Bode Analyzer"),

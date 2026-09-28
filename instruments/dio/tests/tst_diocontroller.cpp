@@ -175,6 +175,99 @@ private slots:
         QCOMPARE(m_dio->drivenMask(), 0);
     }
 
+    // dio.md 3.2 step 5 / app.md 6.6: closing the panel (or a new session) returns every line
+    // we drive to input, running or not; a second Stop does it for an idle panel.
+    void closePanelReturnsLinesToInputs()
+    {
+        m_dio->run();
+        QTRY_COMPARE(m_dio->drivenMask(), 0x0F);
+        QVERIFY(m_dio->holdsOutputs());
+        m_dio->closePanel();
+        QTRY_VERIFY(m_dio->isIdle());
+        QTRY_COMPARE(m_sim->dioDirection(), uint8_t(0x00));
+        QCOMPARE(m_dio->drivenMask(), 0);
+        QVERIFY(!m_dio->holdsOutputs());
+    }
+    void stopWhileIdleReleasesLines()
+    {
+        m_dio->runOnce();
+        QTRY_VERIFY(m_dio->isIdle() && m_dio->drivenMask() == 0x0F);
+        m_dio->stop();
+        QTRY_COMPARE(m_sim->dioDirection(), uint8_t(0x00));
+    }
+    void sessionResetReturnsLinesToInputs()
+    {
+        m_dio->runOnce();
+        QTRY_VERIFY(m_dio->isIdle() && m_dio->drivenMask() == 0x0F);
+        m_dio->resetForSession();
+        QTRY_COMPARE(m_sim->dioDirection(), uint8_t(0x00));
+    }
+
+    // Audit dio #2: Single pressed while running ends the continuous loop.
+    void singleWhileRunning()
+    {
+        m_dio->run();
+        QTRY_VERIFY(m_dio->isRunning() && m_dio->hasReading());
+        m_dio->runOnce();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle(), 3000);
+        QCOMPARE(m_sim->dioDirection(), uint8_t(0x0F));   // outputs keep driving
+    }
+
+    // Audit dio #6/#7: Numeric Value is `0` before any sample and never zero padded.
+    void numericValueText()
+    {
+        QCOMPARE(m_dio->numericValueText(false), u"0"_s);
+        QCOMPARE(m_dio->numericValueText(true), u"0"_s);
+        m_dio->setOutputRadix(DioController::Binary);
+        m_dio->run();
+        m_dio->toggleLine(0);
+        QTRY_COMPARE(m_dio->writtenValue(), 1);
+        QCOMPARE(m_dio->numericValueText(true), u"1"_s);   // not 0001
+        m_dio->toggleLine(2);
+        QTRY_COMPARE(m_dio->writtenValue(), 5);
+        QCOMPARE(m_dio->numericValueText(true), u"101"_s);
+    }
+
+    // Audit dio #3: a typed Pattern Number above the maximum is rejected, not clamped.
+    void patternEntryRejectsTooLarge()
+    {
+        QCOMPARE(m_dio->parseEntry(u"F"_s, DioController::Hex), 15);
+        QCOMPARE(m_dio->parseEntry(u"0x7"_s, DioController::Hex), 7);
+        QCOMPARE(m_dio->parseEntry(u"10"_s, DioController::Hex), -1);
+        QCOMPARE(m_dio->parseEntry(u"16"_s, DioController::Decimal), -1);
+        QCOMPARE(m_dio->parseEntry(u"1010"_s, DioController::Binary), 10);
+        QCOMPARE(m_dio->parseEntry(u"abc"_s, DioController::Decimal), -1);
+        QCOMPARE(m_dio->parseEntry({}, DioController::Decimal), -1);
+    }
+
+    // Audit dio #8: a device reset / unplugging ends the "still driven" state.
+    void disconnectClearsDrivenLines()
+    {
+        m_dio->run();
+        QTRY_COMPARE(m_dio->drivenMask(), 0x0F);
+        m_sim->setConnected(false);
+        QTRY_COMPARE(m_dio->drivenMask(), 0);
+        QVERIFY(!m_dio->holdsOutputs());
+        QTRY_VERIFY(m_dio->isIdle());
+        m_sim->setConnected(true);
+        QTRY_VERIFY(mybench::DeviceHub::instance()->isConnected());
+    }
+
+    // Audit dio #4: the timeline cursors show the line values in a chosen radix.
+    void cursorValues()
+    {
+        m_dio->setStepInterval(20);
+        m_dio->run();
+        m_dio->toggleLine(0);
+        m_dio->toggleLine(2);
+        QTRY_VERIFY(m_dio->timelineEnd() > 0.2 && m_dio->writtenValue() == 5);
+        const double t = m_dio->timelineEnd();
+        QVERIFY2(m_dio->valuesAtTime(t, DioController::Hex).contains(u"Out x 5"_s),
+                 qPrintable(m_dio->valuesAtTime(t, DioController::Hex)));
+        QVERIFY(m_dio->valuesAtTime(t, DioController::Binary).contains(u"Out b 101"_s));
+        QVERIFY(m_dio->valuesAtTime(t, DioController::Decimal).contains(u"In d "_s));
+    }
+
     void directionChangeWhileIdleReleases()
     {
         m_dio->runOnce();

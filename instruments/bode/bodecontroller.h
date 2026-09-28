@@ -50,6 +50,13 @@ class BodeController : public InstrumentController
     Q_PROPERTY(SweepMode sweepMode READ sweepMode WRITE setSweepMode NOTIFY sweepModeChanged)
     Q_PROPERTY(int averagesPerPoint READ averagesPerPoint WRITE setAveragesPerPoint NOTIFY averagesPerPointChanged)
     Q_PROPERTY(bool logFrequencyAxis READ logFrequencyAxis WRITE setLogFrequencyAxis NOTIFY logFrequencyAxisChanged)
+    // Autoscale off: the plots jump to these fixed ranges (ELVISmx): gain -30...+5, phase -360...+360 in 90 deg steps.
+    Q_PROPERTY(double fixedGainMin READ fixedGainMin CONSTANT)
+    Q_PROPERTY(double fixedGainMax READ fixedGainMax CONSTANT)
+    Q_PROPERTY(double fixedPhaseMin READ fixedPhaseMin CONSTANT)
+    Q_PROPERTY(double fixedPhaseMax READ fixedPhaseMax CONSTANT)
+    Q_PROPERTY(double fixedPhaseStep READ fixedPhaseStep CONSTANT)
+    Q_PROPERTY(bool elvisColors READ elvisColors WRITE setElvisColors NOTIFY elvisColorsChanged)
     Q_PROPERTY(bool unwrapPhase READ unwrapPhase WRITE setUnwrapPhase NOTIFY unwrapPhaseChanged)
     Q_PROPERTY(bool showCutoffMarkers READ showCutoffMarkers WRITE setShowCutoffMarkers NOTIFY markerOptionsChanged)
     Q_PROPERTY(bool showUnityGainMarker READ showUnityGainMarker WRITE setShowUnityGainMarker NOTIFY markerOptionsChanged)
@@ -134,6 +141,13 @@ public:
     bool logFrequencyAxis() const { return m_logFrequencyAxis; }
     void setLogFrequencyAxis(bool on);
     bool unwrapPhase() const { return m_unwrapPhase; }
+    static constexpr double fixedGainMin() { return -30; }
+    static constexpr double fixedGainMax() { return 5; }
+    static constexpr double fixedPhaseMin() { return -360; }
+    static constexpr double fixedPhaseMax() { return 360; }
+    static constexpr double fixedPhaseStep() { return 90; }
+    bool elvisColors() const { return m_elvisColors; }
+    void setElvisColors(bool on);
     void setUnwrapPhase(bool on);
     bool showCutoffMarkers() const { return m_showCutoff; }
     void setShowCutoffMarkers(bool on);
@@ -213,6 +227,7 @@ signals:
     void averagesPerPointChanged();
     void logFrequencyAxisChanged();
     void unwrapPhaseChanged();
+    void elvisColorsChanged();
     void markerOptionsChanged();
     void cursorChanged();
     void planChanged();
@@ -277,6 +292,7 @@ private:
     int m_averages = 1;
     bool m_logFrequencyAxis = true;
     bool m_unwrapPhase = false;
+    bool m_elvisColors = false;
     bool m_showCutoff = true;
     bool m_showUnityGain = false;
     bool m_showMargins = false;

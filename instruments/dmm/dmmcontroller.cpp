@@ -74,6 +74,7 @@ void DmmController::setSelectedFunction(MeterFunction function)
     m_trend.clear();
     m_history.clear();
     m_statistics.reset();
+    setHasData(false);   // Export data would be an empty table until the next reading
     emit functionChanged();
     emit rangeIndexChanged();
     emit autoRangeChanged();   // effectiveAutoRange / rangeSelectable depend on the function
@@ -521,6 +522,10 @@ InstrumentController::WorkerFunction DmmController::createWorker()
 void DmmController::onFinished()
 {
     setSummary({});
+    // A device error or unplugging ends the run: the readout goes back to `---` (statistics,
+    // trend and log stay); the last value must not look like a live measurement.
+    if (hasError())
+        clearDisplay();
     updateTone();
 }
 

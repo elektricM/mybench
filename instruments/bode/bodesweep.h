@@ -3,7 +3,7 @@
 // Per point (docs/instruments/algorithms/bode.md §3-§5, docs/instruments/bode.md §3.2):
 //   1. Stimulus on AO 0: a regenerated buffer of whole periods of a sine (about 10 000 samples
 //      per period, at most the AO maximum rate; the planned buffer gives the exact frequency).
-//   2. Input ranges. Standard (ELVISmx): a 1.6 s pre-measurement at 10 kS/s on ±10 V picks each
+//   2. Input ranges. Standard (ELVISmx): a 16 000-sample pre-measurement at the highest AI rate (80 ms) on ±10 V picks each
 //      channel's range (±2 V when 2.2 × amplitude fits) and doubles as the settling time.
 //      Fast (MYBENCH): no pre-measurement; the stimulus range follows the peak amplitude, the
 //      response range adapts from the previous point, and the circuit settles for 3 periods.

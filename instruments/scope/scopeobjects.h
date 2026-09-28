@@ -28,16 +28,22 @@ class ScopeTraceStyle : public QObject
     Q_PROPERTY(double lineWidth READ lineWidth WRITE setLineWidth NOTIFY changed)
     Q_PROPERTY(LineStyle lineStyle READ lineStyle WRITE setLineStyle NOTIFY changed)
     Q_PROPERTY(bool points READ points WRITE setPoints NOTIFY changed)
+    // Point marker shape (NoPoints hides the points); `points` is the on/off shortcut.
+    Q_PROPERTY(PointStyle pointStyle READ pointStyle WRITE setPointStyle NOTIFY changed)
     Q_PROPERTY(Interpolation interpolation READ interpolation WRITE setInterpolation NOTIFY changed)
     Q_PROPERTY(FillTo fillTo READ fillTo WRITE setFillTo NOTIFY changed)
     // Empty = the line color.
     Q_PROPERTY(QString fillColor READ fillColor WRITE setFillColor NOTIFY changed)
 
 public:
-    enum LineStyle { Solid, Dash, Dot, DashDot };
+    // LineStyle has the order of PlotElement::LineStyle, Interpolation of PlotTrace::Interpolation
+    // (after PointsOnly), PointStyle of PlotTrace::PointShape (after NoPoints).
+    enum LineStyle { Solid, Dash, Dot, DashDot, DashDotDot };
     Q_ENUM(LineStyle)
-    enum Interpolation { PointsOnly, Linear, Step };
+    enum Interpolation { PointsOnly, Linear, Step, StepVertical, CenterStep, CenterStepVertical };
     Q_ENUM(Interpolation)
+    enum PointStyle { NoPoints, FilledCircle, Circle, Square, FilledSquare, Diamond, FilledDiamond, Cross, Plus, X };
+    Q_ENUM(PointStyle)
     enum FillTo { NoFill, Zero, MinusInfinity, PlusInfinity };
     Q_ENUM(FillTo)
 
@@ -49,8 +55,10 @@ public:
     void setLineWidth(double width);
     LineStyle lineStyle() const { return m_lineStyle; }
     void setLineStyle(LineStyle style);
-    bool points() const { return m_points; }
+    bool points() const { return m_pointStyle != NoPoints; }
     void setPoints(bool on);
+    PointStyle pointStyle() const { return m_pointStyle; }
+    void setPointStyle(PointStyle style);
     Interpolation interpolation() const { return m_interpolation; }
     void setInterpolation(Interpolation interpolation);
     FillTo fillTo() const { return m_fillTo; }
@@ -58,6 +66,8 @@ public:
     QString fillColor() const { return m_fillColor; }
     void setFillColor(const QString& color);
 
+    // What reset() restores (default: 1 px solid line); the reference traces are dashed / dotted.
+    void setDefaults(LineStyle style, double width);
     Q_INVOKABLE void reset();
 
 signals:
@@ -65,9 +75,11 @@ signals:
 
 private:
     QString m_lineColor;
-    double m_lineWidth = 1.5;
+    double m_lineWidth = 1.0;   // ELVISmx default; 0 = "none" (no line)
     LineStyle m_lineStyle = Solid;
-    bool m_points = false;
+    LineStyle m_defaultLineStyle = Solid;
+    double m_defaultLineWidth = 1.0;
+    PointStyle m_pointStyle = NoPoints;
     Interpolation m_interpolation = Linear;
     FillTo m_fillTo = NoFill;
     QString m_fillColor;
@@ -292,9 +304,14 @@ class ScopeCursor : public QObject
     Q_PROPERTY(mybench::instruments::ScopeTraceStyle::LineStyle lineStyle READ lineStyle WRITE setLineStyle NOTIFY styleChanged)
     Q_PROPERTY(CursorStyle cursorStyle READ cursorStyle WRITE setCursorStyle NOTIFY styleChanged)
     Q_PROPERTY(bool showValue READ showValue WRITE setShowValue NOTIFY styleChanged)   // "C1 Volts"
+    Q_PROPERTY(double lineWidth READ lineWidth WRITE setLineWidth NOTIFY styleChanged)
+    // Marker at the cursor's point on the linked plot (ScopeTraceStyle::NoPoints: none).
+    Q_PROPERTY(mybench::instruments::ScopeTraceStyle::PointStyle pointStyle READ pointStyle WRITE setPointStyle NOTIFY styleChanged)
 
 public:
-    enum CursorStyle { VerticalLine, FullCrosshair };
+    // NoCursor hides the cursor graphics (the cursor readouts stay); SmallCrosshair = vertical line
+    // with a cross marker at the cursor's point.
+    enum CursorStyle { VerticalLine, FullCrosshair, SmallCrosshair, NoCursor };
     Q_ENUM(CursorStyle)
 
     ScopeCursor(const QString& label, int channel, QObject* parent = nullptr);
@@ -312,6 +329,10 @@ public:
     void setCursorStyle(CursorStyle style);
     bool showValue() const { return m_showValue; }
     void setShowValue(bool on);
+    double lineWidth() const { return m_lineWidth; }
+    void setLineWidth(double width);
+    ScopeTraceStyle::PointStyle pointStyle() const { return m_pointStyle; }
+    void setPointStyle(ScopeTraceStyle::PointStyle style);
     Q_INVOKABLE void resetStyle();
 
     QJsonObject save() const;
@@ -331,6 +352,8 @@ private:
     ScopeTraceStyle::LineStyle m_lineStyle = ScopeTraceStyle::Dash;
     CursorStyle m_cursorStyle = VerticalLine;
     bool m_showValue = true;
+    double m_lineWidth = 1.0;
+    ScopeTraceStyle::PointStyle m_pointStyle = ScopeTraceStyle::NoPoints;
 };
 
 // JSON of every stored, writable, notifying property of `object` (enums by key name).

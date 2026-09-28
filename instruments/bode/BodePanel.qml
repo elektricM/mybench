@@ -18,6 +18,10 @@ Item {
     readonly property bool hasPoints: controller.pointCount > 0
     readonly property bool linearGain: controller.mapping === BodeController.Linear
     readonly property string gainUnit: linearGain ? "" : "dB"
+    // ELVISmx colors (option): one yellow trace with ring markers on both plots, red cursor.
+    readonly property color gainColor: controller.elvisColors ? Theme.cursor1 : Theme.ch0
+    readonly property color phaseColor: controller.elvisColors ? Theme.cursor1 : Theme.ch1
+    readonly property color cursorColor: controller.elvisColors ? Theme.danger : Theme.cursor1
     readonly property bool measurementLocked: controller.running
     readonly property bool cursorValid: controller.cursorsOn && controller.cursorIndex >= 0
     readonly property real leftMargin: Math.max(gainPlot.implicitLeftMargin, phasePlot.implicitLeftMargin)
@@ -54,6 +58,20 @@ Item {
     function gainText(dbValue: real, ratio: real): string {
         return linearGain ? ratio.toFixed(3) : Units.decibels(dbValue)
     }
+
+    // Autoscale off: both plots jump to the ELVISmx fixed ranges (kept when zooming afterwards).
+    function applyFixedRanges() {
+        gainPlot.yAxis.min = controller.fixedGainMin
+        gainPlot.yAxis.max = controller.fixedGainMax
+        phasePlot.yAxis.min = controller.fixedPhaseMin
+        phasePlot.yAxis.max = controller.fixedPhaseMax
+    }
+    Connections {
+        target: root.controller
+        function onAutoscaleChanged() { if (!root.controller.autoscale) root.applyFixedRanges() }
+        function onStarted() { if (!root.controller.autoscale) root.applyFixedRanges() }
+    }
+    Component.onCompleted: if (!controller.autoscale) applyFixedRanges()
 
     PlotAxis {
         id: frequencyAxis
@@ -107,7 +125,7 @@ Item {
                 yAxis {
                     min: root.linearGain ? 0 : -40
                     max: root.linearGain ? 2 : 10
-                    title: qsTr("Gain")
+                    title: root.linearGain ? qsTr("Gain (Linear)") : qsTr("Gain")
                     unit: root.gainUnit
                     autoScale: root.controller.autoscale && root.hasPoints
                     autoScaleMargin: 0.05
@@ -137,10 +155,11 @@ Item {
                     buffer: root.controller.gain
                     name: qsTr("Gain")
                     unit: root.gainUnit
-                    color: Theme.ch0
+                    color: root.gainColor
                     width: 2
                     pointsVisible: true
-                    pointSize: 5
+                    pointSize: root.controller.elvisColors ? 6 : 5
+                    pointShape: root.controller.elvisColors ? PlotTrace.Circle : PlotTrace.FilledCircle
                 }
                 PlotTrace {
                     buffer: root.controller.clippedGain
@@ -204,7 +223,7 @@ Item {
                     trace: gainTrace
                     snap: true
                     label: "C"
-                    color: Theme.cursor1
+                    color: root.cursorColor
                     onMoved: position => root.controller.setCursorFrequency(position)
                 }
             }
@@ -222,9 +241,9 @@ Item {
                 yAxis {
                     min: -180
                     max: 180
-                    divisions: root.controller.autoscale && root.hasPoints ? 0 : 4
+                    divisions: root.controller.autoscale && root.hasPoints ? 0 : 8   // 90° steps on the fixed -360...360 range
                     title: qsTr("Phase")
-                    unit: "°"
+                    unit: "deg"
                     autoScale: root.controller.autoscale && root.hasPoints
                     autoScaleMargin: 0.05
                     minimumSpan: 5
@@ -253,10 +272,11 @@ Item {
                     buffer: root.controller.phase
                     name: qsTr("Phase")
                     unit: "°"
-                    color: Theme.ch1
+                    color: root.phaseColor
                     width: 2
                     pointsVisible: true
-                    pointSize: 5
+                    pointSize: root.controller.elvisColors ? 6 : 5
+                    pointShape: root.controller.elvisColors ? PlotTrace.Circle : PlotTrace.FilledCircle
                 }
                 PlotTrace {
                     buffer: root.controller.clippedPhase
@@ -307,7 +327,7 @@ Item {
                     trace: phaseTrace
                     snap: true
                     label: "C"
-                    color: Theme.cursor1
+                    color: root.cursorColor
                     onMoved: position => root.controller.setCursorFrequency(position)
                 }
             }
@@ -331,11 +351,11 @@ Item {
 
                     Readout {
                         alignment: Qt.AlignLeft
-                        implicitWidth: 120
+                        implicitWidth: 160
                         label: root.cursorValid ? qsTr("C · Frequency (Hz)") : qsTr("Frequency (Hz)")
                         valueText: root.fixed2(root.controller.readoutFrequency)
                         fontSize: 20
-                        color: root.cursorValid ? Theme.cursor1 : Theme.text
+                        color: root.cursorValid ? root.cursorColor : Theme.text
                         stale: !root.controller.readoutValid
                     }
                     Readout {
@@ -344,7 +364,7 @@ Item {
                         label: qsTr("Phase (deg)")
                         valueText: root.fixed2(root.controller.readoutPhase)
                         fontSize: 20
-                        color: Theme.ch1
+                        color: root.phaseColor
                         stale: !root.controller.readoutValid
                     }
                     Readout {
@@ -353,7 +373,7 @@ Item {
                         label: qsTr("Gain")
                         valueText: root.fixed2(root.controller.readoutGain)
                         fontSize: 20
-                        color: Theme.ch0
+                        color: root.gainColor
                         stale: !root.controller.readoutValid
                     }
                     Readout {
@@ -362,7 +382,7 @@ Item {
                         label: qsTr("Gain (dB)")
                         valueText: root.fixed2(root.controller.readoutGainDb)
                         fontSize: 20
-                        color: Theme.ch0
+                        color: root.gainColor
                         stale: !root.controller.readoutValid
                     }
                     Badge {
@@ -569,6 +589,14 @@ Item {
                     }
                 }
                 ToggleSwitch {
+                    text: qsTr("ELVISmx colors")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: qsTr("Yellow traces with ring markers and a red cursor, like the original Bode Analyzer")
+                    checked: root.controller.elvisColors
+                    onToggled: root.controller.elvisColors = checked
+                }
+                ToggleSwitch {
                     text: qsTr("Unwrap phase")
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
@@ -631,7 +659,7 @@ Item {
                         Layout.fillWidth: true
                         enabled: !root.measurementLocked
                         model: [
-                            { text: qsTr("Standard"), toolTip: qsTr("As ELVISmx: a 1.6 s range pre-measurement at every point") },
+                            { text: qsTr("Standard"), toolTip: qsTr("As ELVISmx: a range pre-measurement at every point") },
                             { text: qsTr("Fast"), toolTip: qsTr("MYBENCH: no pre-measurement; ranges adapt from the previous point") }
                         ]
                         currentIndex: root.controller.sweepMode === BodeController.Fast ? 1 : 0
@@ -641,8 +669,8 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: root.controller.sweepMode === BodeController.Fast
-                          ? qsTr("Fast mode is a MYBENCH extension (not ELVISmx): no 1.6 s range pre-measurement; the circuit settles for 3 periods, the input ranges adapt from the previous point and clipped records are measured again.")
-                          : qsTr("ELVISmx behaviour: each point first measures both inputs for 1.6 s on ±10 V to choose their ranges (this also lets the circuit settle).")
+                          ? qsTr("Fast mode is a MYBENCH extension (not ELVISmx): no range pre-measurement; the circuit settles for 3 periods, the input ranges adapt from the previous point and clipped records are measured again.")
+                          : qsTr("ELVISmx behaviour: each point first measures both inputs briefly (80 ms) on ±10 V to choose their ranges.")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeS + 1
                     wrapMode: Text.WordWrap

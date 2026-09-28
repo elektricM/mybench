@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import MyBench.Controls
 
 // The Multimeter's big number: the formatted reading ("1.235", "+Over", "OPEN", "---") with its
@@ -18,6 +19,11 @@ Item {
     implicitHeight: row.implicitHeight
     Accessible.role: Accessible.StaticText
     Accessible.name: root.text + " " + root.unit
+
+    HoverHandler { id: hover }
+    ToolTip.visible: hover.hovered
+    ToolTip.delay: 600
+    ToolTip.text: qsTr("Measurement Display")
 
     Row {
         id: row

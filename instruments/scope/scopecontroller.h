@@ -35,6 +35,8 @@ class ScopeController : public InstrumentController
     Q_PROPERTY(mybench::instruments::ScopeChannel* channel0 READ channel0 CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeChannel* channel1 READ channel1 CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeMath* math READ math CONSTANT)
+    Q_PROPERTY(mybench::instruments::ScopeTraceStyle* refAStyle READ refAStyle CONSTANT)   // Graph Properties > Plots: REF A / REF B
+    Q_PROPERTY(mybench::instruments::ScopeTraceStyle* refBStyle READ refBStyle CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeCursor* cursor1 READ cursor1 CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeCursor* cursor2 READ cursor2 CONSTANT)
 
@@ -134,6 +136,8 @@ public:
     ScopeChannel* channel(int index) { return index == 0 ? &m_channel0 : &m_channel1; }
     const ScopeChannel* channel(int index) const { return index == 0 ? &m_channel0 : &m_channel1; }
     ScopeMath* math() { return &m_math; }
+    ScopeTraceStyle* refAStyle() { return &m_refAStyle; }
+    ScopeTraceStyle* refBStyle() { return &m_refBStyle; }
     ScopeCursor* cursor1() { return &m_cursor1; }
     ScopeCursor* cursor2() { return &m_cursor2; }
 
@@ -240,6 +244,15 @@ public:
     Q_INVOKABLE double valueAt(int channel, double seconds) const;
     // Places the cursors at 25 % / 75 % of the screen.
     Q_INVOKABLE void resetCursors();
+    // Mouse wheel over the graph: `steps` entries along the Time/Div list (positive = larger
+    // Time/Div), along a channel's Volts/Div list, and the enabled channel whose zero line is
+    // nearest to `divisions` (vertical position on the graph, -5...5); -1 when none is enabled.
+    Q_INVOKABLE void stepTimeDiv(int steps);
+    Q_INVOKABLE void stepChannelScale(int channel, int steps);
+    Q_INVOKABLE int channelNearestTo(double divisions) const;
+    // Graph Properties "Reset to Default": every trace style (CH 0/1, math, references), both
+    // cursors, the background and the displayed measurements.
+    Q_INVOKABLE void resetGraphProperties();
 
     // Tests.
     const scope::Record& lastRecord() const { return m_record; }
@@ -301,6 +314,8 @@ private:
     ScopeChannel m_channel0{0, ScopeChannel::AI0, true};
     ScopeChannel m_channel1{1, ScopeChannel::AI1, false};
     ScopeMath m_math;
+    ScopeTraceStyle m_refAStyle;
+    ScopeTraceStyle m_refBStyle;
     ScopeCursor m_cursor1{QStringLiteral("C1"), 0};
     ScopeCursor m_cursor2{QStringLiteral("C2"), 1};
 

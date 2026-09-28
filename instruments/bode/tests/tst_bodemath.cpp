@@ -123,7 +123,12 @@ private slots:
 
     void estimates()
     {
-        QVERIFY(estimatedPointSeconds(1000, 200000, true, 1) > 1.6);
+        // Observed ELVISmx: the range pre-measurement is 16 000 samples at 200 kS/s (80 ms), not 1.6 s.
+        QCOMPARE(rangeProbeRate(200000), 200000.0);
+        QCOMPARE(rangeProbeRate(50000), 50000.0);
+        QVERIFY(std::abs(rangeProbeSeconds(200000) - 0.08) < 1e-12);
+        QVERIFY(estimatedPointSeconds(1000, 200000, true, 1) > 0.15);
+        QVERIFY(estimatedPointSeconds(1000, 200000, true, 1) < 0.5);
         QVERIFY(estimatedPointSeconds(1000, 200000, false, 1) < 0.2);
         QVERIFY(std::abs(estimatedPointSeconds(1, 200000, false, 1) - (3.0 + 5.0 + 0.04)) < 1e-9);
         QCOMPARE(settlingSeconds(10000), 0.02);

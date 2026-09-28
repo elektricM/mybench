@@ -135,8 +135,8 @@ std::optional<MeasuredPoint> BodeSweeper::measure(double frequency, const SweepO
     double stimulusRange = 10;
     double responseRange = 10;
     if (options.rangeProbe) {
-        // ELVISmx: 1.6 s on ±10 V picks the ranges and lets the circuit settle.
-        const auto probe = acquire(kRangeProbeRate, kRangeProbeSamples, 10, 10);
+        // ELVISmx: 16 000 samples on ±10 V at the highest rate pick the ranges.
+        const auto probe = acquire(rangeProbeRate(m_device.maxAiRate()), kRangeProbeSamples, 10, 10);
         if (!probe)
             return std::nullopt;
         stimulusRange = selectRange(peakMagnitude(probe->stimulus));

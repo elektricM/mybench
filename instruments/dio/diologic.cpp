@@ -132,6 +132,19 @@ QString formatValue(int value, Radix radix, int width, bool padBinary)
     return QString::number(value);
 }
 
+int parseEntry(const QString& text, Radix radix, int maximum)
+{
+    QString trimmed = text.trimmed();
+    if (radix == Hex && trimmed.startsWith(u"0x", Qt::CaseInsensitive))
+        trimmed.remove(0, 2);
+    if (trimmed.isEmpty())
+        return -1;
+    const int base = radix == Hex ? 16 : radix == Octal ? 8 : radix == Binary ? 2 : 10;
+    bool ok = false;
+    const qlonglong value = trimmed.toLongLong(&ok, base);
+    return ok && value >= 0 && value <= maximum ? int(value) : -1;
+}
+
 QString radixLetter(Radix radix)
 {
     switch (radix) {

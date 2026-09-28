@@ -35,6 +35,16 @@ double acquisitionRate(double frequency, double maxRate)
     return std::clamp(kAiRatePerHertz * frequency, kMinAiRate, std::max(kMinAiRate, maxRate));
 }
 
+double rangeProbeRate(double maxRate)
+{
+    return std::clamp(maxRate, kMinAiRate, kRangeProbeMaxRate);
+}
+
+double rangeProbeSeconds(double maxRate)
+{
+    return double(kRangeProbeSamples) / rangeProbeRate(maxRate);
+}
+
 double stimulusRateLimit(double frequency, double maxRate)
 {
     return std::min(kAoSamplesPerPeriod * frequency, kAoRateFraction * maxRate);
@@ -181,7 +191,7 @@ double settlingSeconds(double frequency)
 
 double estimatedPointSeconds(double frequency, double maxAiRate, bool rangeProbe, int averages)
 {
-    const double prepare = rangeProbe ? double(kRangeProbeSamples) / kRangeProbeRate : settlingSeconds(frequency);
+    const double prepare = rangeProbe ? rangeProbeSeconds(maxAiRate) : settlingSeconds(frequency);
     const double acquire = double(kAiSamples) / acquisitionRate(frequency, maxAiRate);
     return prepare + std::max(1, averages) * (acquire + 0.01) + 0.03;
 }

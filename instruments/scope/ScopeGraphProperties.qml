@@ -50,6 +50,16 @@ Section {
         TabButton { text: qsTr("Measurements"); width: implicitWidth + 8 }
     }
 
+    ActionButton {
+        Layout.fillWidth: true
+        text: qsTr("Reset all to Default")
+        compact: true
+        tone: "ghost"
+        iconName: "reset"
+        toolTip: qsTr("Plot styles, cursors, background and displayed measurements")
+        onClicked: root.controller.resetGraphProperties()
+    }
+
     StackLayout {
         id: stack
         Layout.fillWidth: true
@@ -65,7 +75,7 @@ Section {
                 Layout.fillWidth: true
                 SegmentedControl {
                     Layout.fillWidth: true
-                    model: ["CH 0", "CH 1", qsTr("Math")]
+                    model: ["CH 0", "CH 1", qsTr("Math"), "REF A", "REF B"]
                     currentIndex: root.plotIndex
                     onActivated: index => root.plotIndex = index
                 }
@@ -73,8 +83,11 @@ Section {
             ScopeTraceStyleEditor {
                 Layout.fillWidth: true
                 traceStyle: root.plotIndex === 0 ? root.controller.channel0.style
-                          : root.plotIndex === 1 ? root.controller.channel1.style : root.controller.math.style
-                autoColor: root.plotIndex === 0 ? Theme.ch0 : root.plotIndex === 1 ? Theme.ch1 : Theme.math
+                          : root.plotIndex === 1 ? root.controller.channel1.style
+                          : root.plotIndex === 2 ? root.controller.math.style
+                          : root.plotIndex === 3 ? root.controller.refAStyle : root.controller.refBStyle
+                autoColor: root.plotIndex === 0 ? Theme.ch0 : root.plotIndex === 1 ? Theme.ch1
+                         : root.plotIndex === 2 ? Theme.math : root.plotIndex === 3 ? Theme.ref : Qt.lighter(Theme.ref, 1.35)
             }
             Divider { Layout.fillWidth: true }
             Field {
@@ -117,7 +130,7 @@ Section {
                 Field {
                     label: qsTr("Line Style")
                     ScopeCombo {
-                        model: [qsTr("Solid"), qsTr("Dash"), qsTr("Dot"), qsTr("Dash Dot")]
+                        model: [qsTr("Solid"), qsTr("Dash"), qsTr("Dot"), qsTr("Dash Dot"), qsTr("Dash Dot Dot")]
                         currentIndex: root.cursor.lineStyle
                         onActivated: index => root.cursor.lineStyle = index
                     }
@@ -125,9 +138,28 @@ Section {
                 Field {
                     label: qsTr("Cursor Style")
                     ScopeCombo {
-                        model: [qsTr("Vertical Line"), qsTr("Full Crosshair")]
+                        model: [qsTr("Vertical Line"), qsTr("Full Crosshair"), qsTr("Small Crosshair"), qsTr("None")]
                         currentIndex: root.cursor.cursorStyle
                         onActivated: index => root.cursor.cursorStyle = index
+                    }
+                }
+            }
+            FieldRow {
+                Field {
+                    label: qsTr("Line Width")
+                    ScopeCombo {
+                        model: [1, 2, 3, 4, 5].map(w => w + " px")
+                        currentIndex: Math.max(0, Math.round(root.cursor.lineWidth) - 1)
+                        onActivated: index => root.cursor.lineWidth = index + 1
+                    }
+                }
+                Field {
+                    label: qsTr("Point Style")
+                    ScopeCombo {
+                        model: [qsTr("None"), qsTr("Filled Circle"), qsTr("Circle"), qsTr("Filled Square"), qsTr("Square"),
+                                qsTr("Diamond"), qsTr("Filled Diamond"), qsTr("Cross"), qsTr("Plus"), qsTr("X")]
+                        currentIndex: root.cursor.pointStyle
+                        onActivated: index => root.cursor.pointStyle = index
                     }
                 }
             }

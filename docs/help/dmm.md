@@ -58,8 +58,8 @@ Measure resistance, diodes and continuity only on circuits that are switched off
   `12.3 mA` on 200mA, `4.70 kΩ` on 20kΩ). `---` means no reading yet.
 - **% FS** – how much of the range the raw reading uses (0 – 100 %). A small percentage means a
   smaller range would give more resolution.
-- **+OVER** – the input is beyond the range: choose a larger range or Auto. (Option **Signed
-  overload** shows `-OVER` for negative DC values.)
+- **+Over** – the input is beyond the range: choose a larger range or Auto. (Option **Signed
+  overload** shows `-Over` for negative DC values.)
 - **Badges** – `AUTO` / range in use, `Null value`, `HOLD`, `Diode GOOD/OPEN`, `Continuity`.
 - **Statistics strip** – minimum, maximum, average, standard deviation and number of readings.
 - **Trend** – the readings over the last 1 min, 10 min, 1 h or everything (buttons on the chart).
@@ -75,8 +75,8 @@ silicon diode). An open or reversed diode shows `OPEN` in the readout.
 ### Continuity
 
 Below 15 Ω the circuit is considered closed: a continuous 1 kHz tone plays on the computer's sound
-output and the `Continuity` badge lights (the dashboard tile glows too). An open circuit shows
-`+OVER` and `OPEN`. The tone can be turned off in **Options**.
+output and the `Continuity` badge lights (the dashboard tile glows too). At 15 Ω or more `OPEN` shows next to the readout
+(beyond the range: `+Over` as well). The tone can be turned off in **Options**.
 
 ## Run bar
 
@@ -114,7 +114,7 @@ Overloads are counted separately and left out of the numbers.
 
 - **The display shows `---`**: no reading yet (just started or the function changed), or the meter
   stopped because of an error — check the message and press Run.
-- **Always +OVER in resistance or diode mode**: the leads are open, or the part is not connected
+- **Always +Over in resistance or diode mode**: the leads are open, or the part is not connected
   between HI (V Ω) and COM.
 - **Current reads zero**: the red lead must be in the HI (A) jack; the fuse may be blown.
 - **No continuity tone**: check the tone option and the computer's sound output; the badge still

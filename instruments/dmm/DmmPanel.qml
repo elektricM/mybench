@@ -157,7 +157,7 @@ Item {
                             color: root.controller.overload ? Theme.danger : root.readoutColor
                             stale: !root.controller.running || root.controller.hold
                             fontSize: Math.max(52, Math.min(150, display.width / 6.2, display.height / 3.4))
-                            secondaryText: root.controller.selectedFunction === DmmController.Continuity && root.controller.overload ? qsTr("OPEN") : ""
+                            secondaryText: root.controller.selectedFunction === DmmController.Continuity && root.controller.hasReading && !root.controller.continuityClosed ? qsTr("OPEN") : ""
                         }
                         DmmFsBar {
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -293,6 +293,10 @@ Item {
                     label: qsTr("Mode")
                     SegmentedControl {
                         Layout.fillWidth: true
+                        HoverHandler { id: modeHover }
+                        ToolTip.visible: modeHover.hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Mode")
                         model: [
                             { text: qsTr("Auto") },
                             { text: qsTr("Specify Range"), enabled: root.controller.selectedFunction !== DmmController.Continuity,
@@ -308,6 +312,9 @@ Item {
                     ComboBox {
                         id: rangeCombo
                         Layout.fillWidth: true
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Range")
                         enabled: root.controller.rangeSelectable
                         model: root.controller.rangeLabels
                         currentIndex: root.controller.rangeIndex
@@ -322,6 +329,10 @@ Item {
                     Layout.fillWidth: true
                     ToggleSwitch {
                         text: qsTr("Null Offset")
+                        HoverHandler { id: nullHover }
+                        ToolTip.visible: nullHover.hovered
+                        ToolTip.delay: 600
+                        ToolTip.text: qsTr("Null Offset")
                         checked: root.controller.nullOffset
                         onToggled: root.controller.nullOffset = checked
                     }
@@ -488,11 +499,11 @@ Item {
                                                                 : qsTr("No sound output available")
                 }
                 ToggleSwitch {
-                    text: qsTr("Signed overload (−OVER)")
+                    text: qsTr("Signed overload (−Over)")
                     checked: root.controller.signedOverload
                     onToggled: root.controller.signedOverload = checked
                     ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Show −OVER for negative DC overloads (NI ELVISmx shows +Over for both signs)")
+                    ToolTip.text: qsTr("Show −Over for negative DC overloads (NI ELVISmx shows +Over for both signs)")
                 }
                 ToggleSwitch {
                     text: qsTr("Start measuring when the panel opens")

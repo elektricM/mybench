@@ -39,8 +39,9 @@ channel moves the other channel to an audio input too (and back to AI when you c
   a chip to switch a channel on or off.
 - Markers on the edges can be dragged: **0 / 1 / M** on the left move a trace (Vertical Position),
   **T** on the right sets the trigger level, **T** at the top sets the Horizontal Position.
-- Mouse wheel (or a pinch) over the graph zooms the time axis and dragging pans while zoomed;
-  **Reset zoom** or a double-click returns to the full screen.
+- Mouse wheel over the graph changes Time/Div (up = zoom in); Shift + wheel changes Volts/Div of
+  the channel whose zero line is nearest the pointer. Ctrl/⌘ + drag zooms into a region and
+  **Reset zoom** or a double-click returns to the full screen. The trigger level line is red.
 - Under the graph: the cursor line (when Cursors On), one measurement line per channel in the
   channel's color, the math line, and the **Timeout** LED.
 - `*** Waiting for Trigger ***` appears in the header while the Edge trigger finds no crossing.
@@ -72,7 +73,7 @@ channel moves the other channel to an audio input too (and back to AI when you c
 ### Trigger
 
 - **Type** – *Immediate*: each screen is shown as acquired. *Edge*: each screen is aligned on a
-  crossing of the trigger level. (*Digital* exists only on NI ELVIS.)
+  crossing of the trigger level; choosing Edge selects *Chan 0 Source*. (*Digital* exists only on NI ELVIS.)
 - **Source** – *Chan 0 Source* or *Chan 1 Source*: the signal of that channel (it must be enabled).
 - **Slope** – rising or falling edge.
 - **Level (V)** – the voltage the signal must cross (drag the **T** marker on the right).
@@ -129,11 +130,14 @@ position it had. The eye button hides it, the arrows save it to or load it from 
 
 ### Graph Properties
 
-- **Plots** – for CH 0, CH 1 and Math: line color, width and style, points, interpolation (points,
-  linear, step), fill (to zero, −∞ or +∞); graph background (theme, black, white).
-- **Cursors** – color, line style, cursor style (vertical line or full crosshair) and linked trace.
+- **Plots** – for CH 0, CH 1, Math, REF A and REF B: line color, width (none … 5 px, default 1),
+  line style (solid, dash, dot, dash-dot, dash-dot-dot), point style (ten markers) and its Point /
+  Fill color, interpolation (points, linear and four step modes), fill (to zero, −∞ or +∞);
+  graph background (theme, black, white).
+- **Cursors** – color, line style and width, cursor style (vertical line, full crosshair, small
+  crosshair, none), point style and linked trace.
 - **Measurements** – which readouts are shown per channel, and C1, C2, dT for the cursor line.
-- **Reset to Default** restores the selected trace or cursor.
+- **Reset to Default** restores the selected trace or cursor; **Reset all to Default** the whole card.
 
 ### Advanced Settings
 

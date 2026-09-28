@@ -55,6 +55,10 @@ int applyAction(Action action, int value, int width, Direction direction);
 // when `padBinary`), SI notation "13".
 enum Radix { Decimal, Hex, Octal, Binary, SiNotation };
 QString formatValue(int value, Radix radix, int width = 0, bool padBinary = true);
+// A value typed into the Pattern Number field, read in `radix` (SI notation = decimal, a leading
+// "0x" is allowed for hex). ELVISmx does not accept a value above the maximum: the previous value
+// stays. Returns -1 for an empty / malformed / out-of-range entry.
+int parseEntry(const QString& text, Radix radix, int maximum);
 // Radix prefix letter as LabVIEW shows it: d, x, o, b, p.
 QString radixLetter(Radix radix);
 

@@ -25,6 +25,7 @@
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <memory>
@@ -71,7 +72,8 @@ class DioController : public InstrumentController
     Q_PROPERTY(bool hasReading READ hasReading NOTIFY lineStatesChanged)
     Q_PROPERTY(int inputValue READ inputValue NOTIFY lineStatesChanged)       // right-justified IN value
     Q_PROPERTY(int writtenLevels READ writtenLevels NOTIFY writtenChanged)    // levels last written (line bits)
-    Q_PROPERTY(int writtenValue READ writtenValue NOTIFY writtenChanged)      // right-justified, -1 = nothing yet
+    Q_PROPERTY(int writtenValue READ writtenValue NOTIFY writtenChanged)      // right-justified, 0 until the first write
+    Q_PROPERTY(bool hasWritten READ hasWritten NOTIFY writtenChanged)
     Q_PROPERTY(int readbackErrors READ readbackErrors NOTIFY lineStatesChanged) // OUT lines reading back wrong
     Q_PROPERTY(int drivenMask READ drivenMask NOTIFY drivenMaskChanged)       // lines configured as outputs by us
     Q_PROPERTY(int sequenceStep READ sequenceStep NOTIFY writtenChanged)      // index in the running sequence
@@ -140,7 +142,9 @@ public:
     bool hasReading() const { return m_hasReading; }
     int inputValue() const { return dio::gather(uint8_t(m_lineStates), uint8_t(m_inputMask)); }
     int writtenLevels() const { return m_writtenLevels; }
-    int writtenValue() const { return m_writtenValue; }
+    // Right-justified value last written; 0 before the first write (ELVISmx shows `x 0` at launch).
+    int writtenValue() const { return std::max(0, m_writtenValue); }
+    bool hasWritten() const { return m_writtenValue >= 0; }
     int readbackErrors() const { return m_readbackErrors; }
     int drivenMask() const { return m_drivenMask; }
     int sequenceStep() const { return m_sequenceStep; }
@@ -162,6 +166,12 @@ public:
     Q_INVOKABLE void setLineLabel(int line, const QString& label);
     Q_INVOKABLE QString lineName(int line) const;   // "DIO 3" or "DIO 3 · LED"
     Q_INVOKABLE QString formatValue(int value, Radix radix, int width) const;
+    // Numeric Value indicator text: unpadded (`b 1101`, `x D`), `0` before the first sample/write.
+    Q_INVOKABLE QString numericValueText(bool output) const;
+    // Pattern Number entry: the value of `text` in `radix`, -1 when malformed or above the maximum.
+    Q_INVOKABLE int parseEntry(const QString& text, Radix radix) const;
+    // Digital Waveform Viewer cursor: the line values at time `t` in `radix` ("In x 5 · Out x A").
+    Q_INVOKABLE QString valuesAtTime(double t, Radix radix) const;
     Q_INVOKABLE static QString radixLetter(Radix radix);
     Q_INVOKABLE void clearTimeline();
     // Idle: lines still driven since the last run go back to inputs.
@@ -188,11 +198,13 @@ signals:
 protected:
     WorkerFunction createWorker() override;
     void onFinished() override;
+    void applySafeState() override;   // panel closed / new session / Stop while idle: lines to inputs
     void saveExtraSettings(QJsonObject& settings) const override;
     void restoreExtraSettings(const QJsonObject& settings) override;
     DataTable exportTable() const override;
 
 private:
+    void forgetDrivenLines();   // device reset / unplugged: nothing is driven any more
     // Values the running worker picks up at its next iteration.
     struct Live {
         dio::Pattern pattern = dio::Manual;

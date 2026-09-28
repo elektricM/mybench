@@ -23,9 +23,6 @@ Item {
         return (root.controller.outputMask >> line) & 1 ? Theme.math
              : (root.controller.inputMask >> line) & 1 ? Theme.ch1 : Theme.textMuted
     }
-    function valueText(value: int, radix: int, width: int): string {
-        return value < 0 ? "—" : root.controller.formatValue(value, radix, width)
-    }
     // Keys 0-7 flip the manual bit of an OUT line (panel focused).
     focus: true
     Keys.onPressed: event => {
@@ -59,7 +56,7 @@ Item {
 
                 Repeater {
                     model: [
-                        { title: qsTr("Inputs"), shown: root.hasInputs, value: root.controller.hasReading ? root.controller.inputValue : -1,
+                        { title: qsTr("Inputs"), shown: root.hasInputs, value: root.controller.inputValue,
                           radix: root.controller.inputRadix, width: root.controller.inputWidth, color: Theme.ch1, output: false },
                         { title: qsTr("Outputs"), shown: root.hasOutputs, value: root.controller.writtenValue,
                           radix: root.controller.outputRadix, width: root.controller.outputWidth, color: Theme.math, output: true }
@@ -98,8 +95,13 @@ Item {
                                 }
                             }
                             Text {
-                                text: root.valueText(valueBlock.modelData.value, valueBlock.modelData.radix, valueBlock.modelData.width)
-                                color: valueBlock.modelData.value < 0 ? Theme.textMuted : valueBlock.modelData.color
+                                text: {
+                                    void valueBlock.modelData.value   // refresh on every new value
+                                    void valueBlock.modelData.radix
+                                    void root.controller.hasReading
+                                    return root.controller.numericValueText(valueBlock.modelData.output)
+                                }
+                                color: valueBlock.modelData.color
                                 font.pixelSize: 34
                                 font.weight: Font.Light
                                 font.family: valueBlock.modelData.radix === DioController.Binary ? Theme.monoFamily : Theme.fontFamily
@@ -251,15 +253,26 @@ Item {
                     anchors.bottom: parent.bottom
                     anchors.leftMargin: timelinePlot.plotArea.x + 6
                     anchors.bottomMargin: parent.height - timelinePlot.plotArea.y - timelinePlot.plotArea.height + 6
-                    width: cursorText.implicitWidth + 16
-                    height: cursorText.implicitHeight + 10
+                    width: cursorText.implicitWidth + cursorRadixButton.width + 24
+                    height: Math.max(cursorText.implicitHeight, cursorRadixButton.height) + 10
                     radius: Theme.radiusS
                     color: Theme.alpha(Theme.surfaceRaised, 0.92)
                     border.width: 1
                     border.color: Theme.border
+                    // Radix of the line values (Digital Waveform Viewer: Decimal / Hex / Binary...).
+                    DioRadixButton {
+                        id: cursorRadixButton
+                        anchors.left: parent.left
+                        anchors.leftMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        radix: root.cursorRadix
+                        onRadixSelected: r => root.cursorRadix = r
+                    }
                     Text {
                         id: cursorText
-                        anchors.centerIn: parent
+                        anchors.left: cursorRadixButton.right
+                        anchors.leftMargin: 8
+                        anchors.verticalCenter: parent.verticalCenter
                         textFormat: Text.PlainText
                         text: {
                             void root.controller.timelineEnd   // refresh while recording
@@ -431,6 +444,12 @@ Item {
                         radix: root.controller.outputRadix
                         bits: root.controller.outputWidth
                         onValueModified: v => root.controller.manualValue = v
+                        // ELVISmx: a typed value that is malformed or too large is not accepted.
+                        onEntered: text => {
+                            const v = root.controller.parseEntry(text, root.controller.outputRadix)
+                            if (v >= 0)
+                                root.controller.manualValue = v
+                        }
                         onRadixSelected: r => root.controller.outputRadix = r
                     }
                 }
@@ -616,6 +635,7 @@ Item {
         cursor1.position = lo + (hi - lo) * 0.3
         cursor2.position = lo + (hi - lo) * 0.6
     }
+    property int cursorRadix: DioController.Hex
     function cursorLine(name: string, x: real): string {
         let bits = ""
         for (let l = 7; l >= 0; --l) {
@@ -623,7 +643,8 @@ Item {
             if (l === 4)
                 bits += " "
         }
-        return name + "  " + Units.format(x, "s") + "   7…0 " + bits
+        return name + "  " + Units.format(x, "s") + "   7…0 " + bits + "   "
+               + root.controller.valuesAtTime(x, root.cursorRadix)
     }
     Connections {
         target: root.controller

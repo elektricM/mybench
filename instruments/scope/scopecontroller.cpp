@@ -60,8 +60,11 @@ ScopeController::ScopeController() : InstrumentController(u"scope"_s)
 {
     setRequiredResources(ResourceArbiter::AnalogInput);
     for (QObject* object : std::initializer_list<QObject*>{&m_channel0, &m_channel1, &m_math, &m_cursor1, &m_cursor2,
-                                                           m_channel0.style(), m_channel1.style(), m_math.style()})
+                                                           m_channel0.style(), m_channel1.style(), m_math.style(), &m_refAStyle,
+                                                           &m_refBStyle})
         watch(object);
+    m_refAStyle.setDefaults(ScopeTraceStyle::Dash, 1.2);
+    m_refBStyle.setDefaults(ScopeTraceStyle::Dot, 1.2);
     // Settings that change the acquisition plan (rate, record length, roll availability).
     for (auto signal : {&ScopeController::timePerDivChanged, &ScopeController::samplingModeChanged,
                         &ScopeController::rollModeChanged, &ScopeController::triggerTypeChanged})
@@ -128,6 +131,8 @@ void ScopeController::setRollMode(bool on)
 void ScopeController::setTriggerType(TriggerType type)
 {
     if (assign(m_triggerType, type)) {
+        if (type == Edge)
+            setTriggerSource(Chan0Source);   // ELVISmx: Type Edge resets the Source to Chan 0 Source
         fixTriggerSource();
         emit triggerTypeChanged();
     }
@@ -237,6 +242,21 @@ void ScopeController::clampCursors()
             c->setPosition(c == &m_cursor1 ? 0.25 * screenTime() : 0.75 * screenTime());
 }
 
+void ScopeController::resetGraphProperties()
+{
+    for (ScopeChannel* channel : {&m_channel0, &m_channel1}) {
+        channel->style()->reset();
+        channel->setMeasurementMask(ScopeChannel::kElvisMeasurements);
+    }
+    m_math.style()->reset();
+    m_refAStyle.reset();
+    m_refBStyle.reset();
+    m_cursor1.resetStyle();
+    m_cursor2.resetStyle();
+    setBackground(ThemeBackground);
+    setShowDeltaTime(true);
+}
+
 void ScopeController::fixTriggerSource()
 {
     // "Chan N Source" needs channel N enabled; otherwise use the other channel.
@@ -270,6 +290,34 @@ void ScopeController::setTimeDivIndex(int index)
 {
     const auto& values = scope::timePerDivValues();
     setTimePerDiv(values[size_t(std::clamp(index, 0, int(values.size()) - 1))]);
+}
+
+void ScopeController::stepTimeDiv(int steps)
+{
+    setTimeDivIndex(timeDivIndex() + steps);
+}
+
+void ScopeController::stepChannelScale(int channelIndex, int steps)
+{
+    ScopeChannel* target = channel(std::clamp(channelIndex, 0, 1));
+    target->setScaleIndex(target->scaleIndex() + steps);
+}
+
+int ScopeController::channelNearestTo(double divisions) const
+{
+    int best = -1;
+    double distance = 0;
+    for (int i = 0; i < 2; ++i) {
+        const ScopeChannel* c = i == 0 ? &m_channel0 : &m_channel1;
+        if (!c->enabled())
+            continue;
+        const double d = std::abs(c->position() - divisions);
+        if (best < 0 || d < distance) {
+            best = i;
+            distance = d;
+        }
+    }
+    return best;
 }
 
 QString ScopeController::timeDivLabel() const
@@ -941,6 +989,8 @@ void ScopeController::saveExtraSettings(QJsonObject& settings) const
     settings.insert(u"mathTrace"_s, m_math.save());
     settings.insert(u"cursor1"_s, m_cursor1.save());
     settings.insert(u"cursor2"_s, m_cursor2.save());
+    settings.insert(u"refAStyle"_s, saveProperties(&m_refAStyle));
+    settings.insert(u"refBStyle"_s, saveProperties(&m_refBStyle));
 }
 
 void ScopeController::restoreExtraSettings(const QJsonObject& settings)
@@ -950,6 +1000,8 @@ void ScopeController::restoreExtraSettings(const QJsonObject& settings)
     m_math.restore(settings.value(u"mathTrace"_s).toObject());
     m_cursor1.restore(settings.value(u"cursor1"_s).toObject());
     m_cursor2.restore(settings.value(u"cursor2"_s).toObject());
+    restoreProperties(&m_refAStyle, settings.value(u"refAStyle"_s).toObject());
+    restoreProperties(&m_refBStyle, settings.value(u"refBStyle"_s).toObject());
     if (m_cursorsOn && (std::isnan(m_cursor1.position()) || std::isnan(m_cursor2.position())))
         resetCursors();
     fixTriggerSource();

@@ -61,7 +61,7 @@ void ScopeTraceStyle::setLineColor(const QString& color)
 
 void ScopeTraceStyle::setLineWidth(double width)
 {
-    if (assign(m_lineWidth, std::clamp(width, 0.5, 5.0)))
+    if (assign(m_lineWidth, std::clamp(width, 0.0, 5.0)))
         emit changed();
 }
 
@@ -73,7 +73,12 @@ void ScopeTraceStyle::setLineStyle(LineStyle style)
 
 void ScopeTraceStyle::setPoints(bool on)
 {
-    if (assign(m_points, on))
+    setPointStyle(on ? (m_pointStyle == NoPoints ? FilledCircle : m_pointStyle) : NoPoints);
+}
+
+void ScopeTraceStyle::setPointStyle(PointStyle style)
+{
+    if (assign(m_pointStyle, style))
         emit changed();
 }
 
@@ -95,12 +100,19 @@ void ScopeTraceStyle::setFillColor(const QString& color)
         emit changed();
 }
 
+void ScopeTraceStyle::setDefaults(LineStyle style, double width)
+{
+    m_defaultLineStyle = style;
+    m_defaultLineWidth = width;
+    reset();
+}
+
 void ScopeTraceStyle::reset()
 {
     setLineColor(QString());
-    setLineWidth(1.5);
-    setLineStyle(Solid);
-    setPoints(false);
+    setLineWidth(m_defaultLineWidth);
+    setLineStyle(m_defaultLineStyle);
+    setPointStyle(NoPoints);
     setInterpolation(Linear);
     setFillTo(NoFill);
     setFillColor(QString());
@@ -503,9 +515,23 @@ void ScopeCursor::setShowValue(bool on)
         emit styleChanged();
 }
 
+void ScopeCursor::setLineWidth(double width)
+{
+    if (assign(m_lineWidth, std::clamp(width, 1.0, 5.0)))
+        emit styleChanged();
+}
+
+void ScopeCursor::setPointStyle(ScopeTraceStyle::PointStyle style)
+{
+    if (assign(m_pointStyle, style))
+        emit styleChanged();
+}
+
 void ScopeCursor::resetStyle()
 {
     setColor(QString());
+    setLineWidth(1.0);
+    setPointStyle(ScopeTraceStyle::NoPoints);
     setLineStyle(ScopeTraceStyle::Dash);
     setCursorStyle(VerticalLine);
     setShowValue(true);

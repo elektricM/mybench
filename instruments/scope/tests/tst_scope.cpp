@@ -72,6 +72,11 @@ private slots:
     void controllerDefaultsAndPersistence();
     void controllerRules();
     void controllerRun();
+    void traceStylePalettes();
+    void cursorStylePalettes();
+    void resetGraphProperties();
+    void triggerTypeEdgeResetsSource();
+    void wheelSteps();
 };
 
 void TestScope::initTestCase()
@@ -265,7 +270,7 @@ void TestScope::formatting_data()
     QTest::newRow("us") << 25e-6 << u"s"_s << u"25.00 µs"_s;
     QTest::newRow("volts") << 6.861 << u"V"_s << u"6.861 V"_s;
     QTest::newRow("hz") << 20.053 << u"Hz"_s << u"20.053 Hz"_s;
-    QTest::newRow("negative") << -0.29939 << u"V"_s << u"−299.39 mV"_s;
+    QTest::newRow("negative") << -0.29939 << u"V"_s << u"-299.39 mV"_s;
     QTest::newRow("nan") << std::nan("") << u"Hz"_s << u"?"_s;
     QTest::newRow("inf") << HUGE_VAL << u"Hz"_s << u"?"_s;
 }
@@ -565,7 +570,7 @@ void TestScope::controllerDefaultsAndPersistence()
 
     d.resetSettings();
     QCOMPARE(d.channel1()->source(), ScopeChannel::AI1);
-    QCOMPARE(d.channel1()->style()->lineWidth(), 1.5);
+    QCOMPARE(d.channel1()->style()->lineWidth(), 1.0);   // ELVISmx default width
     QCOMPARE(d.timePerDiv(), 5e-3);
     QVERIFY(!d.math()->enabled());
 }
@@ -697,6 +702,134 @@ void TestScope::controllerRun()
     QFile log(txt);
     QVERIFY(log.open(QIODevice::ReadOnly));
     QVERIFY(QString::fromUtf8(log.readAll()).startsWith(u"waveform\tCh0"_s));
+}
+
+
+// Audit scope #2/#3: the Graph Properties palettes of ELVISmx.
+void TestScope::traceStylePalettes()
+{
+    ScopeController c;
+    c.initialize();
+    ScopeTraceStyle* style = c.channel0()->style();
+    QCOMPARE(style->lineWidth(), 1.0);
+    style->setLineWidth(0);
+    QCOMPARE(style->lineWidth(), 0.0);   // "none"
+    style->setLineStyle(ScopeTraceStyle::DashDotDot);
+    QCOMPARE(style->lineStyle(), ScopeTraceStyle::DashDotDot);
+    style->setInterpolation(ScopeTraceStyle::CenterStepVertical);
+    QVERIFY(!style->points());
+    style->setPoints(true);   // the shortcut picks a marker
+    QCOMPARE(style->pointStyle(), ScopeTraceStyle::FilledCircle);
+    style->setPointStyle(ScopeTraceStyle::Diamond);
+    QVERIFY(style->points());
+    style->setFillColor(u"#123456"_s);
+    QVERIFY(style->fillColor() == u"#123456"_s);
+    const QJsonObject saved = c.saveSettings();
+    ScopeController d;
+    d.initialize();
+    d.restoreSettings(saved);
+    ScopeTraceStyle* restored = d.channel0()->style();
+    QCOMPARE(restored->lineWidth(), 0.0);
+    QCOMPARE(restored->lineStyle(), ScopeTraceStyle::DashDotDot);
+    QCOMPARE(restored->interpolation(), ScopeTraceStyle::CenterStepVertical);
+    QCOMPARE(restored->pointStyle(), ScopeTraceStyle::Diamond);
+    QCOMPARE(restored->fillColor(), u"#123456"_s);
+    // The reference traces have a style of their own (dashed / dotted by default).
+    QCOMPARE(d.refAStyle()->lineStyle(), ScopeTraceStyle::Dash);
+    QCOMPARE(d.refBStyle()->lineStyle(), ScopeTraceStyle::Dot);
+    c.refAStyle()->setLineColor(u"#00ff00"_s);
+    ScopeController e;
+    e.initialize();
+    e.restoreSettings(c.saveSettings());
+    QCOMPARE(e.refAStyle()->lineColor(), u"#00ff00"_s);
+}
+
+void TestScope::cursorStylePalettes()
+{
+    ScopeController c;
+    c.initialize();
+    ScopeCursor* cursor = c.cursor1();
+    QCOMPARE(cursor->lineWidth(), 1.0);
+    cursor->setLineWidth(3);
+    cursor->setPointStyle(ScopeTraceStyle::Circle);
+    cursor->setCursorStyle(ScopeCursor::SmallCrosshair);
+    cursor->setLineStyle(ScopeTraceStyle::DashDotDot);
+    ScopeController d;
+    d.initialize();
+    d.restoreSettings(c.saveSettings());
+    QCOMPARE(d.cursor1()->lineWidth(), 3.0);
+    QCOMPARE(d.cursor1()->pointStyle(), ScopeTraceStyle::Circle);
+    QCOMPARE(d.cursor1()->cursorStyle(), ScopeCursor::SmallCrosshair);
+    cursor->setCursorStyle(ScopeCursor::NoCursor);
+    QCOMPARE(cursor->cursorStyle(), ScopeCursor::NoCursor);
+    cursor->resetStyle();
+    QCOMPARE(cursor->lineWidth(), 1.0);
+    QCOMPARE(cursor->cursorStyle(), ScopeCursor::VerticalLine);
+    QCOMPARE(cursor->pointStyle(), ScopeTraceStyle::NoPoints);
+}
+
+// Audit scope #5: one Reset to Default for the whole Graph Properties card.
+void TestScope::resetGraphProperties()
+{
+    ScopeController c;
+    c.initialize();
+    c.channel0()->style()->setLineWidth(4);
+    c.channel1()->style()->setPointStyle(ScopeTraceStyle::Cross);
+    c.math()->style()->setLineColor(u"#ff0000"_s);
+    c.refBStyle()->setLineWidth(3);
+    c.cursor2()->setLineWidth(5);
+    c.setBackground(ScopeController::White);
+    c.channel0()->setMeasurementMask(ScopeChannel::Mean | ScopeChannel::Rms);
+    c.setShowDeltaTime(false);
+    c.resetGraphProperties();
+    QCOMPARE(c.channel0()->style()->lineWidth(), 1.0);
+    QCOMPARE(c.channel1()->style()->pointStyle(), ScopeTraceStyle::NoPoints);
+    QVERIFY(c.math()->style()->lineColor().isEmpty());
+    QCOMPARE(c.refBStyle()->lineWidth(), 1.2);
+    QCOMPARE(c.refBStyle()->lineStyle(), ScopeTraceStyle::Dot);
+    QCOMPARE(c.cursor2()->lineWidth(), 1.0);
+    QCOMPARE(c.background(), ScopeController::ThemeBackground);
+    QCOMPARE(c.channel0()->measurementMask(), int(ScopeChannel::kElvisMeasurements));
+    QVERIFY(c.showDeltaTime());
+}
+
+// Audit scope #7: Trigger Type Edge selects Chan 0 Source again.
+void TestScope::triggerTypeEdgeResetsSource()
+{
+    ScopeController c;
+    c.initialize();
+    c.setChannelEnabled(1, true);
+    c.setTriggerType(ScopeController::Edge);
+    c.setTriggerSource(ScopeController::Chan1Source);
+    QCOMPARE(c.triggerSource(), ScopeController::Chan1Source);
+    c.setTriggerType(ScopeController::Immediate);
+    c.setTriggerType(ScopeController::Edge);
+    QCOMPARE(c.triggerSource(), ScopeController::Chan0Source);
+}
+
+// Audit scope #11: wheel over the graph steps Time/Div, Shift + wheel the nearest channel's Volts/Div.
+void TestScope::wheelSteps()
+{
+    ScopeController c;
+    c.initialize();
+    QCOMPARE(c.timePerDiv(), 5e-3);
+    c.stepTimeDiv(-1);
+    QCOMPARE(c.timePerDiv(), 2e-3);
+    c.stepTimeDiv(2);
+    QCOMPARE(c.timePerDiv(), 1e-2);
+    c.stepTimeDiv(-100);
+    QCOMPARE(c.timePerDiv(), 5e-6);   // clamped to the list
+    c.setChannelEnabled(1, true);
+    c.channel0()->setPosition(-2);
+    c.channel1()->setPosition(3);
+    QCOMPARE(c.channelNearestTo(-1.5), 0);
+    QCOMPARE(c.channelNearestTo(2.0), 1);
+    c.stepChannelScale(1, -1);
+    QCOMPARE(c.channel1()->voltsPerDiv(), 0.5);
+    c.stepChannelScale(0, 1);
+    QCOMPARE(c.channel0()->voltsPerDiv(), 2.0);
+    c.setChannelEnabled(1, false);
+    QCOMPARE(c.channelNearestTo(3.0), 0);
 }
 
 QTEST_MAIN(TestScope)

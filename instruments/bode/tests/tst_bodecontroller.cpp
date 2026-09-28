@@ -72,9 +72,33 @@ private slots:
         QVERIFY(!c->settingsValid());
         c->run();
         QVERIFY(!c->isRunning());
-        QCOMPARE(c->errorText(), u"Start Frequency must not be higher than Stop Frequency."_s);
+        QCOMPARE(c->inputWarning(), u"Start Frequency must not be higher than Stop Frequency."_s);   // a warning, not a device error
+        QVERIFY(!c->hasError());
         c->resetSettings();
         c->clearError();
+    }
+
+    // Audit bode #11: a 0 V stimulus can never be measured, so the run is refused up front.
+    void zeroAmplitudeIsRefused()
+    {
+        BodeController* c = bode();
+        c->setPeakAmplitude(0);
+        c->run();
+        QVERIFY(!c->isRunning());
+        QVERIFY(c->inputWarning().contains(u"Peak Amplitude"_s));
+        QVERIFY(!c->hasError());
+        c->resetSettings();
+        c->clearError();
+    }
+
+    // Audit bode #2: Autoscale off jumps to fixed ranges.
+    void fixedRanges()
+    {
+        QCOMPARE(BodeController::fixedGainMin(), -30.0);
+        QCOMPARE(BodeController::fixedGainMax(), 5.0);
+        QCOMPARE(BodeController::fixedPhaseMin(), -360.0);
+        QCOMPARE(BodeController::fixedPhaseMax(), 360.0);
+        QCOMPARE(BodeController::fixedPhaseStep(), 90.0);
     }
 
     void fastSweep()
@@ -131,7 +155,7 @@ private slots:
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QString text = QString::fromUtf8(file.readAll());
         QVERIFY(text.contains(u"Frequency (Hz),Gain,Gain (dB),Phase (deg),Clipped"_s));
-        QVERIFY(text.contains(u"# Peak amplitude: 2 V, Op-amp signal polarity: Normal"_s));
+        QVERIFY(text.contains(u"# Peak amplitude: 2.00 V, Op-amp signal polarity: Normal"_s));
 
         // Keep as reference, then persistence of references.
         QVERIFY(c->keepAsReference(u"RC"_s));
@@ -145,6 +169,57 @@ private slots:
         QCOMPARE(c->references().first().toMap().value(u"name"_s).toString(), u"RC"_s);
         QCOMPARE(c->referenceGain(0)->count(), 11);
         c->clearReferences();
+    }
+
+    // Audit bode #1: Cursors On starts on the first point and keeps its index in a new sweep;
+    // audit #9/#10: ELVISmx text log and Print metadata.
+    void cursorStartsOnFirstPoint()
+    {
+        BodeController* c = bode();
+        QVERIFY(c->pointCount() == 11);
+        c->setCursorsOn(false);
+        c->setCursorsOn(true);
+        QCOMPARE(c->cursorIndex(), 0);
+        QVERIFY(std::abs(c->readoutFrequency() - 100) < 0.01);
+        c->cursorRight();
+        c->cursorRight();
+        QCOMPARE(c->cursorIndex(), 2);
+        c->run();   // new sweep: the cursor keeps its index while points come in
+        QVERIFY(c->cursorIndex() == 2);
+        QTRY_VERIFY_WITH_TIMEOUT(c->state() == InstrumentController::Idle, 20000);
+        QCOMPARE(c->cursorIndex(), 2);
+        QCOMPARE(c->pointCount(), 11);
+        c->setCursorsOn(false);
+        c->setCursorsOn(true);
+        QCOMPARE(c->cursorIndex(), 0);
+    }
+
+    void printMetadataAndTxtLog()
+    {
+        BodeController* c = bode();
+        const QVariantMap metadata = c->exportMetadata();
+        QCOMPARE(metadata.value(u"Graph mapping"_s).toString(), u"Logarithmic"_s);
+        QVERIFY(metadata.value(u"Cursors"_s).toString().startsWith(u"On"_s));
+        QCOMPARE(metadata.value(u"Peak amplitude"_s).toString(), u"2.00 V, Op-amp signal polarity: Normal"_s);
+        QTemporaryDir dir;
+        const QString path = dir.filePath(u"bode.txt"_s);
+        QVERIFY(c->exportData(QUrl::fromLocalFile(path)));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QStringList lines = QString::fromUtf8(file.readAll()).split(u'\n', Qt::SkipEmptyParts);
+        QCOMPARE(lines.size(), 2 + 1 + 11);
+        QVERIFY(lines[0].contains(u'\t'));
+        QCOMPARE(lines[1], u"Amplitude: 2.00 V"_s);
+        QCOMPARE(lines[2], u"Freq (Hz)\tGain (dB)\tPhase (deg)"_s);
+        const QStringList first = lines[3].split(u'\t');
+        QCOMPARE(first.size(), 3);
+        QCOMPARE(first[0], u"100.000"_s);
+        c->setMapping(BodeController::Linear);
+        QVERIFY(c->exportData(QUrl::fromLocalFile(path)));
+        file.close();
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(file.readAll()).contains(u"Gain (Linear)"_s));
+        c->setMapping(BodeController::Logarithmic);
     }
 
     void remeasure()

@@ -161,7 +161,7 @@ QString formatNumber(double value, const DisplayFormat& format)
 
 QString overloadText(mydaq::DmmFunction function, double value, bool signedOverload)
 {
-    return signedOverload && isBipolar(function) && value < 0 ? u"-OVER"_s : u"+OVER"_s;
+    return signedOverload && isBipolar(function) && value < 0 ? u"-Over"_s : u"+Over"_s;
 }
 
 bool isBipolar(mydaq::DmmFunction function)

@@ -83,10 +83,10 @@ private slots:
         QVERIFY(!dmm::isOverload(DmmFunction::Diode, 2, {1.998, false}));
         QVERIFY(dmm::isOverload(DmmFunction::DcVoltage, 2, {-2.5, false}));   // negative too
         QVERIFY(dmm::isOverload(DmmFunction::DcVoltage, 60, {1.0, true}));     // device flag
-        QCOMPARE(dmm::overloadText(DmmFunction::DcVoltage, -3), u"+OVER"_s);   // ELVISmx: +Over for both signs
-        QCOMPARE(dmm::overloadText(DmmFunction::DcVoltage, -3, true), u"-OVER"_s);
-        QCOMPARE(dmm::overloadText(DmmFunction::AcVoltage, 3, true), u"+OVER"_s);
-        QCOMPARE(dmm::overloadText(DmmFunction::Resistance, -1, true), u"+OVER"_s);
+        QCOMPARE(dmm::overloadText(DmmFunction::DcVoltage, -3), u"+Over"_s);   // ELVISmx: +Over for both signs
+        QCOMPARE(dmm::overloadText(DmmFunction::DcVoltage, -3, true), u"-Over"_s);
+        QCOMPARE(dmm::overloadText(DmmFunction::AcVoltage, 3, true), u"+Over"_s);
+        QCOMPARE(dmm::overloadText(DmmFunction::Resistance, -1, true), u"+Over"_s);
     }
 
     // Algorithms doc 3: value -> range, no hysteresis, several ranges at once.

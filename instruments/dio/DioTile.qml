@@ -28,7 +28,7 @@ Item {
                     readonly property int line: 7 - index
                     readonly property bool isOut: (root.controller.outputMask >> line) & 1
                     readonly property bool isIn: (root.controller.inputMask >> line) & 1
-                    readonly property bool level: isOut ? (root.controller.writtenValue >= 0 && ((root.controller.writtenLevels >> line) & 1))
+                    readonly property bool level: isOut ? (root.controller.hasWritten && ((root.controller.writtenLevels >> line) & 1))
                                                         : isIn && ((root.controller.lineStates >> line) & 1)
                     Layout.fillWidth: true
                     implicitHeight: column.implicitHeight
@@ -75,9 +75,9 @@ Item {
             Repeater {
                 model: [
                     { title: qsTr("In"), shown: root.controller.inputMask !== 0, color: Theme.ch1,
-                      value: root.controller.hasReading ? root.controller.inputValue : -1 },
+                      output: false },
                     { title: qsTr("Out"), shown: root.controller.outputMask !== 0, color: Theme.math,
-                      value: root.controller.writtenValue }
+                      output: true }
                 ]
                 delegate: Row {
                     id: valueRow
@@ -92,8 +92,14 @@ Item {
                     }
                     Text {
                         id: valueText
-                        text: valueRow.modelData.value < 0 ? "—" : "x " + valueRow.modelData.value.toString(16).toUpperCase()
-                        color: valueRow.modelData.value < 0 ? Theme.textMuted : valueRow.modelData.color
+                        text: {
+                            void root.controller.inputValue   // refresh on every new value
+                            void root.controller.writtenValue
+                            void root.controller.hasReading
+                            const radix = valueRow.modelData.output ? root.controller.outputRadix : root.controller.inputRadix
+                            return root.controller.radixLetter(radix) + " " + root.controller.numericValueText(valueRow.modelData.output)
+                        }
+                        color: valueRow.modelData.color
                         font.pixelSize: root.compact ? Theme.fontSizeL : 20
                         font.weight: Font.Light
                         font.features: Theme.tabularFigures

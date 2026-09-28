@@ -370,9 +370,8 @@ QString formatFixed(double value, const QString& unit, int decimals)
     if (mantissa == 0.0)
         mantissa = 0.0;   // no "-0.00"
     const QString prefix = QString::fromUtf16(prefixes[size_t((exponent + 15) / 3)]);
-    QString text = QString::number(mantissa, 'f', decimals);
-    if (text.startsWith(u'-'))
-        text.replace(0, 1, QChar(0x2212));
+    // ASCII minus, as ELVISmx prints it (exact text and scripts match).
+    const QString text = QString::number(mantissa, 'f', decimals);
     return text + u' ' + prefix + unit;
 }
 

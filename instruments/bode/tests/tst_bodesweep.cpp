@@ -71,7 +71,7 @@ private slots:
 
     void standardModeProbesRanges()
     {
-        // ELVISmx mode: 1.6 s pre-measurement; 0.5 V peak fits ±2 V on both channels at 100 Hz.
+        // ELVISmx mode: 80 ms pre-measurement at the highest rate; 0.5 V peak fits ±2 V on both channels at 100 Hz.
         mydaq::SimDevice sim(QStringLiteral("sim:test"));
         BodeSweeper sweeper(sim, [] { return false; });
         SweepOptions options;
@@ -80,7 +80,7 @@ private slots:
         clock.start();
         const auto point = sweeper.measure(100, options);
         QVERIFY(point);
-        QVERIFY(clock.elapsed() >= 1500);
+        QVERIFY2(clock.elapsed() >= 150 && clock.elapsed() < 1200, qPrintable(QString::number(clock.elapsed())));
         QCOMPARE(point->stimulusRange, 2.0);
         QCOMPARE(point->responseRange, 2.0);
         QCOMPARE(point->sampleRate, 200000.0);   // 3200 x 100 Hz clamped to the maximum

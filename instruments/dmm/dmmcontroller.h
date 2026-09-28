@@ -45,7 +45,7 @@ class DmmController : public InstrumentController
     Q_PROPERTY(int trendWindow READ trendWindow WRITE setTrendWindow NOTIFY trendWindowChanged)
     // Continuity tone on/off (the visual indicator always works).
     Q_PROPERTY(bool continuityBeep READ continuityBeep WRITE setContinuityBeep NOTIFY continuityBeepChanged)
-    // [MYBENCH] "-OVER" for negative DC overloads (ELVISmx shows "+Over" for both signs).
+    // [MYBENCH] "-Over" for negative DC overloads (ELVISmx shows "+Over" for both signs).
     Q_PROPERTY(bool signedOverload READ signedOverload WRITE setSignedOverload NOTIFY signedOverloadChanged)
     // [MYBENCH] start measuring when the panel or tile is first shown (default off).
     Q_PROPERTY(bool autoStart READ autoStart WRITE setAutoStart NOTIFY autoStartChanged)

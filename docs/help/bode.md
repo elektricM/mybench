@@ -48,8 +48,10 @@ The measurement settings are locked while a sweep runs.
 
 - **Mapping** – the gain axis: *Logarithmic* shows the gain in dB (20·log10 of the ratio), *Linear*
   the plain ratio. The phase plot is not affected.
-- **Autoscale** – fits both vertical axes to the data after every point. Turn it off to keep your
-  own zoom (mouse wheel, Shift+wheel, drag; double-click returns to the full view).
+- **Autoscale** – fits both vertical axes to the data after every point. Turning it off jumps to
+  the fixed ranges of the original: gain -30 … +5 and phase -360° … +360° (90° grid); zoom with
+  the mouse wheel, Shift+wheel or drag from there (double-click returns to the full view).
+- **ELVISmx colors** – yellow traces with ring markers and a red cursor, like the original.
 - **Frequency axis** – logarithmic (default) or linear.
 - **Unwrap phase** – removes the 360° jumps between neighbouring points. Off by default: the phase
   is shown between -180° and +180°.
@@ -57,7 +59,7 @@ The measurement settings are locked while a sweep runs.
 ### Cursor Settings
 
 - **Cursors On** – shows one cursor on both plots at the same measured point (it starts on the
-  middle point); the readouts then show that point's values.
+  first point and keeps its place when you run a new sweep); the readouts then show that point's values.
 - **Position** ‹ › – moves the cursor one point to the left or right. You can also drag it; it snaps
   to the measured points.
 - **Re-measure point at cursor** – measures only that frequency again and replaces the point (handy
@@ -73,9 +75,9 @@ plot shows the values under the mouse.
 
 - **Mode**
   - *Standard* works like ELVISmx: at every frequency the analyzer first records both inputs for
-    1.6 s on the ±10 V range to choose the best range for each (±2 V for small signals). This also
-    gives the circuit time to settle. A default sweep takes about 20 s.
-  - *Fast* is a MYBENCH extension: no 1.6 s pre-measurement. The circuit settles for three periods,
+    80 ms (16 000 samples at the highest rate) on the ±10 V range to choose the best range for
+    each (±2 V for small signals). A default sweep takes a few seconds.
+  - *Fast* is a MYBENCH extension: no range pre-measurement. The circuit settles for three periods,
     the ranges adapt from the previous point, and a record that clips is measured again on the
     larger range. Much quicker at mid and high frequencies.
 - **Averages per point** – measures each frequency several times and averages the results (less

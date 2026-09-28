@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls
 import MyBench.Controls
 
 // Percent-of-full-scale gauge under the Multimeter readout: 50 segments, a longer tick every
@@ -20,6 +21,11 @@ Item {
     implicitHeight: showScale ? 30 : 14
     Accessible.role: Accessible.ProgressBar
     Accessible.name: qsTr("Percent Full-Scale")
+
+    HoverHandler { id: hover }
+    ToolTip.visible: hover.hovered
+    ToolTip.delay: 600
+    ToolTip.text: qsTr("Percent Full-Scale")
 
     Row {
         id: segments

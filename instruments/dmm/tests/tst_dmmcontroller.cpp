@@ -79,6 +79,51 @@ private slots:
                  qPrintable(m_dmm->readingText()));
     }
 
+    // Audit dmm #1: a read still in flight when the function changes must not reach the new one.
+    void staleReadingDroppedOnFunctionChange()
+    {
+        m_sim->setDmmReadTime(250, 250);
+        QStringList units;
+        connect(m_dmm.get(), &DmmController::readingChanged, this, [&] {
+            if (m_dmm->hasReading())
+                units << m_dmm->readingUnit();
+        });
+        m_dmm->run();
+        QTest::qWait(60);   // the first DC read is in flight
+        m_dmm->setSelectedFunction(DmmController::Resistance);
+        QVERIFY(!m_dmm->hasReading());
+        QTest::qWait(900);
+        m_dmm->stop();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dmm->isIdle(), 5000);
+        m_sim->setDmmReadTime(5, 5);
+        QVERIFY(!units.isEmpty());
+        for (const QString& unit : std::as_const(units))
+            QVERIFY2(unit != u"V"_s, qPrintable(units.join(u',')));
+    }
+
+    // Audit dmm #2: a device error leaves `---`, not the last value.
+    void errorClearsReadout()
+    {
+        m_dmm->run();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dmm->hasReading(), 5000);
+        m_sim->setConnected(false);
+        QTRY_VERIFY_WITH_TIMEOUT(m_dmm->isIdle(), 5000);
+        QVERIFY(m_dmm->hasError() || !mybench::DeviceHub::instance()->isConnected());
+        QVERIFY(!m_dmm->hasReading());
+        QCOMPARE(m_dmm->readingText(), u"---"_s);
+        m_sim->setConnected(true);
+        QTRY_VERIFY_WITH_TIMEOUT(mybench::DeviceHub::instance()->isConnected(), 5000);
+    }
+
+    // Audit dmm #6: nothing to export right after a function change.
+    void noExportAfterFunctionChange()
+    {
+        measureOnce();
+        QVERIFY(m_dmm->hasData());
+        m_dmm->setSelectedFunction(DmmController::Resistance);
+        QVERIFY(!m_dmm->hasData());
+    }
+
     void resistanceAuto()
     {
         m_dmm->setAutoRange(true);
@@ -92,7 +137,7 @@ private slots:
         m_sim->setDmmOpenCircuit(true);
         measureOnce();
         QVERIFY(m_dmm->overload());
-        QCOMPARE(m_dmm->readingText(), u"+OVER"_s);
+        QCOMPARE(m_dmm->readingText(), u"+Over"_s);
         QCOMPARE(m_dmm->fullScaleFraction(), 1.0);
     }
 
@@ -102,10 +147,10 @@ private slots:
         m_sim->setDmmValue(mydaq::DmmFunction::DcVoltage, -1.0);
         measureOnce();
         QVERIFY(m_dmm->overload());
-        QCOMPARE(m_dmm->readingText(), u"+OVER"_s);   // ELVISmx: +Over whatever the sign
+        QCOMPARE(m_dmm->readingText(), u"+Over"_s);   // ELVISmx: +Over whatever the sign
         m_dmm->setSignedOverload(true);
         measureOnce();
-        QCOMPARE(m_dmm->readingText(), u"-OVER"_s);
+        QCOMPARE(m_dmm->readingText(), u"-Over"_s);
         QCOMPARE(m_dmm->statOverloads(), 2);
         QCOMPARE(m_dmm->statCount(), 0);
     }
@@ -154,7 +199,7 @@ private slots:
         m_sim->setDmmOpenCircuit(true);
         measureOnce();
         QVERIFY(!m_dmm->continuityClosed());
-        QCOMPARE(m_dmm->readingText(), u"+OVER"_s);
+        QCOMPARE(m_dmm->readingText(), u"+Over"_s);
     }
 
     void holdFreezesReadout()

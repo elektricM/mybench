@@ -2,7 +2,8 @@ import QtQuick
 import MyBench.Plot
 
 // A PlotTrace drawn with a ScopeTraceStyle (Graph Properties > Plots): color, line width and
-// style, points, interpolation (points only / linear / step) and fill (to zero, -∞, +∞).
+// style, point style, interpolation (points only / linear / the step modes) and fill (to zero,
+// -∞, +∞) with its own color.
 PlotTrace {
     id: trace
 
@@ -16,17 +17,22 @@ PlotTrace {
 
     readonly property color baseColor: traceStyle && traceStyle.lineColor.length > 0 ? traceStyle.lineColor : defaultColor
     color: dimmed ? Qt.rgba(baseColor.r, baseColor.g, baseColor.b, 0.4) : baseColor
-    width: traceStyle ? traceStyle.lineWidth : 1.5
+    width: traceStyle ? Math.max(0.5, traceStyle.lineWidth) : 1
     // ScopeTraceStyle.LineStyle has the order of PlotElement.LineStyle.
     style: interpolation === ScopeTraceStyle.PointsOnly ? PlotElement.Dot
          : traceStyle ? traceStyle.lineStyle : PlotElement.Solid
     // Points are only drawn while samples are sparse (≥ 3 px apart): with dense records "points
     // only" falls back to a dotted line so the trace never disappears.
     readonly property bool dense: buffer !== null && plot !== null && buffer.count > plot.plotArea.width / 3
-    lineVisible: interpolation !== ScopeTraceStyle.PointsOnly || dense
+    readonly property bool hasLine: traceStyle === null || traceStyle.lineWidth > 0
+    lineVisible: hasLine && (interpolation !== ScopeTraceStyle.PointsOnly || dense)
     pointsVisible: interpolation === ScopeTraceStyle.PointsOnly || (traceStyle !== null && traceStyle.points)
-    pointSize: traceStyle ? Math.max(3.5, traceStyle.lineWidth * 2.5) : 4.5
-    step: interpolation === ScopeTraceStyle.Step
+    // ScopeTraceStyle.PointStyle follows PlotTrace.PointShape after NoPoints.
+    pointShape: traceStyle && traceStyle.pointStyle > 0 ? traceStyle.pointStyle - 1 : PlotTrace.FilledCircle
+    pointSize: traceStyle ? Math.max(4, traceStyle.lineWidth * 2.5) : 4.5
+    // ScopeTraceStyle.Interpolation follows PlotTrace.Interpolation after PointsOnly.
+    interpolationMode: Math.max(0, interpolation - 1)
+    fillColor: traceStyle && traceStyle.fillColor.length > 0 ? traceStyle.fillColor : baseColor
     fill: fillTo !== ScopeTraceStyle.NoFill
     fillOpacity: 0.5
     // Display units: zero volts sits at yOffset; +∞ is clamped to the top of the plot.

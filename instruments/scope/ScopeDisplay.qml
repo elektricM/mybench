@@ -30,6 +30,17 @@ Item {
     readonly property bool dimmed: controller.running && controller.waitingForTrigger
                                    && controller.noTriggerMode === ScopeController.KeepLastTrace
 
+    // PlotMarker shape of a ScopeTraceStyle.PointStyle (the marker has fewer shapes).
+    function markerShape(pointStyle: int): int {
+        switch (pointStyle) {
+        case ScopeTraceStyle.FilledCircle: return PlotMarker.Circle
+        case ScopeTraceStyle.Square:
+        case ScopeTraceStyle.FilledSquare: return PlotMarker.Square
+        case ScopeTraceStyle.Diamond:
+        case ScopeTraceStyle.FilledDiamond: return PlotMarker.Diamond
+        default: return PlotMarker.Ring
+        }
+    }
     function channelColor(index: int): color {
         const style = index === 0 ? ch0.style : index === 1 ? ch1.style : math.style
         if (style.lineColor.length > 0)
@@ -77,15 +88,51 @@ Item {
                     }
                     yAxis { min: -5; max: 5; divisions: 10; labelsVisible: false; interactive: false }
 
+                    // Wheel = Time/Div, Shift + wheel = Volts/Div of the channel nearest the pointer
+                    // (direction: wheel up zooms in).
+                    WheelHandler {
+                        id: wheelTime
+                        acceptedModifiers: Qt.NoModifier
+                        onWheel: event => {
+                            wheelTime.step(event.angleDelta.y, steps => root.controller.stepTimeDiv(steps))
+                        }
+                        property real accumulated: 0
+                        function step(delta: real, apply: var) {
+                            accumulated += delta
+                            const steps = Math.trunc(accumulated / 120)
+                            if (steps !== 0) {
+                                accumulated -= steps * 120
+                                apply(-steps)
+                            }
+                        }
+                    }
+                    WheelHandler {
+                        id: wheelVolts
+                        acceptedModifiers: Qt.ShiftModifier
+                        property real accumulated: 0
+                        onWheel: event => {
+                            // Shift turns the wheel horizontal on some systems.
+                            accumulated += event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x
+                            const steps = Math.trunc(accumulated / 120)
+                            if (steps === 0)
+                                return
+                            accumulated -= steps * 120
+                            const area = ytPlot.plotArea
+                            const divisions = 5 - (wheelVolts.point.position.y - area.y) / area.height * 10
+                            const channel = root.controller.channelNearestTo(divisions)
+                            if (channel >= 0)
+                                root.controller.stepChannelScale(channel, -steps)
+                        }
+                    }
+
                     ScopeTrace {
                         id: refATrace
                         buffer: root.controller.refA
                         visible: root.controller.refAAvailable && root.controller.refAVisible
                         name: "REF A"
                         unit: "V"
+                        traceStyle: root.controller.refAStyle
                         defaultColor: Theme.ref
-                        width: 1.2
-                        style: PlotElement.Dash
                         yScale: 1 / root.controller.refAScale
                         yOffset: root.controller.refAPosition
                     }
@@ -95,9 +142,8 @@ Item {
                         visible: root.controller.refBAvailable && root.controller.refBVisible
                         name: "REF B"
                         unit: "V"
+                        traceStyle: root.controller.refBStyle
                         defaultColor: Qt.lighter(Theme.ref, 1.35)
-                        width: 1.2
-                        style: PlotElement.Dot
                         yScale: 1 / root.controller.refBScale
                         yOffset: root.controller.refBPosition
                     }
@@ -177,7 +223,7 @@ Item {
                         value: root.controller.triggerLevel
                         handle: PlotLine.End
                         label: "T"
-                        color: root.channelColor(root.triggerChannel)
+                        color: Theme.danger   // ELVISmx: the trigger level line is red
                         style: PlotElement.Dash
                         lineMode: PlotLine.Always
                         onMoved: v => root.controller.triggerLevel = Math.round(v * 1000) / 1000
@@ -193,10 +239,10 @@ Item {
                         onMoved: v => root.controller.horizontalPosition = Math.round(v / root.controller.screenTime * 100)
                     }
 
-                    // Cursors C1 / C2.
+                    // Cursors C1 / C2 (Graph Properties > Cursors: style, width, point style).
                     PlotCursor {
                         id: cursor1
-                        visible: root.controller.cursorsOn
+                        visible: root.controller.cursorsOn && root.controller.cursor1.cursorStyle !== ScopeCursor.NoCursor
                         label: "C1"
                         position: root.controller.cursor1.position
                         trace: root.traceFor(root.controller.cursor1.channel)
@@ -208,7 +254,7 @@ Item {
                     }
                     PlotCursor {
                         id: cursor2
-                        visible: root.controller.cursorsOn
+                        visible: root.controller.cursorsOn && root.controller.cursor2.cursorStyle !== ScopeCursor.NoCursor
                         label: "C2"
                         position: root.controller.cursor2.position
                         trace: root.traceFor(root.controller.cursor2.channel)
@@ -218,6 +264,7 @@ Item {
                         snap: true
                         onMoved: p => root.controller.cursor2.position = p
                     }
+                    // Full crosshair: the horizontal line through the cursor's value.
                     PlotLine {
                         visible: root.controller.cursorsOn && root.controller.cursor1.cursorStyle === ScopeCursor.FullCrosshair
                                  && !isNaN(cursor1.value)
@@ -227,6 +274,7 @@ Item {
                         draggable: false
                         color: cursor1.color
                         style: cursor1.style
+                        width: root.controller.cursor1.lineWidth
                     }
                     PlotLine {
                         visible: root.controller.cursorsOn && root.controller.cursor2.cursorStyle === ScopeCursor.FullCrosshair
@@ -237,6 +285,49 @@ Item {
                         draggable: false
                         color: cursor2.color
                         style: cursor2.style
+                        width: root.controller.cursor2.lineWidth
+                    }
+                    // A wider cursor line is drawn over the (thin) one of the cursor itself.
+                    PlotLine {
+                        visible: cursor1.visible && root.controller.cursor1.lineWidth > 1
+                        orientation: PlotElement.Vertical
+                        value: cursor1.position
+                        handle: PlotLine.NoHandle
+                        draggable: false
+                        color: cursor1.color
+                        style: cursor1.style
+                        width: root.controller.cursor1.lineWidth
+                    }
+                    PlotLine {
+                        visible: cursor2.visible && root.controller.cursor2.lineWidth > 1
+                        orientation: PlotElement.Vertical
+                        value: cursor2.position
+                        handle: PlotLine.NoHandle
+                        draggable: false
+                        color: cursor2.color
+                        style: cursor2.style
+                        width: root.controller.cursor2.lineWidth
+                    }
+                    // Marker at the cursor's point (Small Crosshair, or any Point Style).
+                    PlotMarker {
+                        visible: root.controller.cursorsOn && cursor1.visible && !isNaN(cursor1.value)
+                                 && (root.controller.cursor1.pointStyle !== ScopeTraceStyle.NoPoints
+                                     || root.controller.cursor1.cursorStyle === ScopeCursor.SmallCrosshair)
+                        x: cursor1.position
+                        trace: cursor1.trace
+                        color: cursor1.color
+                        shape: root.markerShape(root.controller.cursor1.pointStyle)
+                        size: 8 + 2 * root.controller.cursor1.lineWidth
+                    }
+                    PlotMarker {
+                        visible: root.controller.cursorsOn && cursor2.visible && !isNaN(cursor2.value)
+                                 && (root.controller.cursor2.pointStyle !== ScopeTraceStyle.NoPoints
+                                     || root.controller.cursor2.cursorStyle === ScopeCursor.SmallCrosshair)
+                        x: cursor2.position
+                        trace: cursor2.trace
+                        color: cursor2.color
+                        shape: root.markerShape(root.controller.cursor2.pointStyle)
+                        size: 8 + 2 * root.controller.cursor2.lineWidth
                     }
 
                     // ---- Overlays ---------------------------------------------------------------

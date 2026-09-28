@@ -181,7 +181,7 @@ Item {
             Led {
                 Layout.alignment: Qt.AlignRight
                 on: root.controller.timedOut
-                color: Theme.success
+                color: Theme.warning
                 text: qsTr("Timeout")
                 labelFirst: true
                 ToolTip.visible: timeoutHover.hovered

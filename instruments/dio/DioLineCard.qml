@@ -18,7 +18,7 @@ Rectangle {
     readonly property bool isIn: direction === DioController.In
     readonly property color accentColor: isOut ? Theme.math : isIn ? Theme.ch1 : Theme.textMuted
     // OUT: the written level (ELVISmx semantics); IN: the level read; unused: never lit.
-    readonly property bool level: isOut ? ((controller.writtenValue >= 0 ? controller.writtenLevels : 0) >> line) & 1
+    readonly property bool level: isOut ? ((controller.hasWritten ? controller.writtenLevels : 0) >> line) & 1
                                 : isIn ? (controller.lineStates >> line) & 1 : false
     readonly property var owner: controller.lineOwners[line] ?? ({})
     readonly property bool owned: (owner.owner ?? "").length > 0

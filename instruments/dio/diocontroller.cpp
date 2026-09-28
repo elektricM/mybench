@@ -67,6 +67,16 @@ DioController::DioController() : InstrumentController(u"dio"_s)
             m_releaseOnExit->store(true);
         updateOwners();
     });
+    // Shell hooks: Stop while idle, panel close and session reset release driven lines.
+    connect(this, &DioController::drivenMaskChanged, this, [this] { setHoldsOutputs(m_drivenMask != 0); });
+    // A device reset or unplugging turns every line into an input: the "still driven" state ends.
+    DeviceHub* hub = DeviceHub::instance();
+    connect(hub, &DeviceHub::connectionChanged, this, [this, hub] {
+        if (!hub->isConnected())
+            forgetDrivenLines();
+    });
+    connect(hub, &DeviceHub::resetFinished, this, [this] { forgetDrivenLines(); });
+    connect(hub, &DeviceHub::deviceLost, this, [this] { forgetDrivenLines(); });
     // Quitting: every line we still drive goes back to input.
     if (QCoreApplication* app = QCoreApplication::instance())
         connect(app, &QCoreApplication::aboutToQuit, this, [this] {
@@ -338,6 +348,35 @@ QString DioController::formatValue(int value, Radix radix, int width) const
     return dio::formatValue(value, dio::Radix(radix), width);
 }
 
+QString DioController::numericValueText(bool output) const
+{
+    const Radix radix = output ? m_outputRadix : m_inputRadix;
+    const int value = output ? writtenValue() : (m_hasReading ? inputValue() : 0);
+    return dio::formatValue(value, dio::Radix(radix), 0, false);
+}
+
+int DioController::parseEntry(const QString& text, Radix radix) const
+{
+    return dio::parseEntry(text, dio::Radix(radix), outputMax());
+}
+
+QString DioController::valuesAtTime(double t, Radix radix) const
+{
+    uint8_t levels = 0;
+    for (int line = 0; line < dio::kLines; ++line) {
+        if (m_timeline.levelAt(line, t))
+            levels |= uint8_t(1 << line);
+    }
+    QStringList parts;
+    if (m_inputMask)
+        parts << tr("In %1 %2").arg(dio::radixLetter(dio::Radix(radix)),
+                                    dio::formatValue(dio::gather(levels, uint8_t(m_inputMask)), dio::Radix(radix), 0, false));
+    if (m_outputMask)
+        parts << tr("Out %1 %2").arg(dio::radixLetter(dio::Radix(radix)),
+                                     dio::formatValue(dio::gather(levels, uint8_t(m_outputMask)), dio::Radix(radix), 0, false));
+    return parts.join(u" · "_s);
+}
+
 QString DioController::radixLetter(Radix radix)
 {
     return dio::radixLetter(dio::Radix(radix));
@@ -432,6 +471,19 @@ void DioController::releaseLines(uint8_t mask, bool synchronous)
         job();
     else
         QThreadPool::globalInstance()->start(job);   // never block the UI on the device
+}
+
+void DioController::forgetDrivenLines()
+{
+    if (m_drivenMask == 0)
+        return;
+    m_drivenMask = 0;
+    emit drivenMaskChanged();
+}
+
+void DioController::applySafeState()
+{
+    releaseOutputs();
 }
 
 void DioController::releaseOutputs()
@@ -560,7 +612,8 @@ InstrumentController::WorkerFunction DioController::createWorker()
         } else {
             Clock::time_point nextStep = Clock::now() + std::chrono::milliseconds(current.stepMs);
             Clock::time_point nextSample = Clock::now() + std::chrono::milliseconds(current.sampleMs);
-            while (!ctx.stopRequested()) {
+            // Single pressed while running (ctx.once() turns true) ends the loop after this pass.
+            while (!ctx.stopRequested() && !ctx.once()) {
                 if (std::optional<Live> changed = live->take()) {
                     const bool patternChanged = changed->pattern != current.pattern
                                                 || (changed->pattern == dio::WalkingOnes && changed->direction != current.direction);

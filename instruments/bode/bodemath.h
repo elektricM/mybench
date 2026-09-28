@@ -23,8 +23,8 @@ inline constexpr double kAoRateFraction = 0.9;
 inline constexpr int kAiSamples = 16000;           // samples per channel per acquisition
 inline constexpr double kAiRatePerHertz = 3200.0;   // fs = 3200 · f (5 periods in 16 000 samples)
 inline constexpr double kMinAiRate = 100.0;         // S/s
-inline constexpr int kRangeProbeSamples = 16000;   // range pre-measurement: 1.6 s ...
-inline constexpr double kRangeProbeRate = 10000.0;  // ... at 10 kS/s, ±10 V
+inline constexpr int kRangeProbeSamples = 16000;   // range pre-measurement: 16 000 samples ...
+inline constexpr double kRangeProbeMaxRate = 200000.0;  // ... at up to 200 kS/s (80 ms), ±10 V (observed)
 inline constexpr double kRangeHeadroom = 2.2;       // range must hold 2.2 × amplitude
 inline constexpr double kClipFraction = 0.98;       // a sample at 98 % of the range = clipped
 inline constexpr int kMaxAveragesPerPoint = 16;
@@ -36,6 +36,9 @@ std::vector<double> sweepFrequencies(double start, double stop, int stepsPerDeca
 
 // AI sample rate requested for a point: 3200 · f clamped to [100 S/s, maxRate].
 double acquisitionRate(double frequency, double maxRate);
+// AI rate and duration of the range pre-measurement (observed ELVISmx: 16 000 samples at 200 kS/s).
+double rangeProbeRate(double maxRate);
+double rangeProbeSeconds(double maxRate);
 // Highest AO rate wanted for a point: 10 000 samples per period, at most kAoRateFraction × maxRate.
 double stimulusRateLimit(double frequency, double maxRate);
 // Input range (±2 V or ±10 V) that holds kRangeHeadroom × amplitude (ELVISmx autoscale table

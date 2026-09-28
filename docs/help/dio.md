@@ -32,7 +32,8 @@ lines 4-7. A timeline records the state of every line, like a simple logic analy
   output lines, your label and, if another instrument uses the line, its name. A warning mark
   appears if an output reads back a different level (short circuit or overload).
 - **Timeline** – every line over the last 5, 10, 30 or 60 s (inputs cyan, outputs amber). Buttons:
-  window, cursors (two cursors with the time, Δt and the level of all lines at each), pause (freezes
+  window, cursors (two cursors with the time, Δt and the level of all lines at each, also as a number
+  in Decimal, Hex, Octal, Binary or SI notation: click the radix letter in the cursor box), pause (freezes
   the view while recording continues) and clear. The last 10 minutes are kept.
 
 ## Line Directions
@@ -68,14 +69,18 @@ way round); set the line to `–` to leave it to the other instrument.
   fills with 0.
 - **Step interval** – how long each value of a pattern is held (10 ms – 10 s, default 100 ms).
 - **Release** – after Stop the outputs keep driving their last value; Release makes them inputs
-  again.
+  again. Closing the panel, starting a new session or a device reset also returns them to inputs.
+- **Pattern Number** – type a value in the chosen radix; a value above the maximum is not accepted
+  (the previous one stays). The − / + buttons and the arrow keys step by one.
+- **Numeric Value** – `x 0` before the first reading; no leading zeros in any radix.
 
 ## Run bar
 
 - **Run** – read continuously and drive the outputs until **Stop**. Settings, patterns and even the
   line directions can be changed while running (a pattern then restarts from its first value).
 - **Single** – reads the lines, writes the Manual value once or plays a pattern one time (one step
-  interval per value), reads again, then stops.
+  interval per value), reads again, then stops. Pressed while running it ends the run after the
+  reading in progress.
 - **Stop** – reading and patterns stop; outputs keep their last level until you change their
   direction, press Release or quit. If another instrument takes a line, the outputs are released.
 

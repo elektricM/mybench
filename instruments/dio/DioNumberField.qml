@@ -15,16 +15,13 @@ RowLayout {
     property int bits: 8           // bits (binary padding)
     signal valueModified(int value)
     signal radixSelected(int radix)
-
-    readonly property var bases: [10, 16, 8, 2, 10]
+    // The text typed into the field (validation is the controller's: too large is rejected).
+    signal entered(string text)
 
     spacing: Theme.spacingXs
 
     function commit() {
-        const text = field.text.trim().replace(/^0x/i, "")
-        const parsed = parseInt(text, root.bases[root.radix])
-        if (!isNaN(parsed))
-            root.valueModified(Math.max(0, Math.min(root.maximum, parsed)))
+        root.entered(field.text)
         field.text = Qt.binding(() => field.formatted)
     }
 
