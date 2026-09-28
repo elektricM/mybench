@@ -34,13 +34,113 @@ Item {
             saveDialog.open()
         }
     }
+    function save() {
+        if (!editor.save())
+            saveDialog.open()
+    }
+    function clearSelection() {
+        if (editor.selectionKind === 3)
+            clearAllDialog.open()
+        else
+            editor.deleteSelection()
+    }
+    // File > Close: back to an empty document and the Generator tab (asks to save first).
+    function closeDocument() {
+        guarded(() => {
+            editor.newDocument()
+            controller.activeTab = 0
+        })
+    }
 
-    Shortcut { sequences: [StandardKey.Undo]; enabled: root.visible; onActivated: root.editor.undo() }
-    Shortcut { sequences: [StandardKey.Redo]; enabled: root.visible; onActivated: root.editor.redo() }
-    Shortcut { sequences: [StandardKey.Copy]; enabled: root.visible; onActivated: root.editor.copy() }
-    Shortcut { sequences: [StandardKey.Cut]; enabled: root.visible; onActivated: root.editor.cut() }
-    Shortcut { sequences: [StandardKey.Paste]; enabled: root.visible; onActivated: root.editor.paste() }
-    Shortcut { sequences: [StandardKey.Delete]; enabled: root.visible && segmentList.activeFocus; onActivated: root.editor.deleteSelection() }
+    // Keyboard shortcuts of the ELVISmx editor (File / Edit / Help menus). They apply while the
+    // editor (this view or its inspector cards) has the focus: the ShortcutOverride is accepted
+    // so the shell's session shortcuts (Ctrl+N/O/S/W/I) do not fire, and a text field keeps its
+    // own editing keys (it accepts the override first).
+    function shortcutAction(event: KeyEvent): var {
+        if (!root.visible)
+            return null
+        const ctrl = (event.modifiers & Qt.ControlModifier) !== 0
+        const shift = (event.modifiers & Qt.ShiftModifier) !== 0
+        const alt = (event.modifiers & Qt.AltModifier) !== 0
+        if (alt)
+            return null
+        if (!ctrl) {
+            if ((event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace) && segmentList.activeFocus)
+                return () => root.clearSelection()
+            return null
+        }
+        switch (event.key) {
+        case Qt.Key_N: return () => root.guarded(() => root.editor.newDocument())
+        case Qt.Key_O: return () => root.guarded(() => openDialog.open())
+        case Qt.Key_W: return () => root.closeDocument()
+        case Qt.Key_S: return shift ? () => saveDialog.open() : () => root.save()
+        case Qt.Key_I: return () => infoDialog.open()
+        case Qt.Key_A: return () => root.editor.selectAll()
+        case Qt.Key_H: return () => Help.show("gen")
+        case Qt.Key_Z: return shift ? () => root.editor.redo() : () => root.editor.undo()
+        case Qt.Key_Y: return () => root.editor.redo()
+        case Qt.Key_X: return () => root.editor.cut()
+        case Qt.Key_C: return () => root.editor.copy()
+        case Qt.Key_V: return () => root.editor.paste()
+        default: return null
+        }
+    }
+    // Screenshot scenes (GenPanel, dev executable only).
+    function showScene(scene: string) {
+        if (scene === "settings") {
+            settingsDialog.open()
+        } else if (scene === "draw") {
+            editor.newDocument()
+            editor.segmentDuration = 1
+            editor.newComponent()
+            editor.componentType = 2
+            editor.sketchSamples = 50
+            editor.drawMode = true
+            editor.drawTool = 1
+            editor.addVertex(0.3, 0.8)
+            editor.addVertex(0.7, -0.5)
+        } else if (scene === "unsaved") {
+            editor.newSegment()
+            controller.channel1.mode = GenChannel.Arbitrary
+            controller.loadLibraryWaveform(1, 2)
+            controller.editChannel(1, false)
+        } else if (scene === "tracestyle") {
+            openTraceStyle()
+        } else if (scene === "info") {
+            infoDialog.open()
+        } else if (scene === "menu") {
+            fileMenu.popup(fileButton, 0, fileButton.height)
+        } else if (scene.startsWith("import:")) {
+            importDialog.mode = 0
+            importDialog.openFor("file://" + scene.slice(7))
+        }
+    }
+    function openTraceStyle() {
+        plot.openTraceStyles()
+    }
+    function claimsShortcut(event: KeyEvent): bool {
+        return shortcutAction(event) !== null
+    }
+    function handleShortcut(event: KeyEvent) {
+        const action = shortcutAction(event)
+        if (action) {
+            action()
+            event.accepted = true
+        }
+    }
+
+    Keys.onShortcutOverride: event => event.accepted = root.claimsShortcut(event)
+    Keys.onPressed: event => root.handleShortcut(event)
+    // Showing the editor tab gives it the keyboard focus (its shortcuts work at once).
+    onVisibleChanged: if (visible) segmentList.forceActiveFocus()
+
+    Connections {
+        target: root.controller
+        // Edit on a channel card while this editor holds another, modified document.
+        function onEditChannelNeedsConfirmation(channel: int) {
+            root.guarded(() => root.controller.editChannel(channel, true))
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -51,6 +151,7 @@ Item {
             Layout.fillWidth: true
             spacing: 2
             ActionButton {
+                id: fileButton
                 text: qsTr("File")
                 iconName: "file"
                 compact: true
@@ -58,25 +159,28 @@ Item {
                 onClicked: fileMenu.popup()
                 Menu {
                     id: fileMenu
-                    MenuItem { text: qsTr("New"); icon.source: Theme.icon("file-plus"); onTriggered: root.guarded(() => root.editor.newDocument()) }
-                    MenuItem { text: qsTr("Open…"); icon.source: Theme.icon("folder-open"); onTriggered: root.guarded(() => openDialog.open()) }
-                    MenuItem { text: qsTr("Save"); icon.source: Theme.icon("save"); onTriggered: { if (!root.editor.save()) saveDialog.open() } }
-                    MenuItem { text: qsTr("Save As…"); onTriggered: saveDialog.open() }
+                    width: 260
+                    EditorMenuItem { text: qsTr("New"); iconName: "file-plus"; keys: "Ctrl+N"; onTriggered: root.guarded(() => root.editor.newDocument()) }
+                    EditorMenuItem { text: qsTr("Open…"); iconName: "folder-open"; keys: "Ctrl+O"; onTriggered: root.guarded(() => openDialog.open()) }
+                    EditorMenuItem { text: qsTr("Close"); iconName: "close"; keys: "Ctrl+W"; onTriggered: root.closeDocument() }
                     MenuSeparator {}
-                    MenuItem { text: qsTr("Import from File…"); icon.source: Theme.icon("upload"); onTriggered: { importDialog.mode = 0; importFileDialog.open() } }
-                    MenuItem { text: qsTr("Export…"); icon.source: Theme.icon("download"); onTriggered: exportDialog.open() }
+                    EditorMenuItem { text: qsTr("Save"); iconName: "save"; keys: "Ctrl+S"; onTriggered: root.save() }
+                    EditorMenuItem { text: qsTr("Save As…"); keys: "Ctrl+Shift+S"; onTriggered: saveDialog.open() }
+                    MenuSeparator {}
+                    EditorMenuItem { text: qsTr("Import from File…"); iconName: "upload"; onTriggered: { importDialog.mode = 0; importFileDialog.open() } }
+                    EditorMenuItem { text: qsTr("Export…"); iconName: "download"; onTriggered: exportDialog.open() }
                 }
             }
-            IconButton { iconName: "file-plus"; toolTip: qsTr("New"); onClicked: root.guarded(() => root.editor.newDocument()) }
-            IconButton { iconName: "folder-open"; toolTip: qsTr("Open…"); onClicked: root.guarded(() => openDialog.open()) }
-            IconButton { iconName: "save"; toolTip: qsTr("Save"); onClicked: { if (!root.editor.save()) saveDialog.open() } }
+            IconButton { iconName: "file-plus"; toolTip: qsTr("New"); shortcutText: KeyText.of("Ctrl+N"); onClicked: root.guarded(() => root.editor.newDocument()) }
+            IconButton { iconName: "folder-open"; toolTip: qsTr("Open…"); shortcutText: KeyText.of("Ctrl+O"); onClicked: root.guarded(() => openDialog.open()) }
+            IconButton { iconName: "save"; toolTip: qsTr("Save"); shortcutText: KeyText.of("Ctrl+S"); onClicked: root.save() }
             ToolSeparator {}
-            IconButton { iconName: "chevron-left"; enabled: root.editor.canUndo; toolTip: qsTr("Undo %1").arg(root.editor.undoText); shortcutText: "⌘Z"; onClicked: root.editor.undo() }
-            IconButton { iconName: "chevron-right"; enabled: root.editor.canRedo; toolTip: qsTr("Redo %1").arg(root.editor.redoText); shortcutText: "⇧⌘Z"; onClicked: root.editor.redo() }
+            IconButton { iconName: "chevron-left"; enabled: root.editor.canUndo; toolTip: qsTr("Undo %1").arg(root.editor.undoText); shortcutText: KeyText.of("Ctrl+Z"); onClicked: root.editor.undo() }
+            IconButton { iconName: "chevron-right"; enabled: root.editor.canRedo; toolTip: qsTr("Redo %1").arg(root.editor.redoText); shortcutText: KeyText.of("Ctrl+Shift+Z"); onClicked: root.editor.redo() }
             ToolSeparator {}
-            IconButton { iconName: "copy"; toolTip: qsTr("Copy"); onClicked: root.editor.copy() }
-            IconButton { iconName: "layers"; enabled: root.editor.canPaste; toolTip: qsTr("Paste"); onClicked: root.editor.paste() }
-            IconButton { iconName: "trash"; toolTip: qsTr("Clear (delete the selection)"); onClicked: root.editor.selectionKind === 3 ? clearAllDialog.open() : root.editor.deleteSelection() }
+            IconButton { iconName: "copy"; toolTip: qsTr("Copy"); shortcutText: KeyText.of("Ctrl+C"); onClicked: root.editor.copy() }
+            IconButton { iconName: "layers"; enabled: root.editor.canPaste; toolTip: qsTr("Paste"); shortcutText: KeyText.of("Ctrl+V"); onClicked: root.editor.paste() }
+            IconButton { iconName: "trash"; toolTip: qsTr("Clear (delete the selection)"); shortcutText: qsTr("Del"); onClicked: root.clearSelection() }
             ActionButton {
                 text: qsTr("Edit")
                 compact: true
@@ -84,18 +188,32 @@ Item {
                 onClicked: editMenu.popup()
                 Menu {
                     id: editMenu
-                    MenuItem { text: qsTr("Undo %1").arg(root.editor.undoText); enabled: root.editor.canUndo; onTriggered: root.editor.undo() }
-                    MenuItem { text: qsTr("Redo %1").arg(root.editor.redoText); enabled: root.editor.canRedo; onTriggered: root.editor.redo() }
+                    width: 260
+                    EditorMenuItem { text: qsTr("Undo %1").arg(root.editor.undoText); keys: "Ctrl+Z"; enabled: root.editor.canUndo; onTriggered: root.editor.undo() }
+                    EditorMenuItem { text: qsTr("Redo %1").arg(root.editor.redoText); keys: "Ctrl+Shift+Z"; enabled: root.editor.canRedo; onTriggered: root.editor.redo() }
                     MenuSeparator {}
-                    MenuItem { text: qsTr("Cut"); onTriggered: root.editor.cut() }
-                    MenuItem { text: qsTr("Copy"); onTriggered: root.editor.copy() }
-                    MenuItem { text: qsTr("Paste"); enabled: root.editor.canPaste; onTriggered: root.editor.paste() }
-                    MenuItem { text: qsTr("Clear"); onTriggered: root.editor.selectionKind === 3 ? clearAllDialog.open() : root.editor.deleteSelection() }
-                    MenuItem { text: qsTr("Select All"); onTriggered: root.editor.selectAll() }
+                    EditorMenuItem { text: qsTr("Cut"); keys: "Ctrl+X"; onTriggered: root.editor.cut() }
+                    EditorMenuItem { text: qsTr("Copy"); keys: "Ctrl+C"; onTriggered: root.editor.copy() }
+                    EditorMenuItem { text: qsTr("Paste"); keys: "Ctrl+V"; enabled: root.editor.canPaste; onTriggered: root.editor.paste() }
+                    EditorMenuItem { text: qsTr("Clear"); keys: "Del"; onTriggered: root.clearSelection() }
+                    EditorMenuItem { text: qsTr("Select All"); keys: "Ctrl+A"; onTriggered: root.editor.selectAll() }
                     MenuSeparator {}
-                    MenuItem { text: qsTr("Import from File…"); onTriggered: { importDialog.mode = 0; importFileDialog.open() } }
-                    MenuItem { text: qsTr("Scale Selection…"); onTriggered: scaleDialog.open() }
-                    MenuItem { text: qsTr("Info…"); onTriggered: infoDialog.open() }
+                    EditorMenuItem { text: qsTr("Import from File…"); onTriggered: { importDialog.mode = 0; importFileDialog.open() } }
+                    EditorMenuItem { text: qsTr("Scale Selection…"); onTriggered: scaleDialog.open() }
+                    EditorMenuItem { text: qsTr("Settings…"); iconName: "settings"; onTriggered: settingsDialog.open() }
+                    EditorMenuItem { text: qsTr("Info…"); iconName: "info"; keys: "Ctrl+I"; onTriggered: infoDialog.open() }
+                }
+            }
+            ActionButton {
+                text: qsTr("Help")
+                compact: true
+                tone: "ghost"
+                onClicked: helpMenu.popup()
+                Menu {
+                    id: helpMenu
+                    width: 260
+                    EditorMenuItem { text: qsTr("Waveform Editor Help"); iconName: "help"; keys: "Ctrl+H"; onTriggered: Help.show("gen") }
+                    EditorMenuItem { text: qsTr("About Waveform Editor…"); onTriggered: aboutDialog.open() }
                 }
             }
             Item { Layout.fillWidth: true }
@@ -140,66 +258,111 @@ Item {
 
         // --- Plot -------------------------------------------------------------------------------------
         Item {
+            id: plotBox
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 160
+
+            // Animate Graphs (Settings): the selection highlight glides to the new segment.
+            property real highlightStart: root.editor.highlightStart
+            property real highlightEnd: root.editor.highlightEnd
+            Behavior on highlightStart { enabled: root.editor.animateGraphs; NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+            Behavior on highlightEnd { enabled: root.editor.animateGraphs; NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+            // Axes: the plot's autoscale locks (on by default, as ELVISmx) fit the view to the
+            // rendered data after every edit; a user zoom or pan turns the lock off and is then kept
+            // across edits, until Autoscale or the lock (plot toolbar / right-click menu) is used
+            // again. In Draw mode the Y range is frozen at its extent when Draw was pressed.
+            property bool yLockBeforeDraw: true
+            property bool drawing: false
+            Connections {
+                target: root.editor
+                function onDrawChanged() {
+                    if (root.editor.drawMode === plotBox.drawing)
+                        return
+                    plotBox.drawing = root.editor.drawMode
+                    if (root.editor.drawMode) {
+                        plotBox.yLockBeforeDraw = plot.yAutoscaleLock
+                        plot.yAutoscaleLock = false
+                        plot.yAxis.min = root.editor.viewMin
+                        plot.yAxis.max = root.editor.viewMax
+                    } else {
+                        plot.yAutoscaleLock = plotBox.yLockBeforeDraw
+                    }
+                }
+            }
 
             BenchPlot {
                 id: plot
                 anchors.fill: parent
                 hoverReadout: !root.editor.drawMode
                 dragMode: root.editor.drawMode ? Plot.NoDrag : Plot.Pan
+                cursorsAvailable: !root.editor.drawMode
+                copyDataAvailable: true
+                onCopyDataRequested: root.editor.copyData()
+                cursorsEnabled: root.editor.showCursors
+                onCursorsToggled: on => root.editor.showCursors = on
+                // Trace style: the panel's list (GenPanel). Export data from the plot: the rendered
+                // editor waveform (GenController::exportTable exports it while this tab is shown).
+                xAutoscaleLock: true
+                yAutoscaleLock: true
                 xAxis {
-                    min: root.editor.viewStart
-                    max: root.editor.viewEnd
                     unit: root.frequencyView ? root.editor.unitName : "s"
                     title: root.frequencyView ? qsTr("Frequency") : qsTr("Time")
                     unitInLabels: true
                 }
                 yAxis {
-                    min: root.editor.viewMin
-                    max: root.editor.viewMax
                     unit: root.frequencyView ? "dBVrms" : "V"
                     title: root.frequencyView ? qsTr("Power") : qsTr("Amplitude")
+                    // A flat waveform gets a ±1 V window around its value.
+                    minimumSpan: root.editor.flat ? 2 : 0
                 }
-                onClicked: (x, y) => root.editor.selectAt(x)
+                onClicked: (x, y) => {
+                    root.forceActiveFocus()
+                    root.editor.selectAt(x)
+                }
 
                 PlotRegion {
                     visible: !root.frequencyView && root.editor.view === 0 && root.editor.segmentCount > 1
                              && root.editor.selectionKind !== 3
-                    from: root.editor.highlightStart
-                    to: root.editor.highlightEnd
-                    color: Theme.alpha(Theme.cursor1, Theme.dark ? 0.10 : 0.16)
+                    from: plotBox.highlightStart
+                    to: plotBox.highlightEnd
+                    color: Theme.alpha(root.editor.selectionColor.a > 0 ? root.editor.selectionColor : Theme.cursor1,
+                                       root.editor.selectionColor.a > 0 ? 0.35 : Theme.dark ? 0.10 : 0.16)
                     edgesVisible: true
                 }
                 PlotTrace {
                     id: trace
+                    visible: root.editor.plotVisible
                     buffer: root.editor.preview
                     name: root.editor.documentName
                     unit: root.frequencyView ? "dBV" : "V"
                     color: Theme.accent
-                    width: root.editor.lineWidth
-                    lineVisible: root.editor.plotStyle !== 2
-                    pointsVisible: root.editor.plotStyle !== 0 || root.editor.drawMode
-                    step: root.editor.stepPlot
+                    userStyle: root.editor.traceStyle
+                    pointsVisible: root.editor.drawMode || root.editor.plotStyle !== 0
                 }
                 PlotCursor {
+                    id: cursor1
                     visible: root.editor.showCursors && !root.editor.drawMode
                     label: "C1"
-                    color: Theme.cursor1
+                    color: root.editor.cursorColor.a > 0 ? root.editor.cursorColor : Theme.cursor1
                     trace: trace
                     snap: true
                     position: root.editor.viewStart + 0.25 * (root.editor.viewEnd - root.editor.viewStart)
                 }
                 PlotCursor {
+                    id: cursor2
                     visible: root.editor.showCursors && !root.editor.drawMode
                     label: "C2"
-                    color: Theme.cursor2
+                    color: root.editor.cursorColor.a > 0 ? root.editor.cursorColor : Theme.cursor2
                     trace: trace
                     snap: true
                     position: root.editor.viewStart + 0.75 * (root.editor.viewEnd - root.editor.viewStart)
                 }
             }
+            // Settings colors that replace the theme's (transparent = keep the theme's).
+            Binding { target: plot; property: "gridColor"; value: root.editor.gridColor; when: root.editor.gridColor.a > 0 }
+            Binding { target: plot; property: "plotAreaColor"; value: root.editor.backgroundColor; when: root.editor.backgroundColor.a > 0 }
 
             // Freehand drawing / adding line vertices.
             MouseArea {
@@ -211,7 +374,10 @@ Item {
                 visible: root.editor.drawMode
                 cursorShape: Qt.CrossCursor
                 acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
+                property point pointer: Qt.point(NaN, NaN)
                 onWheel: wheel => wheel.accepted = false
+                onExited: pointer = Qt.point(NaN, NaN)
                 function valueAt(mx: real, my: real): point {
                     const p = mapToItem(plot, mx, my)
                     return Qt.point(plot.pixelToX(p.x), plot.pixelToY(p.y))
@@ -222,10 +388,10 @@ Item {
                         root.editor.drawBegin(v.x, v.y)
                 }
                 onPositionChanged: mouse => {
-                    if (pressed && root.editor.drawTool === 0) {
-                        const v = valueAt(mouse.x, mouse.y)
+                    const v = valueAt(mouse.x, mouse.y)
+                    pointer = v
+                    if (pressed && root.editor.drawTool === 0)
                         root.editor.drawTo(v.x, v.y)
-                    }
                 }
                 onReleased: root.editor.drawEnd()
                 onClicked: mouse => {
@@ -303,6 +469,18 @@ Item {
                     id: drawRow
                     anchors.centerIn: parent
                     spacing: Theme.spacingS
+                    Text {
+                        // ELVISmx "Mouse Position" indicator.
+                        Layout.preferredWidth: 190
+                        text: isNaN(drawArea.pointer.x) ? qsTr("x: —   y: —")
+                              : qsTr("x: %1   y: %2").arg(Units.format(drawArea.pointer.x, "s", 4)).arg(Units.format(drawArea.pointer.y, "V", 4))
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeS
+                        font.features: Theme.tabularFigures
+                        ToolTip.visible: positionHover.hovered
+                        ToolTip.text: qsTr("Mouse position")
+                        HoverHandler { id: positionHover }
+                    }
                     SegmentedControl {
                         compact: true
                         model: [ { text: qsTr("Freehand"), icon: "edit", toolTip: qsTr("Hold the mouse button and draw") },
@@ -351,6 +529,8 @@ Item {
                 spacing: 4
                 RowLayout {
                     spacing: 2
+                    // Draw mode grays the structure controls (ELVISmx) until Draw is released.
+                    enabled: !root.editor.drawMode
                     IconButton {
                         iconName: "chevron-left"
                         size: Theme.controlHeightS
@@ -366,6 +546,7 @@ Item {
                         showArrows: false
                         from: 1
                         to: Math.max(1, root.editor.segmentCount)
+                        toolTip: qsTr("Index of the selected segment (1 to %1)").arg(root.editor.segmentCount)
                         value: root.editor.segmentIndex + 1
                         onValueModified: v => root.editor.selectSegment(Math.round(v) - 1)
                     }
@@ -383,6 +564,18 @@ Item {
                     }
                     Item { Layout.fillWidth: true }
                     Text {
+                        // Two-cursor readout (Settings > Show Cursors).
+                        visible: cursor1.visible
+                        readonly property real dx: cursor2.position - cursor1.position
+                        text: root.frequencyView
+                              ? qsTr("ΔX %1   ΔY %2").arg(Units.format(dx, root.editor.unitName, 4)).arg(Units.format(cursor2.value - cursor1.value, "dB", 4))
+                              : qsTr("ΔX %1   ΔY %2   1/ΔX %3").arg(Units.format(dx, "s", 4)).arg(Units.format(cursor2.value - cursor1.value, "V", 4))
+                                    .arg(Math.abs(dx) > 0 ? Units.format(1 / Math.abs(dx), "Hz", 4) : "—")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeS
+                        font.features: Theme.tabularFigures
+                    }
+                    Text {
                         text: root.editor.statusText
                         color: Theme.textMuted
                         font.pixelSize: Theme.fontSizeS
@@ -398,6 +591,8 @@ Item {
                     color: Theme.surfaceSunken
                     border.width: 1
                     border.color: segmentList.activeFocus ? Theme.accent : Theme.border
+                    enabled: !root.editor.drawMode
+                    opacity: enabled ? 1 : 0.55
 
                     ListView {
                         id: segmentList
@@ -492,14 +687,17 @@ Item {
                 Layout.preferredWidth: 150
                 Layout.fillWidth: false
                 spacing: 4
-                ActionButton { Layout.fillWidth: true; text: qsTr("New Segment"); iconName: "plus"; compact: true; onClicked: root.editor.newSegment() }
+                enabled: !root.editor.drawMode
+                ActionButton { Layout.fillWidth: true; text: qsTr("New Segment"); iconName: "plus"; compact: true
+                               toolTip: qsTr("Insert an empty 1 s segment after the current one"); onClicked: root.editor.newSegment() }
                 ActionButton { Layout.fillWidth: true; text: qsTr("New Component"); iconName: "plus"; compact: true
+                               toolTip: qsTr("Insert a component (the last library function chosen) after the selection")
                                enabled: root.editor.selectionKind !== 3; onClicked: root.editor.newComponent() }
                 RowLayout {
                     spacing: 2
                     IconButton { iconName: "chevron-up"; size: Theme.controlHeightS; toolTip: qsTr("Move up (Alt+↑)"); onClicked: root.editor.moveSelection(-1) }
                     IconButton { iconName: "chevron-down"; size: Theme.controlHeightS; toolTip: qsTr("Move down (Alt+↓)"); onClicked: root.editor.moveSelection(1) }
-                    IconButton { iconName: "trash"; size: Theme.controlHeightS; toolTip: qsTr("Clear"); onClicked: root.editor.selectionKind === 3 ? clearAllDialog.open() : root.editor.deleteSelection() }
+                    IconButton { iconName: "trash"; size: Theme.controlHeightS; toolTip: qsTr("Clear"); onClicked: root.clearSelection() }
                     IconButton { iconName: "grid"; size: Theme.controlHeightS; toolTip: qsTr("Select All"); onClicked: root.editor.selectAll() }
                 }
             }
@@ -521,7 +719,8 @@ Item {
     FileDialog {
         id: openDialog
         title: qsTr("Open waveform")
-        nameFilters: [qsTr("Waveforms (*.mbw *.wav *.csv *.txt *.bin *.wdt)"), qsTr("MYBENCH waveform (*.mbw)"), qsTr("All files (*)")]
+        nameFilters: [qsTr("Waveforms (*.mbw *.wfm *.wav *.csv *.txt *.bin *.wdt)"), qsTr("MYBENCH waveform (*.mbw)"),
+                      qsTr("NI Waveform Editor document (*.wfm)"), qsTr("All files (*)")]
         onAccepted: root.editor.openFile(selectedFile)
     }
     FileDialog {
@@ -543,7 +742,8 @@ Item {
         id: exportDialog
         title: qsTr("Export rendered waveform")
         fileMode: FileDialog.SaveFile
-        nameFilters: [qsTr("CSV (*.csv)"), qsTr("WAV audio, 32-bit float (*.wav)"), qsTr("Binary 16-bit, ±5 V (*.bin)")]
+        nameFilters: [qsTr("CSV (*.csv)"), qsTr("WAV audio, 32-bit float (*.wav)"), qsTr("Binary 16-bit, ±5 V (*.bin)"),
+                      qsTr("LabVIEW waveform, MYBENCH layout (*.wdt)")]
         defaultSuffix: "csv"
         onAccepted: root.editor.exportFile(selectedFile)
     }
@@ -565,19 +765,58 @@ Item {
     }
     Dialog {
         id: infoDialog
-        title: qsTr("Waveform Info")
+        title: qsTr("Information")
         anchors.centerIn: Overlay.overlay
         modal: true
-        width: 440
+        width: 460
         standardButtons: Dialog.Ok | Dialog.Cancel
         onOpened: infoText.text = root.editor.info
         onAccepted: root.editor.info = infoText.text
-        TextArea {
-            id: infoText
+        ColumnLayout {
             anchors.fill: parent
-            implicitHeight: 140
-            placeholderText: qsTr("Description of this waveform")
-            wrapMode: TextEdit.Wrap
+            spacing: Theme.spacingS
+            Field {
+                Layout.fillWidth: true
+                label: qsTr("File")
+                TextField {
+                    Layout.fillWidth: true
+                    readOnly: true
+                    text: root.editor.filePath
+                    placeholderText: qsTr("(not saved yet)")
+                    selectByMouse: true
+                }
+            }
+            Field {
+                Layout.fillWidth: true
+                label: qsTr("Description")
+                TextArea {
+                    id: infoText
+                    Layout.fillWidth: true
+                    implicitHeight: 140
+                    placeholderText: qsTr("Description of this waveform")
+                    wrapMode: TextEdit.Wrap
+                }
+            }
+        }
+    }
+    EditorSettingsDialog {
+        id: settingsDialog
+        editor: root.editor
+    }
+    Dialog {
+        id: aboutDialog
+        title: qsTr("About Waveform Editor")
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        width: 400
+        standardButtons: Dialog.Ok
+        Text {
+            width: parent.width
+            text: qsTr("Waveform Editor of the %1 Waveform Generator, version %2.\n\nBuilds arbitrary waveforms from segments of library functions, expressions and freehand sketches, and plays them on AO 0 / AO 1 or the audio outputs.")
+                  .arg(AppInfo.name).arg(AppInfo.version)
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSizeBody
+            wrapMode: Text.WordWrap
         }
     }
     ConfirmDialog {

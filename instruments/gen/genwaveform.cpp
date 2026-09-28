@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <cstring>
+#include <random>
 #include <numbers>
 
 using namespace Qt::StringLiterals;
@@ -29,8 +31,8 @@ QString tr(const char* text)
 
 using K = ParamKind;
 
-// The library, in ELVISmx order (docs/instruments/algorithms/gen.md 3.4). Defaults of the
-// parameters are MYBENCH choices except Sine's {1, 0, 1, 0} (the editor's new component).
+// The library, in ELVISmx order (docs/instruments/algorithms/gen.md 3.4) with the parameter
+// names and defaults verified in the ELVISmx UI (gen.md 4.3.4).
 const std::vector<FunctionInfo>& library()
 {
     static const std::vector<FunctionInfo> table = [] {
@@ -38,15 +40,16 @@ const std::vector<FunctionInfo>& library()
         const ParamInfo offset{"offset", "Offset", K::Voltage, 0.0, -1000, 1000};
         const ParamInfo frequency{"frequency", "Freq", K::Frequency, 1.0, 0, kMaxFrequency};
         const ParamInfo phase{"phase", "Phase", K::Degrees, 0.0, -360, 360};
-        const ParamInfo startFrequency{"startFrequency", "Start Freq", K::Frequency, 1.0, 0, kMaxFrequency};
-        const ParamInfo stopFrequency{"stopFrequency", "Stop Freq", K::Frequency, 10.0, 0, kMaxFrequency};
+        const ParamInfo startFrequency{"startFrequency", "Start Freq", K::Frequency, 0.1, 0, kMaxFrequency};
+        const ParamInfo stopFrequency{"stopFrequency", "Stop Freq", K::Frequency, 1.0, 0, kMaxFrequency};
         const ParamInfo start{"start", "Start", K::Voltage, -1.0, -1000, 1000};
         const ParamInfo end{"end", "End", K::Voltage, 1.0, -1000, 1000};
-        const ParamInfo delay{"delay", "Delay", K::Percent, 10.0, 0, 100};
+        const ParamInfo delay{"delay", "Delay", K::Percent, 20.0, 0, 100};
         const ParamInfo rise{"rise", "Rise", K::Percent, 20.0, 0, 100};
-        const ParamInfo hold{"hold", "Hold", K::Percent, 40.0, 0, 100};
+        const ParamInfo hold{"hold", "Hold", K::Percent, 20.0, 0, 100};
         const ParamInfo fall{"fall", "Fall", K::Percent, 20.0, 0, 100};
-        const ParamInfo tau{"tau", "Tau", K::Seconds, 0.2, 1e-6, 1e6};
+        // Dimensionless steepness of the exponentials (e^(Tau u) over one period).
+        const ParamInfo tau{"tau", "Tau", K::Number, 5.0, 1e-4, 700};
         using F = LibraryFunction;
         return std::vector<FunctionInfo>{
             {F::DcLevel, "dcLevel", "DC Level", "DC Level", {{"offset", "Offset", K::Voltage, 1.0, -1000, 1000}}, false, false},
@@ -58,7 +61,7 @@ const std::vector<FunctionInfo>& library()
             {F::UniformNoise, "uniformNoise", "Uniform Noise", "Uniform Noise", {amplitude, offset}, false, true},
             {F::TriangularNoise, "triangularNoise", "Triangular Noise", "Triangular Noise", {amplitude, offset}, false, true},
             {F::GaussianNoise, "gaussianNoise", "Gaussian Noise", "Gaussian Noise",
-             {{"level", "Level", K::Voltage, 0.25, 0, 1000}, offset}, false, true},
+             {{"level", "Level", K::Voltage, 1.0, 0, 1000}, offset}, false, true},
             {F::RisingExponential, "risingExponential", "Rising Exponential", "Rising Exp", {amplitude, offset, frequency, tau}, true, false},
             {F::FallingExponential, "fallingExponential", "Falling Exponential", "Falling Exp", {amplitude, offset, frequency, tau}, true, false},
             {F::Hanning, "hanning", "Hanning", "Hanning", {amplitude, offset}, false, false},
@@ -68,9 +71,11 @@ const std::vector<FunctionInfo>& library()
             {F::Sinc, "sinc", "Sin x/x", "Sin x/x", {amplitude, offset, frequency}, false, false},
             {F::Multitone, "multitone", "Multitone", "Multitone", {amplitude, offset, startFrequency, stopFrequency}, false, false},
             {F::Trapezoid, "trapezoid", "Trapezoid", "Trapezoid", {amplitude, delay, rise, hold, fall}, false, false},
-            {F::Stairstep, "stairstep", "Stairstep", "Stairstep", {start, end, {"steps", "Steps", K::Count, 5, 1, 100000}}, false, false},
+            {F::Stairstep, "stairstep", "Stairstep", "Stairstep",
+             {start, {"end", "Stop", K::Voltage, 1.0, -1000, 1000}, {"steps", "Steps", K::Count, 10, 1, 100000}}, false, false},
             {F::Circle, "circle", "Circle", "Circle", {amplitude, offset, frequency}, true, false},
-            {F::Haversine, "haversine", "Haversine", "Haversine", {start, end}, false, false},
+            {F::Haversine, "haversine", "Haversine", "Haversine",
+             {{"start", "Start", K::Voltage, 0.0, -1000, 1000}, end}, false, false},
             {F::Pulse, "pulse", "Pulse", "Pulse", {amplitude, delay, rise, hold, fall}, false, false},
         };
     }();
@@ -89,6 +94,15 @@ int paramIndex(const FunctionInfo& info, const char* key)
 double frac(double v)
 {
     return v - std::floor(v);
+}
+
+// Seed of a noise component: 0 = a new sequence at every render (ELVISmx behaviour).
+uint64_t noiseSeed(const Component& component)
+{
+    if (component.seed != 0)
+        return component.seed;
+    static std::atomic<uint64_t> counter{0};
+    return (uint64_t(std::random_device{}()) << 32) ^ uint64_t(std::random_device{}()) ^ ++counter;
 }
 
 // Piecewise-linear breakpoints in percent of the segment (Trapezoid/Pulse): value in [0, 1].
@@ -189,13 +203,13 @@ std::vector<double> evaluateComponent(const Component& component, const std::vec
         }
         break;
     case F::UniformNoise: {
-        NoiseGenerator rng(component.seed);
+        NoiseGenerator rng(noiseSeed(component));
         for (double& v : y)
             v = offset + amplitude * (2.0 * rng.uniform() - 1.0);
         break;
     }
     case F::TriangularNoise: {
-        NoiseGenerator rng(component.seed);
+        NoiseGenerator rng(noiseSeed(component));
         for (double& v : y) {
             const double r1 = rng.uniform();
             v = offset + amplitude * (r1 + rng.uniform() - 1.0);
@@ -203,20 +217,29 @@ std::vector<double> evaluateComponent(const Component& component, const std::vec
         break;
     }
     case F::GaussianNoise: {
-        NoiseGenerator rng(component.seed);
-        const double level = p("level", 0.25);
+        NoiseGenerator rng(noiseSeed(component));
+        const double level = p("level", 1.0);
         for (double& v : y)
             v = offset + level * rng.gaussian();
         break;
     }
     case F::RisingExponential:
     case F::FallingExponential: {
-        const double tau = std::max(1e-9, p("tau", 0.2));
+        // Per period, u = frac(f t): rising (e^(Tau u) - 1) / (e^Tau - 1) goes 0 -> 1, steep at
+        // the end; falling (e^(-Tau u) - e^-Tau) / (1 - e^-Tau) goes 1 -> 0, steep at the start
+        // (the shapes observed in ELVISmx, gen.md 4.3.4). Tau -> 0 tends to a ramp.
+        const double tau = std::clamp(p("tau", 5.0), -700.0, 700.0);
         const bool rising = component.function == F::RisingExponential;
         for (size_t i = 0; i < t.size(); ++i) {
-            const double inPeriod = frac(frequency * t[i]) / frequency;   // s since the period start
-            const double e = std::exp(-inPeriod / tau);
-            y[i] = offset + amplitude * (rising ? 1.0 - e : e);
+            const double u = frac(frequency * t[i]);
+            double shape;
+            if (std::abs(tau) < 1e-9)
+                shape = rising ? u : 1.0 - u;
+            else if (rising)
+                shape = std::expm1(tau * u) / std::expm1(tau);
+            else
+                shape = (std::exp(-tau * u) - std::exp(-tau)) / -std::expm1(-tau);
+            y[i] = offset + amplitude * shape;
         }
         break;
     }
@@ -227,9 +250,8 @@ std::vector<double> evaluateComponent(const Component& component, const std::vec
     case F::Ramp: {
         const double s = p("start", -1.0);
         const double e = p("end", 1.0);
-        const double last = n > 1 ? double(n - 1) / rate : duration;   // End reached on the last sample
         for (size_t i = 0; i < t.size(); ++i)
-            y[i] = s + (e - s) * std::clamp(t[i] / last, 0.0, 1.0);
+            y[i] = s + (e - s) * std::clamp(t[i] / duration, 0.0, 1.0);   // v = t / D
         break;
     }
     case F::LinearSweep: {
@@ -254,11 +276,10 @@ std::vector<double> evaluateComponent(const Component& component, const std::vec
         break;
     }
     case F::Sinc: {
-        // One sin(pi z)/(pi z) lobe pattern: peak half a period after the segment start, zeros
-        // every period (NI Sinc Pattern with delay = half a period, dt from the frequency).
+        // sinc(2 f (t - D/2)): main lobe centred in the segment, zeros every 1 / (2f) (observed).
         const double f = frequency > 0 ? frequency : 1.0 / duration;
         for (size_t i = 0; i < t.size(); ++i) {
-            const double z = f * t[i] - 0.5;
+            const double z = 2.0 * f * (t[i] - duration / 2.0);
             const double s = std::abs(z) < 1e-12 ? 1.0 : std::sin(std::numbers::pi * z) / (std::numbers::pi * z);
             y[i] = offset + amplitude * s;
         }
@@ -306,9 +327,9 @@ std::vector<double> evaluateComponent(const Component& component, const std::vec
     case F::Trapezoid:
     case F::Pulse: {
         const bool smooth = component.function == F::Pulse;
-        const double delay = std::clamp(p("delay", 10), 0.0, 100.0);
+        const double delay = std::clamp(p("delay", 20), 0.0, 100.0);
         const double rise = std::clamp(p("rise", 20), 0.0, 100.0);
-        const double hold = std::clamp(p("hold", 40), 0.0, 100.0);
+        const double hold = std::clamp(p("hold", 20), 0.0, 100.0);
         const double fall = std::clamp(p("fall", 20), 0.0, 100.0);
         for (size_t i = 0; i < t.size(); ++i) {
             const double percent = 100.0 * t[i] / duration;
@@ -319,7 +340,7 @@ std::vector<double> evaluateComponent(const Component& component, const std::vec
     case F::Stairstep: {
         const double s = p("start", -1.0);
         const double e = p("end", 1.0);
-        const int steps = std::max(1, int(std::lround(p("steps", 5))));
+        const int steps = std::max(1, int(std::lround(p("steps", 10))));
         for (size_t i = 0; i < t.size(); ++i) {
             const int level = std::clamp(int(std::floor(t[i] / duration * steps)), 0, steps - 1);
             y[i] = steps == 1 ? s : s + (e - s) * double(level) / double(steps - 1);
@@ -327,11 +348,10 @@ std::vector<double> evaluateComponent(const Component& component, const std::vec
         break;
     }
     case F::Circle:
+        // One arch per period spanning -A ... +A (observed): 2 sqrt(1 - (2u - 1)^2) - 1.
         for (size_t i = 0; i < t.size(); ++i) {
             const double u = frac(frequency * t[i]);
-            const double s = u < 0.5 ? std::sqrt(std::max(0.0, 1.0 - std::pow(4 * u - 1, 2)))
-                                     : -std::sqrt(std::max(0.0, 1.0 - std::pow(4 * u - 3, 2)));
-            y[i] = offset + amplitude * s;
+            y[i] = offset + amplitude * (2.0 * std::sqrt(std::max(0.0, 1.0 - std::pow(2.0 * u - 1.0, 2))) - 1.0);
         }
         break;
     case F::Haversine: {
@@ -480,11 +500,30 @@ const FunctionInfo& functionInfo(LibraryFunction function)
 
 std::optional<LibraryFunction> functionFromId(const QString& id)
 {
+    if (id.compare(u"triangleNoise"_s, Qt::CaseInsensitive) == 0)
+        return LibraryFunction::TriangularNoise;   // gen.md 4.3.10 spelling
     for (const FunctionInfo& info : library()) {
         if (id.compare(QLatin1StringView(info.id), Qt::CaseInsensitive) == 0)
             return info.function;
     }
     return std::nullopt;
+}
+
+double coercePercentParam(const Component& component, const char* key, double value)
+{
+    if (component.type != ComponentType::Library
+        || (component.function != LibraryFunction::Trapezoid && component.function != LibraryFunction::Pulse))
+        return value;
+    static const char* keys[] = {"delay", "rise", "hold", "fall"};
+    double others = 0;
+    bool breakpoint = false;
+    for (const char* k : keys) {
+        if (std::strcmp(k, key) == 0)
+            breakpoint = true;
+        else
+            others += std::clamp(component.param(k), 0.0, 100.0);
+    }
+    return breakpoint ? std::clamp(value, 0.0, std::max(0.0, 100.0 - others)) : value;
 }
 
 QString functionName(LibraryFunction function)

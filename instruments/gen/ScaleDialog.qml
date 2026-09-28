@@ -31,7 +31,7 @@ Dialog {
                 id: timeFactor
                 Layout.fillWidth: true
                 engineering: false
-                decimals: 4
+                decimals: 3
                 stepSize: 0.1
                 from: 0.0001
                 to: 10000
@@ -46,7 +46,7 @@ Dialog {
                 id: amplitudeFactor
                 Layout.fillWidth: true
                 engineering: false
-                decimals: 4
+                decimals: 3
                 stepSize: 0.1
                 from: -10000
                 to: 10000

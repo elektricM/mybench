@@ -161,8 +161,8 @@ bool isRegenerable(const EngineSettings& settings)
             function = &c;
             break;
         case ChannelMode::Arbitrary:
-            if (!c.arb.waveform)
-                return false;
+            if (!c.arb.waveform || c.arb.linear)
+                return false;   // Linear interpolation needs the stream
             if (arbitrary
                 && (waveformLength(arbitrary->arb) != waveformLength(c.arb) || arbitrary->arb.updateRate != c.arb.updateRate
                     || arbitrary->arb.once != c.arb.once))
@@ -192,15 +192,29 @@ StrategyKind chooseStrategy(const EngineSettings& settings, StrategyKind current
     }
     if (!live)
         return StrategyKind::None;
-    if (settings.preference == EnginePreference::Stream && streamingSupported)
-        return StrategyKind::Stream;
-    if (current == StrategyKind::Stream && settings.preference == EnginePreference::Auto && streamingSupported)
-        return StrategyKind::Stream;   // never downgrade a running stream
+    const bool regenerable = isRegenerable(settings);
+    switch (settings.preference) {
+    case EnginePreference::Stream:
+        if (streamingSupported)
+            return StrategyKind::Stream;
+        break;
+    case EnginePreference::Regenerate:
+        if (allDc && settings.pair == OutputPair::AnalogOutputs)
+            return StrategyKind::Static;
+        return regenerable ? StrategyKind::Regenerate : StrategyKind::Stream;
+    case EnginePreference::Auto:
+        if (current == StrategyKind::Stream && streamingSupported)
+            return StrategyKind::Stream;   // never downgrade a running stream
+        if (allDc && settings.pair == OutputPair::AnalogOutputs)
+            return StrategyKind::Static;
+        if (streamingSupported)
+            return StrategyKind::Stream;
+        break;
+    }
+    // The backend cannot stream: the looped buffer when it can represent the outputs.
     if (allDc && settings.pair == OutputPair::AnalogOutputs)
         return StrategyKind::Static;
-    if (isRegenerable(settings))
-        return StrategyKind::Regenerate;
-    return StrategyKind::Stream;
+    return regenerable ? StrategyKind::Regenerate : StrategyKind::Stream;
 }
 
 // --- Strategies ---------------------------------------------------------------------------------
@@ -338,7 +352,9 @@ public:
                 m_done = true;
                 for (size_t k = 0; k < m_spec.indices.size(); ++k) {
                     const int i = m_spec.indices[k];
-                    m_finished.push_back({i, m_settings.channels[size_t(i)].startId, true, m_spec.buffers[k].back()});
+                    const ChannelSettings& c = m_settings.channels[size_t(i)];
+                    const bool hold = !c.arb.zeroAfterOnce;
+                    m_finished.push_back({i, c.startId, hold, hold ? m_spec.buffers[k].back() : 0.0});
                 }
             }
             return;
@@ -361,7 +377,13 @@ public:
             cs.startId = c.startId;
             cs.state = m_done ? ChannelState::Done : ChannelState::Running;
             switch (c.mode) {
-            case ChannelMode::Function: cs.frequency = s.taskRate / double(m_spec.length); break;
+            case ChannelMode::Function:
+                // The display shows the requested frequency (as ELVISmx); the buffer's own
+                // frequency is reported separately for the caption.
+                cs.frequency = c.function.frequency;
+                cs.bufferLength = int(m_spec.length);
+                cs.bufferFrequency = s.taskRate / double(m_spec.length);
+                break;
             case ChannelMode::Arbitrary:
                 cs.updateRate = s.taskRate;
                 if (m_done)
@@ -423,7 +445,7 @@ private:
             spec.rate = plan.rate;
             spec.length = plan.length;
         } else if (arbitrary) {
-            spec.rate = m_device.coerceAoRate(std::clamp(arbitrary->arb.updateRate, 1.0, maxRate));
+            spec.rate = m_device.coerceAoRate(std::clamp(arbitrary->arb.updateRate, kMinUpdateRate, maxRate));
             spec.length = waveformLength(arbitrary->arb);
             spec.finite = arbitrary->arb.once;
         } else {
@@ -565,6 +587,10 @@ public:
             }
             break;
         case ChannelMode::Arbitrary:
+            if (m_done && m_settings.arb.zeroAfterOnce) {
+                s.finished = true;   // back at 0 V: Idle
+                break;
+            }
             s.state = m_done ? ChannelState::Done : ChannelState::Running;
             s.updateRate = m_positionIncrement * m_rate;
             s.level = m_held;
@@ -581,7 +607,7 @@ public:
     bool finished() const { return m_done; }
     double held() const { return m_held; }
     uint64_t startId() const { return m_settings.startId; }
-    bool isArbitrary() const { return m_settings.mode == ChannelMode::Arbitrary; }
+    bool holdsAtEnd() const { return m_settings.mode == ChannelMode::Arbitrary && !m_settings.arb.zeroAfterOnce; }
     bool live() const { return m_live; }
 
 private:
@@ -648,7 +674,7 @@ private:
             if (m_position >= length) {
                 if (once) {
                     m_done = true;
-                    m_held = clip(gain * sampleAt(size_t(length) - 1), m_range);
+                    m_held = m_settings.arb.zeroAfterOnce ? 0.0 : clip(gain * sampleAt(size_t(length) - 1), m_range);
                     finishedAt = int64_t(i);
                     std::fill(out + i, out + n, m_held);
                     break;
@@ -796,7 +822,7 @@ private:
             const int64_t finishedAt = synth.render(data[size_t(i)].data(), n);
             if (finishedAt >= 0)
                 m_finishEvents.push_back({m_written + finishedAt,
-                                          FinishEvent{i, synth.startId(), synth.isArbitrary(), synth.held()}});
+                                          FinishEvent{i, synth.startId(), synth.holdsAtEnd(), synth.held()}});
         }
         EngineStatus s;
         s.strategy = StrategyKind::Stream;
@@ -869,6 +895,13 @@ private:
     std::deque<std::pair<int64_t, FinishEvent>> m_finishEvents;
     EngineStatus m_playedStatus;
 };
+
+mydaq::DeviceError userFacingError(const mydaq::DeviceError& error)
+{
+    if (error.code() == mydaq::DeviceError::Underflow)
+        return mydaq::DeviceError(mydaq::DeviceError::Generic, error.message());
+    return error;
+}
 
 // --- Engine -------------------------------------------------------------------------------------
 
@@ -965,12 +998,20 @@ EngineResult Engine::run(const EngineSettings& initial)
             }
             EngineStatus status = strategy->status();
             for (int i = 0; i < 2; ++i) {
-                // A finished channel keeps reporting its end state (Done / sweep finished).
-                if (finished[size_t(i)] && status.channels[size_t(i)].state != ChannelState::Done
-                    && result.done[size_t(i)]) {
-                    status.channels[size_t(i)].state = ChannelState::Done;
-                    status.channels[size_t(i)].level = result.held[size_t(i)];
-                    status.channels[size_t(i)].startId = result.startId[size_t(i)];
+                // A finished channel keeps reporting its end state (Done / sweep finished / back
+                // at 0 V after Run Once).
+                ChannelStatus& cs = status.channels[size_t(i)];
+                if (!finished[size_t(i)])
+                    continue;
+                if (result.done[size_t(i)] && cs.state != ChannelState::Done) {
+                    cs.state = ChannelState::Done;
+                    cs.level = result.held[size_t(i)];
+                    cs.startId = result.startId[size_t(i)];
+                } else if (!result.done[size_t(i)] && !cs.sweepFinished && !cs.finished
+                           && settings.channels[size_t(i)].mode == ChannelMode::Arbitrary) {
+                    cs = ChannelStatus{};
+                    cs.startId = *finished[size_t(i)];
+                    cs.finished = true;
                 }
             }
             if (!published || !(*published == status)) {

@@ -8,6 +8,7 @@
 #include <numbers>
 
 using namespace mybench::instruments::gen;
+using namespace Qt::StringLiterals;
 
 namespace {
 
@@ -130,43 +131,98 @@ private slots:
         QCOMPARE(one(dc)[123], 2.5);
 
         // Whole-segment functions
-        auto ramp = one(Component::library(LibraryFunction::Ramp));
+        auto ramp = one(Component::library(LibraryFunction::Ramp));   // Start + (End - Start) t / D
         QCOMPARE(ramp.front(), -1.0);
-        QVERIFY(std::abs(ramp.back() - 1.0) < 1e-12);
+        QVERIFY(std::abs(ramp[500]) < 1e-12);
+        QVERIFY(std::abs(ramp.back() - 0.998) < 1e-12);
         auto hanning = one(Component::library(LibraryFunction::Hanning));
         QVERIFY(std::abs(hanning[0]) < 1e-12 && std::abs(hanning[500] - 1.0) < 1e-12);
-        auto haversine = one(Component::library(LibraryFunction::Haversine));
-        QVERIFY(std::abs(haversine[0] + 1.0) < 1e-12);     // (Start-End)/2 cos(0) + (Start+End)/2 = Start
-        QVERIFY(std::abs(haversine[500]) < 1e-12);
-        auto stairs = one(Component::library(LibraryFunction::Stairstep));   // 5 levels -1 .. 1
+        auto haversine = one(Component::library(LibraryFunction::Haversine));   // 0 -> 1
+        QVERIFY(std::abs(haversine[0]) < 1e-12);           // (Start-End)/2 cos(0) + (Start+End)/2 = Start
+        QVERIFY(std::abs(haversine[500] - 0.5) < 1e-12);
+        auto stairs = one(Component::library(LibraryFunction::Stairstep));   // 10 levels -1 .. 1
         QCOMPARE(stairs[0], -1.0);
-        QCOMPARE(stairs[200], -0.5);
+        QVERIFY(std::abs(stairs[200] - (-1.0 + 2.0 * 2 / 9)) < 1e-12);
         QCOMPARE(stairs[999], 1.0);
-        auto trap = one(Component::library(LibraryFunction::Trapezoid));   // 10 % delay, 20 % rise, 40 % hold
-        QCOMPARE(trap[50], 0.0);
-        QVERIFY(std::abs(trap[200] - 0.5) < 1e-9);
+        auto trap = one(Component::library(LibraryFunction::Trapezoid));   // 20 % delay, rise, hold, fall
+        QCOMPARE(trap[100], 0.0);
+        QVERIFY(std::abs(trap[300] - 0.5) < 1e-9);
         QCOMPARE(trap[500], 1.0);
-        QVERIFY(std::abs(trap[800] - 0.5) < 1e-9);
-        QCOMPARE(trap[950], 0.0);
+        QVERIFY(std::abs(trap[700] - 0.5) < 1e-9);
+        QCOMPARE(trap[900], 0.0);
         auto pulse = one(Component::library(LibraryFunction::Pulse));
         QCOMPARE(pulse[500], 1.0);
-        QVERIFY(std::abs(pulse[200] - 0.5) < 1e-9);   // raised-cosine edge crosses half at mid-rise
-
-        auto rising = one(Component::library(LibraryFunction::RisingExponential));
-        QVERIFY(std::abs(rising[0]) < 1e-12);
-        QVERIFY(std::abs(rising[200] - (1 - std::exp(-1.0))) < 1e-9);   // tau = 0.2 s
-        auto falling = one(Component::library(LibraryFunction::FallingExponential));
-        QVERIFY(std::abs(falling[0] - 1.0) < 1e-12);
-
-        auto circle = one(Component::library(LibraryFunction::Circle));
-        QVERIFY(std::abs(circle[250] - 1.0) < 1e-12 && std::abs(circle[750] + 1.0) < 1e-12);
-        auto sinc = one(Component::library(LibraryFunction::Sinc));
-        QVERIFY(std::abs(sinc[500] - 1.0) < 1e-12);
+        QVERIFY(std::abs(pulse[300] - 0.5) < 1e-9);   // raised-cosine edge crosses half at mid-rise
 
         Component multitone = Component::library(LibraryFunction::Multitone);
         multitone.setParam("amplitude", 2.0);
         auto mt = one(multitone);
         QVERIFY(std::abs(maxAbs(mt) - 2.0) < 1e-9);   // peak normalised to Amplitude
+    }
+
+    void libraryFidelity()
+    {
+        // Defaults verified in the ELVISmx UI (gen.md 4.3.4; audit editor #4).
+        auto def = [](LibraryFunction f, const char* key) { return Component::library(f).param(key, -999); };
+        QCOMPARE(def(LibraryFunction::GaussianNoise, "level"), 1.0);
+        for (LibraryFunction f : {LibraryFunction::LinearSweep, LibraryFunction::LogSweep, LibraryFunction::Multitone}) {
+            QCOMPARE(def(f, "startFrequency"), 0.1);
+            QCOMPARE(def(f, "stopFrequency"), 1.0);
+        }
+        for (LibraryFunction f : {LibraryFunction::Trapezoid, LibraryFunction::Pulse}) {
+            QCOMPARE(def(f, "delay"), 20.0);
+            QCOMPARE(def(f, "rise"), 20.0);
+            QCOMPARE(def(f, "hold"), 20.0);
+            QCOMPARE(def(f, "fall"), 20.0);
+        }
+        QCOMPARE(def(LibraryFunction::Stairstep, "steps"), 10.0);
+        QCOMPARE(QString::fromLatin1(functionInfo(LibraryFunction::Stairstep).params[1].label), u"Stop"_s);
+        QCOMPARE(def(LibraryFunction::Haversine, "start"), 0.0);
+        QCOMPARE(def(LibraryFunction::Haversine, "end"), 1.0);
+        QCOMPARE(def(LibraryFunction::RisingExponential, "tau"), 5.0);
+        QCOMPARE(def(LibraryFunction::FallingExponential, "tau"), 5.0);
+        QCOMPARE(functionInfo(LibraryFunction::RisingExponential).params[3].kind, ParamKind::Number);   // no unit
+
+        const double rate = 1000;
+        auto one = [&](Component c) { return render(oneSegment(1.0, rate, {c})).samples; };
+        // Rising / Falling Exp (audit editor #5): 0 -> A steep at the end / A -> 0 steep at the start.
+        const double e5 = std::exp(5.0);
+        auto rising = one(Component::library(LibraryFunction::RisingExponential));
+        QVERIFY(std::abs(rising[0]) < 1e-12);
+        QVERIFY(std::abs(rising[500] - (std::exp(2.5) - 1) / (e5 - 1)) < 1e-12);
+        QVERIFY(rising[999] > 0.99 && rising[999] < 1.0);
+        auto falling = one(Component::library(LibraryFunction::FallingExponential));
+        QVERIFY(std::abs(falling[0] - 1.0) < 1e-12);
+        QVERIFY(std::abs(falling[500] - (std::exp(-2.5) - std::exp(-5.0)) / (1 - std::exp(-5.0))) < 1e-12);
+        QVERIFY(falling[999] < 0.01);
+        // Circle (audit editor #6): one arch per period from -A to +A.
+        auto circle = one(Component::library(LibraryFunction::Circle));
+        QVERIFY(std::abs(circle[0] + 1.0) < 1e-12);
+        QVERIFY(std::abs(circle[500] - 1.0) < 1e-12);
+        QVERIFY(std::abs(circle[250] - (2 * std::sqrt(0.75) - 1)) < 1e-12);
+        QVERIFY(std::abs(circle[750] - (2 * std::sqrt(0.75) - 1)) < 1e-12);
+        // Sin x/x (audit editor #7): main lobe centred, zeros every 1/(2f).
+        auto sinc = one(Component::library(LibraryFunction::Sinc));
+        QVERIFY(std::abs(sinc[500] - 1.0) < 1e-12);
+        QVERIFY(std::abs(sinc[0]) < 1e-12);
+        QVERIFY(std::abs(sinc[250] - 2 / std::numbers::pi) < 1e-12);
+        // Seed 0: a new random sequence at every render (audit editor #10).
+        Component noise = Component::library(LibraryFunction::UniformNoise);
+        noise.seed = 0;
+        QVERIFY(one(noise) != one(noise));
+        // .mbw written with the spec's id `triangleNoise` (audit editor #23).
+        QCOMPARE(functionFromId(u"triangleNoise"_s), std::optional<LibraryFunction>(LibraryFunction::TriangularNoise));
+        QCOMPARE(functionFromId(u"triangularNoise"_s), std::optional<LibraryFunction>(LibraryFunction::TriangularNoise));
+    }
+
+    void pulsePercentagesSumTo100()
+    {
+        // Delay + Rise + Hold + Fall <= 100 (audit editor #9): the edited value gives way.
+        Component c = Component::library(LibraryFunction::Trapezoid);
+        QCOMPARE(coercePercentParam(c, "hold", 90), 40.0);
+        QCOMPARE(coercePercentParam(c, "hold", 30), 30.0);
+        Component sine = Component::library(LibraryFunction::Square);
+        QCOMPARE(coercePercentParam(sine, "dutyCycle", 90), 90.0);   // not a breakpoint parameter
     }
 
     void sweeps()

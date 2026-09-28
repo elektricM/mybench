@@ -38,7 +38,7 @@ enum class LibraryFunction {
 inline constexpr int kLibraryFunctionCount = 21;
 inline constexpr int kMaxLibraryParams = 5;
 
-enum class ParamKind { Voltage, Frequency, Degrees, Percent, Seconds, Count };
+enum class ParamKind { Voltage, Frequency, Degrees, Percent, Number, Count };   // Number: no unit (Tau)
 
 struct ParamInfo {
     const char* key;      // stable id in .mbw files ("amplitude", "startFrequency"...)
@@ -72,7 +72,7 @@ struct Component {
     // Library
     LibraryFunction function = LibraryFunction::Sine;
     std::array<double, kMaxLibraryParams> params{1.0, 0.0, 1.0, 0.0, 0.0};
-    uint32_t seed = 1;   // noise functions [MYBENCH]: reproducible rendering
+    uint32_t seed = 1;   // noise functions [MYBENCH]: reproducible rendering; 0 = random at every render
     // Expression
     QString expression = QStringLiteral("sin(2*pi*x)");
     double from = 0.0;
@@ -137,6 +137,9 @@ RenderResult renderSegment(const Document& document, size_t segment, double rate
 RenderResult renderComponent(const Document& document, size_t segment, size_t component, double rate = 0);
 // A frequency parameter of this component exceeds rate / 2.
 bool componentAliases(const Component& component, double rate);
+// Trapezoid / Pulse: the value `key` may take so that Delay + Rise + Hold + Fall stays <= 100 %
+// (the edited parameter gives way). Other parameters: `value` unchanged.
+double coercePercentParam(const Component& component, const char* key, double value);
 
 // --- .mbw files (JSON, docs/instruments/gen.md 4.3.10) -----------------------------------------
 

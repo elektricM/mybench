@@ -8,8 +8,10 @@
 #include "genwaveform.h"
 
 #include <mybench/plot/tracebuffer.h>
+#include <mybench/plot/tracestyle.h>
 
 #include <QAbstractListModel>
+#include <QColor>
 #include <QObject>
 #include <QPointF>
 #include <QThreadPool>
@@ -72,6 +74,13 @@ class WaveformEditor : public QObject
     Q_PROPERTY(double sampleRate READ sampleRate WRITE setSampleRate NOTIFY documentChanged)
     Q_PROPERTY(int units READ units WRITE setUnits NOTIFY documentChanged)   // 0 Hz, 1 kHz, 2 MHz
     Q_PROPERTY(QString unitName READ unitName NOTIFY documentChanged)
+    // Units is the document's unit system (gen.md 4.3.7): Hz / s / S/s, kHz / ms / kS/s,
+    // MHz / us / MS/s. Values are stored in SI; the fields show SI x displayScale (times) or
+    // SI / displayScale (rates, frequencies).
+    Q_PROPERTY(QString timeUnit READ timeUnit NOTIFY documentChanged)       // "s", "ms", "µs"
+    Q_PROPERTY(QString timeLabel READ timeLabel NOTIFY documentChanged)     // "sec", "ms", "µs" (list rows)
+    Q_PROPERTY(QString rateUnit READ rateUnit NOTIFY documentChanged)       // "S/s", "kS/s", "MS/s"
+    Q_PROPERTY(double displayScale READ displayScale NOTIFY documentChanged)   // 1, 1e3, 1e6
     Q_PROPERTY(int segmentCount READ segmentCount NOTIFY documentChanged)
     Q_PROPERTY(int totalSamples READ totalSamples NOTIFY documentChanged)
     Q_PROPERTY(double totalDuration READ totalDuration NOTIFY documentChanged)
@@ -81,9 +90,22 @@ class WaveformEditor : public QObject
     Q_PROPERTY(int view READ view WRITE setView NOTIFY viewChanged)       // 0 Waveform, 1 Segment, 2 Component
     Q_PROPERTY(int xAxis READ xAxis WRITE setXAxis NOTIFY viewChanged)    // 0 Time, 1 Frequency
     Q_PROPERTY(bool showCursors READ showCursors WRITE setShowCursors NOTIFY viewChanged)
+    // Look of the editor's trace (Plot Style legend; the shared Trace style dialog edits it all).
+    // plotStyle / stepPlot / lineWidth / plotColor are shortcuts into it.
+    Q_PROPERTY(mybench::plot::TraceStyle* traceStyle READ traceStyle CONSTANT)
     Q_PROPERTY(int plotStyle READ plotStyle WRITE setPlotStyle NOTIFY viewChanged)   // 0 Line, 1 Line + Points, 2 Points
     Q_PROPERTY(bool stepPlot READ stepPlot WRITE setStepPlot NOTIFY viewChanged)
     Q_PROPERTY(double lineWidth READ lineWidth WRITE setLineWidth NOTIFY viewChanged)
+    Q_PROPERTY(bool plotVisible READ plotVisible WRITE setPlotVisible NOTIFY viewChanged)
+
+    // Settings dialog (user preferences, gen.md 4.3.8). Transparent (alpha 0) = the theme's color.
+    Q_PROPERTY(QColor plotColor READ plotColor WRITE setPlotColor NOTIFY preferencesChanged)
+    Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY preferencesChanged)
+    Q_PROPERTY(QColor gridColor READ gridColor WRITE setGridColor NOTIFY preferencesChanged)
+    Q_PROPERTY(QColor cursorColor READ cursorColor WRITE setCursorColor NOTIFY preferencesChanged)
+    Q_PROPERTY(QColor backgroundColor READ backgroundColor WRITE setBackgroundColor NOTIFY preferencesChanged)
+    Q_PROPERTY(int maxPoints READ maxPoints WRITE setMaxPoints NOTIFY preferencesChanged)
+    Q_PROPERTY(bool animateGraphs READ animateGraphs WRITE setAnimateGraphs NOTIFY preferencesChanged)
 
     // Selection
     Q_PROPERTY(int currentRow READ currentRow WRITE setCurrentRow NOTIFY selectionChanged)
@@ -131,6 +153,7 @@ class WaveformEditor : public QObject
     Q_PROPERTY(QStringList warnings READ warnings NOTIFY renderChanged)
     Q_PROPERTY(QString statusText READ statusText NOTIFY statusChanged)
     Q_PROPERTY(bool aliasWarning READ aliasWarning NOTIFY renderChanged)
+    Q_PROPERTY(bool flat READ flat NOTIFY renderChanged)   // the viewed waveform is constant (Time)
 
     // Undo
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY undoChanged)
@@ -166,6 +189,10 @@ public:
     int units() const { return int(m_doc.units); }
     void setUnits(int units);
     QString unitName() const { return gen::unitName(m_doc.units); }
+    QString timeUnit() const;
+    QString timeLabel() const;
+    QString rateUnit() const;
+    double displayScale() const { return gen::unitScale(m_doc.units); }
     int segmentCount() const { return int(m_doc.segments.size()); }
     int totalSamples() const { return int(m_doc.totalSamples()); }
     double totalDuration() const { return m_doc.totalDuration(); }
@@ -177,12 +204,35 @@ public:
     void setXAxis(int axis);
     bool showCursors() const { return m_showCursors; }
     void setShowCursors(bool show);
-    int plotStyle() const { return m_plotStyle; }
+    mybench::plot::TraceStyle* traceStyle() { return &m_traceStyle; }
+    int plotStyle() const;
     void setPlotStyle(int style);
-    bool stepPlot() const { return m_stepPlot; }
+    bool stepPlot() const;
     void setStepPlot(bool step);
-    double lineWidth() const { return m_lineWidth; }
+    double lineWidth() const;
     void setLineWidth(double width);
+    bool plotVisible() const { return m_plotVisible; }
+    void setPlotVisible(bool visible);
+    // Copies the rendered waveform to the clipboard, tab separated (Time, Amplitude): the Plot
+    // Style legend's "Export > Copy data".
+    Q_INVOKABLE bool copyData();
+
+    QColor plotColor() const { return themeOr(m_traceStyle.lineColor()); }
+    void setPlotColor(const QColor& color);
+    QColor selectionColor() const { return themeOr(m_selectionColor); }
+    void setSelectionColor(const QColor& color);
+    QColor gridColor() const { return themeOr(m_gridColor); }
+    void setGridColor(const QColor& color);
+    QColor cursorColor() const { return themeOr(m_cursorColor); }
+    void setCursorColor(const QColor& color);
+    QColor backgroundColor() const { return themeOr(m_backgroundColor); }
+    void setBackgroundColor(const QColor& color);
+    // Largest number of samples a document may render (edits beyond it are refused).
+    int maxPoints() const { return m_maxPoints; }
+    void setMaxPoints(int points);
+    bool animateGraphs() const { return m_animateGraphs; }
+    void setAnimateGraphs(bool animate);
+    Q_INVOKABLE void resetPreferences();   // Settings dialog "Defaults"
 
     int currentRow() const;
     void setCurrentRow(int row);
@@ -243,12 +293,14 @@ public:
     QStringList warnings() const { return m_warnings; }
     QString statusText() const { return m_statusText; }
     bool aliasWarning() const { return m_alias; }
+    bool flat() const { return m_flat; }
 
     bool canUndo() const { return m_undo.canUndo(); }
     bool canRedo() const { return m_undo.canRedo(); }
     QString undoText() const { return m_undo.undoText(); }
     QString redoText() const { return m_undo.redoText(); }
     bool canPaste() const;
+    QUndoStack* undoStack() { return &m_undo; }
 
     int linkedChannel() const { return m_linkedChannel; }
     void setLinkedChannel(int channel);
@@ -307,6 +359,7 @@ signals:
     void undoChanged();
     void clipboardChanged();
     void linkChanged();
+    void preferencesChanged();
     void rendered();                              // renderedSamples() is up to date
     void useInChannelRequested(int channel);      // controller: load document() into the channel
     void message(int level, const QString& title, const QString& text);   // toast (Notifications levels)
@@ -337,6 +390,8 @@ private:
     int sketchIndexAt(double x, const gen::Component& component) const;
     bool refuseTooLarge(const gen::Document& candidate);
     void loadPreferences();
+    static QColor themeOr(const QColor& c) { return c.isValid() && c.alpha() > 0 ? c : QColor(Qt::transparent); }
+    static QColor stored(const QColor& c) { return c.isValid() && c.alpha() > 0 ? c : QColor(); }
     void savePreferences() const;
 
     gen::Document m_doc;
@@ -351,13 +406,20 @@ private:
     int m_view = 0;
     int m_xAxis = 0;
     bool m_showCursors = false;
-    int m_plotStyle = 0;
-    bool m_stepPlot = false;
-    double m_lineWidth = 1.5;
+    mybench::plot::TraceStyle m_traceStyle;
+    double m_lastLineWidth = 1.5;   // restored when Points (line width 0) is left
+    bool m_plotVisible = true;
+    bool m_loadingPreferences = false;
+
+    QColor m_selectionColor, m_gridColor, m_cursorColor, m_backgroundColor;
+    int m_maxPoints = 500000;
+    bool m_animateGraphs = false;
+    gen::LibraryFunction m_lastFunction = gen::LibraryFunction::Sine;   // New Component uses it
 
     bool m_drawMode = false;
     int m_drawTool = 0;
     int m_viewBeforeDraw = 0;
+    int m_xAxisBeforeDraw = 0;
     std::optional<State> m_dragBefore;
     int m_lastDrawIndex = -1;
 
@@ -369,6 +431,7 @@ private:
     QStringList m_warnings;
     QString m_statusText;
     bool m_alias = false;
+    bool m_flat = false;
     std::shared_ptr<const std::vector<double>> m_rendered;
     QTimer m_renderTimer;
     QThreadPool m_pool;

@@ -49,6 +49,7 @@ class GenChannel : public QObject
     Q_PROPERTY(double updateRate READ updateRate WRITE setUpdateRate NOTIFY arbitraryChanged)
     Q_PROPERTY(GenerationMode generationMode READ generationMode WRITE setGenerationMode NOTIFY arbitraryChanged)
     Q_PROPERTY(Interpolation interpolation READ interpolation WRITE setInterpolation NOTIFY arbitraryChanged)
+    Q_PROPERTY(bool zeroAfterRunOnce READ zeroAfterRunOnce WRITE setZeroAfterRunOnce NOTIFY arbitraryChanged)
     // DC (ELVISmx DC Level)
     Q_PROPERTY(double dcLevel READ dcLevel WRITE setDcLevel NOTIFY dcChanged)
 
@@ -70,7 +71,7 @@ class GenChannel : public QObject
     Q_PROPERTY(QString readoutText READ readoutText NOTIFY readoutChanged)   // "OFF", "100.0000 Hz"...
     Q_PROPERTY(QString readoutCaption READ readoutCaption NOTIFY readoutChanged)
     Q_PROPERTY(double actualFrequency READ actualFrequency NOTIFY readoutChanged)
-    Q_PROPERTY(double expectedFrequency READ expectedFrequency NOTIFY readoutChanged)   // idle: what Run would give
+    Q_PROPERTY(double expectedFrequency READ expectedFrequency NOTIFY readoutChanged)   // what the output really gives
     Q_PROPERTY(double actualUpdateRate READ actualUpdateRate NOTIFY readoutChanged)
     Q_PROPERTY(int sweepStepIndex READ sweepStepIndex NOTIFY readoutChanged)   // 1-based
     Q_PROPERTY(int sweepStepCount READ sweepStepCount NOTIFY readoutChanged)
@@ -153,6 +154,9 @@ public:
     void setGenerationMode(GenerationMode mode);
     Interpolation interpolation() const { return m_interpolation; }
     void setInterpolation(Interpolation interpolation);
+    // Run Once ends at 0 V and OFF (ELVISmx) instead of holding the last sample (Done).
+    bool zeroAfterRunOnce() const { return m_zeroAfterRunOnce; }
+    void setZeroAfterRunOnce(bool on);
     double dcLevel() const { return m_dcLevel; }
     void setDcLevel(double volts);
 
@@ -207,6 +211,7 @@ public:
     bool done() const { return m_done; }
     void setTaskRate(double rate);
     void setMaxRate(double rate);
+    void setEnginePreference(gen::EnginePreference preference);
     void setSpectrumVisible(bool visible);
     void appendHistory(double t);   // DC chart: current level at time t (s)
     void clearHistory();
@@ -246,6 +251,8 @@ private:
     double m_updateRate = 1000.0;
     GenerationMode m_generationMode = RunContinuously;
     Interpolation m_interpolation = Hold;
+    bool m_zeroAfterRunOnce = false;
+    gen::EnginePreference m_preference = gen::EnginePreference::Auto;
     double m_dcLevel = 0.0;
     Source m_source;
     int m_clipped = 0;
@@ -278,5 +285,7 @@ private:
 
 // "100.0000 Hz", "1.0000 kHz", "200.0000 mHz": the ELVISmx frequency display (4 decimals).
 QString formatFrequencyDisplay(double hz);
+// "1.00 kS/s", "200.00 kS/s", "100.00 mS/s": the ELVISmx ARB Update Rate display (2 decimals).
+QString formatRateDisplay(double samplesPerSecond);
 
 }  // namespace mybench::instruments

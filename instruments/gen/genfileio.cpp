@@ -56,6 +56,16 @@ double beDouble(const char* p)
     return std::bit_cast<double>(be64(p));
 }
 
+float beFloat(const char* p)
+{
+    return std::bit_cast<float>(uint32_t(be32(p)));
+}
+
+uint16_t be16(const char* p)
+{
+    return uint16_t(uint8_t(p[0]) << 8 | uint8_t(p[1]));
+}
+
 void putLe32(QByteArray& out, uint32_t v)
 {
     for (int i = 0; i < 4; ++i)
@@ -439,6 +449,190 @@ QByteArray encodeWdt(const std::vector<WdtWaveform>& waveforms)
     return out;
 }
 
+// --- WFM (NI Waveform Editor document) ------------------------------------------------------------
+
+namespace {
+
+void putBe16(QByteArray& out, uint16_t v)
+{
+    out.append(char(v >> 8));
+    out.append(char(v & 0xFF));
+}
+
+void putBeFloat(QByteArray& out, double v)
+{
+    putBe32(out, std::bit_cast<uint32_t>(float(v)));
+}
+
+// Sequential big-endian reader with bounds checks.
+struct BeReader {
+    const QByteArray& data;
+    qsizetype o = 0;
+    bool ok = true;
+    bool need(qsizetype n)
+    {
+        ok = ok && n >= 0 && o + n <= data.size();
+        return ok;
+    }
+    int32_t i32()
+    {
+        if (!need(4))
+            return 0;
+        const int32_t v = be32(data.constData() + o);
+        o += 4;
+        return v;
+    }
+    uint16_t u16()
+    {
+        if (!need(2))
+            return 0;
+        const uint16_t v = be16(data.constData() + o);
+        o += 2;
+        return v;
+    }
+    double sgl()
+    {
+        if (!need(4))
+            return 0;
+        const double v = beFloat(data.constData() + o);
+        o += 4;
+        return v;
+    }
+    QString string()
+    {
+        const int32_t n = i32();
+        if (n < 0 || n > 1'000'000 || !need(n)) {
+            ok = false;
+            return {};
+        }
+        const QString s = QString::fromLatin1(data.constData() + o, n);
+        o += n;
+        return s;
+    }
+};
+
+}  // namespace
+
+std::optional<Document> parseWfm(const QByteArray& data, QString* error)
+{
+    const QString notRecognised = tr("not a recognised NI Waveform Editor file");
+    BeReader r{data};
+    const uint16_t units = r.u16();
+    const int32_t count = r.i32();
+    if (!r.ok || units > 2 || count < 1 || count > 100000) {
+        setError(error, notRecognised);
+        return std::nullopt;
+    }
+    Document doc;
+    doc.units = FrequencyUnit(units);
+    const double scale = unitScale(doc.units);   // Hz per display unit (and display unit per s)
+    doc.sampleRate = 10000.0 * scale;
+    doc.segments.clear();
+    for (int32_t k = 0; k < count && r.ok; ++k) {
+        const int32_t type = r.i32();
+        const QString text = r.string();
+        const int32_t op = r.i32();
+        const int32_t a = r.i32();
+        const double b = r.sgl();
+        const int32_t n = r.i32();
+        if (!r.ok || type < 0 || type > 3 || op < 0 || op > 4 || n < 0 || size_t(n) > kMaxWaveformSamples || !r.need(4 * qsizetype(n))) {
+            setError(error, notRecognised);
+            return std::nullopt;
+        }
+        std::vector<double> c(static_cast<size_t>(n));
+        for (double& v : c)
+            v = r.sgl();
+        if (type == 0) {
+            if (!(b > 0) || !std::isfinite(b)) {
+                setError(error, notRecognised);
+                return std::nullopt;
+            }
+            doc.segments.push_back(Segment{text, b / scale, 1.0, {}});
+            continue;
+        }
+        if (doc.segments.empty())
+            doc.segments.push_back(Segment{QString(), 10.0 / scale, 1.0, {}});
+        Component comp;
+        comp.op = Operator(op);
+        if (type == 1) {
+            if (a < 0 || a >= kLibraryFunctionCount) {
+                setError(error, tr("unknown library function %1").arg(a));
+                return std::nullopt;
+            }
+            comp = Component::library(LibraryFunction(a));
+            comp.op = Operator(op);
+            const FunctionInfo& info = functionInfo(comp.function);
+            for (size_t i = 0; i < info.params.size() && i < c.size(); ++i)
+                comp.params[i] = info.params[i].kind == ParamKind::Frequency ? c[i] * scale : c[i];
+        } else if (type == 2) {
+            comp = Component::makeExpression(text);
+            comp.op = Operator(op);
+            if (c.size() >= 3) {
+                comp.from = c[0];
+                comp.to = c[1];
+                comp.cycles = c[2] > 0 ? c[2] : 1.0;
+            }
+        } else {
+            comp = Component::makeSketch(text, QList<double>(c.begin(), c.end()));
+            comp.op = Operator(op);
+            comp.cycles = b > 0 ? b : 1.0;
+            if (comp.samples.size() < 2)
+                comp.samples = QList<double>(2, comp.samples.value(0));
+        }
+        doc.segments.back().components.push_back(std::move(comp));
+    }
+    if (!r.ok || r.o != data.size() || doc.segments.empty()) {
+        setError(error, notRecognised);
+        return std::nullopt;
+    }
+    return doc;
+}
+
+QByteArray encodeWfm(const Document& document)
+{
+    QByteArray out;
+    const double scale = unitScale(document.units);
+    putBe16(out, uint16_t(document.units));
+    qsizetype records = 0;
+    for (const Segment& s : document.segments)
+        records += 1 + qsizetype(s.components.size());
+    putBe32(out, uint32_t(records));
+    auto record = [&](int32_t type, const QString& text, int32_t op, int32_t a, double b, const std::vector<double>& c) {
+        putBe32(out, uint32_t(type));
+        const QByteArray bytes = text.toLatin1();
+        putBe32(out, uint32_t(bytes.size()));
+        out.append(bytes);
+        putBe32(out, uint32_t(op));
+        putBe32(out, uint32_t(a));
+        putBeFloat(out, b);
+        putBe32(out, uint32_t(c.size()));
+        for (double v : c)
+            putBeFloat(out, v);
+    };
+    for (const Segment& s : document.segments) {
+        record(0, s.name, 0, 0, s.duration * scale, {});
+        for (const Component& comp : s.components) {
+            switch (comp.type) {
+            case ComponentType::Library: {
+                const FunctionInfo& info = functionInfo(comp.function);
+                std::vector<double> c;
+                for (size_t i = 0; i < info.params.size(); ++i)
+                    c.push_back(info.params[i].kind == ParamKind::Frequency ? comp.params[i] / scale : comp.params[i]);
+                record(1, QString(), int32_t(comp.op), int32_t(comp.function), 0, c);
+                break;
+            }
+            case ComponentType::Expression:
+                record(2, comp.expression, int32_t(comp.op), 0, 0, {comp.from, comp.to, comp.cycles});
+                break;
+            case ComponentType::Sketch:
+                record(3, comp.name, int32_t(comp.op), 0, comp.cycles, std::vector<double>(comp.samples.begin(), comp.samples.end()));
+                break;
+            }
+        }
+    }
+    return out;
+}
+
 // --- Export -----------------------------------------------------------------------------------------
 
 QByteArray encodeCsv(const std::vector<double>& samples, double sampleRate)
@@ -469,8 +663,13 @@ bool saveWaveformFile(const QString& path, const std::vector<double>& samples, d
         for (double v : samples)
             beyond += std::abs(v) > 5.0;
         bytes = encodeBinaryI16(samples, 5.0);
-    } else {
+    } else if (suffix == u"wdt") {
+        bytes = encodeWdt({WdtWaveform{sampleRate > 0 ? 1.0 / sampleRate : 1e-3, samples}});
+    } else if (suffix == u"csv" || suffix == u"txt") {
         bytes = encodeCsv(samples, sampleRate);
+    } else {
+        setError(error, tr("unsupported file type '.%1' (use .csv, .txt, .wav, .bin or .wdt)").arg(suffix));
+        return false;
     }
     if (clipped)
         *clipped = beyond;
@@ -511,6 +710,22 @@ std::optional<LoadedWaveform> loadWaveformFile(const QString& path, QString* err
         w.samples = std::move(rendered.samples);
         w.sampleRate = document->sampleRate;
         w.notices = rendered.warnings;
+        w.document = std::move(document);
+    } else if (suffix == u"wfm") {
+        auto document = parseWfm(data, error);
+        if (!document)
+            return std::nullopt;
+        document->name = info.completeBaseName();
+        RenderResult rendered = render(*document);
+        if (rendered.samples.empty()) {
+            setError(error, rendered.warnings.isEmpty() ? tr("empty waveform") : rendered.warnings.front());
+            return std::nullopt;
+        }
+        w.samples = std::move(rendered.samples);
+        w.sampleRate = document->sampleRate;
+        w.notices = rendered.warnings;
+        w.notices.append(tr("NI Waveform Editor files do not store the sample rate: rendered at %1 S/s.")
+                             .arg(document->sampleRate));
         w.document = std::move(document);
     } else if (suffix == u"wav") {
         auto wav = parseWav(data, error);

@@ -4,6 +4,7 @@
 
 #include <mybench/devicehub.h>
 #include <mybench/notifications.h>
+#include <mybench/resourcearbiter.h>
 #include <mybench/settingsjson.h>
 
 #include <mydaq/dsp/units.h>
@@ -12,6 +13,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSettings>
+#include <QThreadPool>
 
 #include <algorithm>
 #include <cmath>
@@ -24,6 +26,8 @@ namespace {
 
 const QString kPresetsKey = u"instruments/gen/presets"_s;
 const QString kRecentKey = u"instruments/gen/recentFiles"_s;
+const QString kLastFolderKey = u"instruments/gen/lastWaveformFolder"_s;
+
 
 // Adapts the worker context to the engine.
 class WorkerHost final : public gen::EngineHost
@@ -80,8 +84,6 @@ gen::Document libraryDocument(gen::LibraryFunction function)
             c.params[i] = 100;
         else if (key == "stopFrequency")
             c.params[i] = 1000;
-        else if (key == "tau")
-            c.params[i] = 0.002;
     }
     doc.segments = {gen::Segment{QString(), 0.01, 1.0, {c}}};
     return doc;
@@ -115,6 +117,7 @@ GenController::GenController() : InstrumentController(u"gen"_s)
         connect(ch, &GenChannel::waveformChanged, this, &GenController::channelsChanged);
         connect(ch, &GenChannel::modeChanged, this, &GenController::channelsChanged);
         connect(ch, &GenChannel::stateChanged, this, &GenController::updateStatusText);
+        ch->setEnginePreference(gen::EnginePreference::Auto);
         connect(ch, &GenChannel::readoutChanged, this, &GenController::updateStatusText);
     }
     // ELVISmx FGEN defaults on AO 0 (sine, 100 Hz, 1 Vpp, 0 V, 50 %); AO 1 Off.
@@ -143,7 +146,51 @@ GenController::GenController() : InstrumentController(u"gen"_s)
     });
 
     m_recentFiles = QSettings().value(kRecentKey).toStringList();
+    connect(this, &GenController::channelsChanged, this, &GenController::updateHolds);
+    connect(this, &InstrumentController::stateChanged, this, &GenController::updateHolds);
+    addPaletteCommands();
     updateStatusText();
+}
+
+void GenController::addPaletteCommands()
+{
+    // The DC Level featured app from the palette: "Set AO 0 to … V" (featured-apps.md 2).
+    for (int i = 0; i < 2; ++i) {
+        addCommand({
+            .id = u"dcLevel%1"_s.arg(i),
+            .title = tr("Set AO %1 to … V").arg(i),
+            .keywords = tr("dc level voltage output source"),
+            .icon = u"wave-dc-line"_s,
+            .argumentLabel = tr("AO %1 level (V, -10 to 10)").arg(i),
+            .argumentUnit = u"V"_s,
+            .run = [this, i](const QVariant& value) {
+                if (m_pair == AudioOutputs)
+                    setOutputPair(AnalogOutputs);   // DC needs the AO pair
+                GenChannel* ch = m_channels[size_t(i)].get();
+                ch->setMode(GenChannel::Dc);
+                ch->setDcLevel(value.toDouble());
+                if (!ch->outputOn())
+                    setOutput(i, true);
+            },
+        });
+    }
+    addCommand({
+        .id = u"sweep"_s,
+        .title = tr("Sweep the Function channels"),
+        .keywords = tr("frequency sweep"),
+        .icon = u"sweep"_s,
+        .run = [this](const QVariant&) { sweepAll(); },
+        .enabled = [this] { return canSweep(); },
+    });
+}
+
+void GenController::updateHolds()
+{
+    setSingleEnabled(canSingle());
+    bool holding = false;
+    for (const auto& ch : m_channels)
+        holding = holding || (ch->done() && ch->outputOn());
+    setHoldsOutputs(holding && !isRunning());
 }
 
 GenController::~GenController()
@@ -190,6 +237,10 @@ void GenController::setEngineMode(EngineMode mode)
     if (m_engineMode == mode)
         return;
     m_engineMode = mode;
+    for (auto& ch : m_channels)
+        ch->setEnginePreference(mode == Regenerate ? gen::EnginePreference::Regenerate
+                                : mode == Stream   ? gen::EnginePreference::Stream
+                                                   : gen::EnginePreference::Auto);
     emit engineModeChanged();
     if (isRunning())
         restartEngine();
@@ -300,11 +351,51 @@ void GenController::setOutput(int index, bool on)
             other = other || c->outputOn();
         if (!other)
             stop();
-    } else if (wasDone && wasOn && m_pair == AnalogOutputs) {
-        // Idle, holding the last sample of a Run Once: a short run sets the output to 0 V.
-        m_releaseMask |= uint8_t(1u << index);
-        run();
+    } else if (wasDone && wasOn) {
+        releaseDone(uint8_t(1u << index));
     }
+}
+
+void GenController::releaseDone(uint8_t mask)
+{
+    for (int i = 0; i < 2; ++i) {
+        GenChannel* ch = m_channels[size_t(i)].get();
+        if ((mask & (1u << i)) && (ch->done() || ch->outputOn()))
+            ch->setOutput(false, false, 0);
+    }
+    updateHolds();
+    // Idle, holding the last sample of a Run Once: write 0 V statically, off the UI thread (AO pair
+    // only; the audio outputs are AC coupled). When another instrument holds AO now, it owns the
+    // outputs and nothing is written.
+    InstrumentController* holder = ResourceArbiter::instance()->holder(ResourceArbiter::AnalogOutput);
+    if (m_pair != AnalogOutputs || isRunning() || (holder && holder != this))
+        return;
+    const mydaq::DevicePtr device = DeviceHub::instance()->device();
+    if (!device || !device->isConnected())
+        return;
+    QThreadPool::globalInstance()->start([device, mask] {
+        for (int i = 0; i < 2; ++i) {
+            if (!(mask & (1u << i)))
+                continue;
+            try {
+                device->aoWriteStatic(i == 0 ? mydaq::AoChannel::AO0 : mydaq::AoChannel::AO1, 0.0);
+            } catch (const mydaq::DeviceError&) {
+                // Unplugged or taken meanwhile: its new owner sets the output.
+            }
+        }
+    });
+}
+
+void GenController::applySafeState()
+{
+    uint8_t mask = 0;
+    for (int i = 0; i < 2; ++i) {
+        if (m_channels[size_t(i)]->done())
+            mask |= uint8_t(1u << i);
+    }
+    if (mask)
+        releaseDone(mask);
+    setHoldsOutputs(false);
 }
 
 void GenController::startSweep(int index)
@@ -312,8 +403,8 @@ void GenController::startSweep(int index)
     if (index < 0 || index > 1)
         return;
     GenChannel* ch = m_channels[size_t(index)].get();
-    if (ch->mode() != GenChannel::Function)
-        return;
+    if (ch->mode() != GenChannel::Function || ch->outputOn())
+        return;   // Sweep starts from a channel that is not generating (gen.md 4.1.2)
     if (ch->sweepStep() <= 0 && ch->sweepStart() != ch->sweepStop()) {
         notify(Notifications::Warning, tr("%1: Step must be greater than 0 Hz").arg(ch->name()));
         return;
@@ -332,7 +423,7 @@ void GenController::sweepAll()
     bool any = false;
     for (int i = 0; i < 2; ++i) {
         GenChannel* ch = m_channels[size_t(i)].get();
-        if (ch->mode() == GenChannel::Function && !ch->sweeping()) {
+        if (ch->mode() == GenChannel::Function && !ch->outputOn()) {
             if (ch->sweepStep() <= 0 && ch->sweepStart() != ch->sweepStop()) {
                 notify(Notifications::Warning, tr("%1: Step must be greater than 0 Hz").arg(ch->name()));
                 continue;
@@ -399,17 +490,6 @@ void GenController::warnClipping(int index)
 
 InstrumentController::WorkerFunction GenController::createWorker()
 {
-    // Release of idle Done channels: write 0 V and end.
-    if (m_releaseMask) {
-        const uint8_t mask = std::exchange(m_releaseMask, 0);
-        return [mask](WorkerContext& ctx) {
-            for (int i = 0; i < 2; ++i) {
-                if (mask & (1u << i))
-                    ctx.device().aoWriteStatic(i == 0 ? mydaq::AoChannel::AO0 : mydaq::AoChannel::AO1, 0.0);
-            }
-        };
-    }
-
     // A new run replaces the values held by finished Run Once channels.
     for (auto& ch : m_channels) {
         if (ch->done())
@@ -434,17 +514,18 @@ InstrumentController::WorkerFunction GenController::createWorker()
             }
         }
         if (!any)
-            throw mydaq::DeviceError(mydaq::DeviceError::InvalidConfig,
-                                     tr("Single plays the Arbitrary channels once: load a waveform first"));
+            throw InvalidInput(tr("Single plays the Arbitrary channels once: load a waveform first."));
     } else if (!anyOn) {
         // Run: every channel whose Mode is not Off starts (as with its Output switch).
         bool any = false;
+        QStringList refused;
         for (int i = 0; i < 2; ++i) {
             GenChannel* ch = m_channels[size_t(i)].get();
             if (ch->mode() == GenChannel::Off)
                 continue;
-            if (!validateChannel(i, true)) {
+            if (!validateChannel(i, false)) {
                 ch->setOutput(false, false, 0);
+                refused << tr("%1: no waveform loaded").arg(ch->name());
                 continue;
             }
             m_forceOnce[size_t(i)] = false;
@@ -452,15 +533,12 @@ InstrumentController::WorkerFunction GenController::createWorker()
             warnClipping(i);
             any = true;
         }
-        if (!any) {
-            bool allOff = true;
-            for (auto& ch : m_channels)
-                allOff = allOff && ch->mode() == GenChannel::Off;
-            if (allOff)
-                throw mydaq::DeviceError(mydaq::DeviceError::InvalidConfig,
-                                         tr("set AO 0 or AO 1 to Function, Arbitrary or DC"));
-            return {};
-        }
+        if (!any && refused.isEmpty())
+            throw InvalidInput(tr("Set %1 or %2 to Function, Arbitrary or DC.").arg(m_channels[0]->name(), m_channels[1]->name()));
+        if (!any)
+            throw InvalidInput(refused.join(u"; "_s) + u"."_s);
+        for (const QString& text : std::as_const(refused))
+            notify(Notifications::Warning, text);   // the other channel runs
     } else {
         // Toggle, resume or restart: the channels whose output is on start again from phase 0.
         for (int i = 0; i < 2; ++i) {
@@ -477,7 +555,12 @@ InstrumentController::WorkerFunction GenController::createWorker()
     return [this, settings, live](WorkerContext& ctx) {
         WorkerHost host(ctx, live, [this](const gen::EngineStatus& status) { applyEngineStatus(status); });
         gen::Engine engine(ctx.device(), host);
-        const gen::EngineResult result = engine.run(settings);
+        gen::EngineResult result;
+        try {
+            result = engine.run(settings);
+        } catch (const mydaq::DeviceError& error) {
+            throw gen::userFacingError(error);   // keeps the engine's underflow wording (gen.md 7)
+        }
         ctx.post([this, result] { m_lastResult = result; });
     };
 }
@@ -497,6 +580,12 @@ void GenController::applyEngineStatus(const gen::EngineStatus& status)
             ch->setOutput(false, false, 0);
             notify(Notifications::Info, tr("%1: sweep finished").arg(ch->name()),
                    tr("Last frequency %1").arg(formatFrequencyDisplay(cs.frequency)));
+            if (isRunning())
+                postLive();
+        } else if (cs.finished && ch->outputOn() && !ch->sweeping()) {
+            // Run Once over with "Return to 0 V": the channel is back at 0 V and OFF (ELVISmx).
+            ch->setOutput(false, false, 0);
+            m_forceOnce[size_t(i)] = false;
             if (isRunning())
                 postLive();
         } else if (cs.state == gen::ChannelState::Done && ch->outputOn() && !ch->done()) {
@@ -574,6 +663,7 @@ void GenController::onFinished()
         ch->setTaskRate(0);
     updateStrategy(gen::StrategyKind::None, 0, 0);
     updateStatusText();
+    updateHolds();
 }
 
 void GenController::updateStatusText()
@@ -605,7 +695,8 @@ void GenController::setChannelSource(int index, GenChannel::Source source, bool 
     const QString name = source.name;
     ch->setSource(std::move(source));
     if (adoptRate && rate > 0) {
-        const double coerced = std::clamp(rate, 1.0, DeviceHub::instance()->maxAoRate() > 0 ? DeviceHub::instance()->maxAoRate() : 200000.0);
+        const double coerced = std::clamp(rate, gen::kMinUpdateRate,
+                                          DeviceHub::instance()->maxAoRate() > 0 ? DeviceHub::instance()->maxAoRate() : 200000.0);
         if (std::abs(coerced - ch->updateRate()) > 1e-9) {
             ch->setUpdateRate(coerced);
             QString text = tr("Update Rate set to %1 from %2").arg(mydaq::dsp::formatEng(coerced, u"S/s"_s, 4), name);
@@ -644,6 +735,11 @@ bool GenController::loadWaveform(int index, const QUrl& file)
     m_editorLinked[size_t(index)] = false;
     setChannelSource(index, std::move(source), true);
     addRecentFile(path);
+    const QString folder = QFileInfo(path).absolutePath();
+    if (QSettings().value(kLastFolderKey).toString() != folder) {
+        QSettings().setValue(kLastFolderKey, folder);
+        emit lastWaveformFolderChanged();
+    }
     return true;
 }
 
@@ -666,12 +762,24 @@ void GenController::clearWaveform(int index)
     ch->clearSource();
 }
 
-void GenController::editChannel(int index)
+void GenController::editChannel(int index, bool discard)
 {
     if (index < 0 || index > 1)
         return;
     GenChannel* ch = m_channels[size_t(index)].get();
     const GenChannel::Source& source = ch->source();
+    // The editor already shows this channel's document (e.g. live-linked): keep it and its undo.
+    if (source.document && *source.document == m_editor.document()) {
+        m_editor.setLinkedChannel(index);
+        m_editorLinked[size_t(index)] = true;
+        setActiveTab(1);
+        return;
+    }
+    if (m_editor.modified() && !discard) {
+        setActiveTab(1);
+        emit editChannelNeedsConfirmation(index);   // Save / Discard / Cancel, then editChannel(i, true)
+        return;
+    }
     if (source.document) {
         m_editor.setDocument(*source.document, source.path.endsWith(u".mbw"_s, Qt::CaseInsensitive) ? source.path : QString());
     } else if (ch->hasWaveform()) {
@@ -787,6 +895,21 @@ bool GenController::canSingle() const
             return true;
     }
     return false;
+}
+
+bool GenController::canSweep() const
+{
+    for (const auto& ch : m_channels) {
+        if (ch->mode() == GenChannel::Function && !ch->outputOn())
+            return true;
+    }
+    return false;
+}
+
+QUrl GenController::lastWaveformFolder() const
+{
+    const QString folder = QSettings().value(kLastFolderKey).toString();
+    return folder.isEmpty() || !QFileInfo(folder).isDir() ? QUrl() : QUrl::fromLocalFile(folder);
 }
 
 bool GenController::anyFunction() const
@@ -1019,6 +1142,21 @@ void GenController::restoreExtraSettings(const QJsonObject& settings)
 DataTable GenController::exportTable() const
 {
     DataTable table;
+    if (m_activeTab == 1) {
+        // Waveform Editor tab: the rendered document (plot "Export data", panel export).
+        const gen::Document& doc = m_editor.document();
+        const auto samples = m_editor.renderedSamples();
+        table.addMetadata(tr("Waveform"), doc.name);
+        table.addMetadata(tr("Sample rate"), mydaq::dsp::formatEng(doc.sampleRate, u"S/s"_s, 6));
+        if (samples && !samples->empty()) {
+            std::vector<double> t(samples->size());
+            for (size_t i = 0; i < t.size(); ++i)
+                t[i] = double(i) / doc.sampleRate;
+            table.addColumn(tr("Time"), u"s"_s, std::move(t));
+            table.addColumn(doc.name, u"V"_s, std::vector<double>(*samples));
+        }
+        return table;
+    }
     table.addMetadata(tr("Output"), m_pair == AudioOutputs ? tr("AudioOutput Left / Right") : tr("AO 0 / AO 1"));
     for (const auto& ch : m_channels) {
         const double range = ch->outputRange();

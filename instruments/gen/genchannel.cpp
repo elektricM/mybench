@@ -18,6 +18,7 @@ namespace {
 constexpr double kMinFrequency = 0.2;
 constexpr double kMaxFrequency = 20000.0;
 constexpr double kSpectrumFloor = -140.0;   // dBV
+constexpr double kMaxGain = 10.0;
 
 // The myDAQ derives its sample clocks from 100 MHz / integer divisor (docs/device.md).
 double coerceToTimebase(double rate, double maxRate)
@@ -54,21 +55,37 @@ double finiteOr(double value, double fallback)
 
 }  // namespace
 
-QString formatFrequencyDisplay(double hz)
+namespace {
+
+// Value with an SI prefix (M, k, none, m) and a fixed number of decimals.
+QString formatFixedPrefix(double value, int decimals, QLatin1StringView unit)
 {
-    if (!std::isfinite(hz) || hz <= 0)
-        return u"0.0000 Hz"_s;
+    if (!std::isfinite(value) || value <= 0)
+        return QString::number(0.0, 'f', decimals) + u' ' + unit;
     static const struct {
         double scale;
-        const char* unit;
-    } prefixes[] = {{1e6, "MHz"}, {1e3, "kHz"}, {1.0, "Hz"}, {1e-3, "mHz"}};
+        const char* prefix;
+    } prefixes[] = {{1e6, "M"}, {1e3, "k"}, {1.0, ""}, {1e-3, "m"}};
+    const double round = std::pow(10.0, decimals);
     for (const auto& p : prefixes) {
-        const double mantissa = hz / p.scale;
+        const double mantissa = value / p.scale;
         // Round first so 999.99999 Hz becomes 1.0000 kHz.
-        if (std::round(mantissa * 1e4) / 1e4 >= 1.0 || p.scale == 1e-3)
-            return QString::number(mantissa, 'f', 4) + u' ' + QLatin1StringView(p.unit);
+        if (std::round(mantissa * round) / round >= 1.0 || p.scale == 1e-3)
+            return QString::number(mantissa, 'f', decimals) + u' ' + QLatin1StringView(p.prefix) + unit;
     }
     return QString();
+}
+
+}  // namespace
+
+QString formatFrequencyDisplay(double hz)
+{
+    return formatFixedPrefix(hz, 4, "Hz"_L1);
+}
+
+QString formatRateDisplay(double samplesPerSecond)
+{
+    return formatFixedPrefix(samplesPerSecond, 2, "S/s"_L1);
 }
 
 GenChannel::GenChannel(int index, QObject* parent) : QObject(parent), m_index(index)
@@ -204,7 +221,8 @@ void GenChannel::setSweepBlockTiming(bool on)
 
 void GenChannel::setGain(double gain)
 {
-    if (assign(m_gain, std::clamp(finiteOr(gain, 1.0), -1000.0, 1000.0))) {
+    // -10 ... +10 (gen.md 4.2.2); larger products still clip at the output range (4.2.4).
+    if (assign(m_gain, std::clamp(finiteOr(gain, 1.0), -kMaxGain, kMaxGain))) {
         emit arbitraryChanged();
         changed();
     }
@@ -212,7 +230,7 @@ void GenChannel::setGain(double gain)
 
 void GenChannel::setUpdateRate(double rate)
 {
-    if (assign(m_updateRate, std::clamp(finiteOr(rate, 1000.0), 1.0, m_maxRate))) {
+    if (assign(m_updateRate, std::clamp(finiteOr(rate, 1000.0), gen::kMinUpdateRate, m_maxRate))) {
         emit arbitraryChanged();
         emit updateRateEdited(m_updateRate);
         changed();
@@ -233,6 +251,22 @@ void GenChannel::setInterpolation(Interpolation interpolation)
         emit arbitraryChanged();
         changed();
     }
+}
+
+void GenChannel::setZeroAfterRunOnce(bool on)
+{
+    if (assign(m_zeroAfterRunOnce, on)) {
+        emit arbitraryChanged();
+        changed();
+    }
+}
+
+void GenChannel::setEnginePreference(gen::EnginePreference preference)
+{
+    if (m_preference == preference)
+        return;
+    m_preference = preference;
+    updateExpected();
 }
 
 void GenChannel::setDcLevel(double volts)
@@ -354,7 +388,7 @@ QString GenChannel::readoutText() const
     }
     switch (m_mode) {
     case Function: return formatFrequencyDisplay(m_status.frequency);
-    case Arbitrary: return mydaq::dsp::formatEng(m_status.updateRate, u"S/s"_s, 4, false);
+    case Arbitrary: return formatRateDisplay(m_status.updateRate);
     case Dc: return QString::number(m_status.level, 'f', 2) + u" V"_s;
     case Off: break;
     }
@@ -372,16 +406,18 @@ QString GenChannel::readoutCaption() const
     case Function:
         if (s == Running && m_strategy == gen::StrategyKind::Stream)
             return tr("DDS · phase-continuous");
-        if (s == Running)
-            return tr("Buffer %1 · %2").arg(tr("%n samples", nullptr, int(std::llround(m_taskRate / std::max(1e-9, m_status.frequency)))),
-                                            mydaq::dsp::formatEng(m_taskRate, u"S/s"_s, 4));
+        if (s == Running && m_status.bufferLength > 0)
+            return tr("Buffer %1 · actual %2").arg(tr("%n samples", nullptr, m_status.bufferLength),
+                                                   formatFrequencyDisplay(m_status.bufferFrequency));
         if (std::abs(m_expectedFrequency - m_function.frequency) > 1e-9 * m_function.frequency)
             return tr("Actual %1").arg(formatFrequencyDisplay(m_expectedFrequency));
         return tr("Ready");
     case Arbitrary:
         if (!hasWaveform())
             return tr("No waveform");
-        return tr("%1 · %2").arg(m_generationMode == RunOnce ? tr("Run Once") : tr("Run Continuously"),
+        return tr("%1 · %2").arg(m_generationMode != RunOnce ? tr("Run Continuously")
+                                 : m_zeroAfterRunOnce              ? tr("Run Once, then 0 V")
+                                                                   : tr("Run Once"),
                                  tr("%n points", nullptr, waveformPoints()));
     case Dc:
         if (s != Running)
@@ -441,6 +477,7 @@ gen::ChannelSettings GenChannel::engineSettings() const
     s.arb.updateRate = m_updateRate;
     s.arb.once = m_generationMode == RunOnce;
     s.arb.linear = m_interpolation == Linear;
+    s.arb.zeroAfterOnce = m_zeroAfterRunOnce;
     s.dcLevel = m_dcLevel;
     return s;
 }
@@ -459,6 +496,7 @@ void GenChannel::setOutput(bool on, bool sweep, uint64_t startId)
         m_engineState = gen::ChannelState::Idle;
         m_status = {};
     }
+    updateExpected();
     emit stateChanged();
     emit readoutChanged();
     updatePreview();
@@ -488,6 +526,7 @@ void GenChannel::applyStatus(const gen::ChannelStatus& status, gen::StrategyKind
     m_engineState = m_outputOn ? status.state : gen::ChannelState::Idle;
     if (previous != m_engineState)
         emit stateChanged();
+    updateExpected();
     emit readoutChanged();
     if (sweepStepChanged && m_sweepRequested)
         updatePreview();   // follows the current sweep frequency
@@ -517,9 +556,12 @@ void GenChannel::setTaskRate(double rate)
 
 void GenChannel::updateExpected()
 {
-    // What Run gives (ELVISmx buffer rule) or the stream's DDS frequency.
+    // What the output really produces: the stream's DDS frequency (exact for display), or the
+    // frequency of the ELVISmx looped buffer (Regenerate), which can differ slightly.
     double expected = m_function.frequency;
-    if (m_strategy != gen::StrategyKind::Stream) {
+    if (generating() && m_status.bufferFrequency > 0) {
+        expected = m_status.bufferFrequency;
+    } else if (!generating() && m_preference == gen::EnginePreference::Regenerate) {
         const gen::FgenPlan plan = gen::planFgenBuffer(m_function.frequency, m_maxRate,
                                                        [this](double r) { return coerceToTimebase(r, m_maxRate); });
         expected = plan.frequency;

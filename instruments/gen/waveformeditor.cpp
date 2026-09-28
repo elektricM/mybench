@@ -12,6 +12,7 @@
 #include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QMimeData>
 #include <QPointer>
 #include <QRegularExpression>
@@ -31,8 +32,25 @@ using namespace gen;
 namespace {
 
 const QString kMime = u"application/x-mybench-waveform+json"_s;
+const QString kPreferences = u"instruments/gen/editor"_s;
+// Segment duration limits and Sample Rate limits, in the document's Units (s/ms/us, S/s/kS/s/MS/s).
 constexpr double kMinDuration = 1e-4;
 constexpr double kMaxDuration = 1e5;
+constexpr double kMinRate = 1.0;
+constexpr double kMaxRate = 1e6;
+constexpr int kDefaultMaxPoints = 500000;   // ELVISmx Max Points
+constexpr int kMinMaxPoints = 1000;
+// Undo merge ids: consecutive edits of the same expression text are one undo step.
+constexpr int kExpressionMergeBase = 0x10000;
+
+// "500 000", "10 000 000".
+QString groupDigits(qint64 n)
+{
+    QString digits = QString::number(n);
+    for (qsizetype i = digits.size() - 3; i > 0; i -= 3)
+        digits.insert(i, u' ');
+    return digits;
+}
 
 QString shortDuration(double seconds)
 {
@@ -83,7 +101,7 @@ QString paramUnit(ParamKind kind, const QString& frequencyUnit)
     case ParamKind::Frequency: return frequencyUnit;
     case ParamKind::Degrees: return u"°"_s;
     case ParamKind::Percent: return u"%"_s;
-    case ParamKind::Seconds: return u"s"_s;
+    case ParamKind::Number:
     case ParamKind::Count: break;
     }
     return {};
@@ -196,7 +214,20 @@ WaveformEditor::WaveformEditor(QObject* parent) : QObject(parent)
     m_undo.setUndoLimit(200);
     if (auto* app = qobject_cast<QGuiApplication*>(QCoreApplication::instance()))
         connect(app->clipboard(), &QClipboard::dataChanged, this, &WaveformEditor::clipboardChanged);
+    // Default look: a 1.5 px line (the theme accent unless Settings chose a Plot Color).
+    m_traceStyle.setLineWidth(1.5);
+    m_traceStyle.setInterpolation(mybench::plot::TraceStyle::Linear);
+    m_traceStyle.setPointStyle(mybench::plot::TraceStyle::NoPoints);
+    m_traceStyle.setAsDefault();
     loadPreferences();
+    connect(&m_traceStyle, &mybench::plot::TraceStyle::changed, this, [this] {
+        if (m_traceStyle.lineWidth() > 0)
+            m_lastLineWidth = m_traceStyle.lineWidth();
+        if (!m_loadingPreferences)
+            savePreferences();
+        emit viewChanged();
+        emit preferencesChanged();
+    });
     rebuildRows();
     scheduleRender();
 }
@@ -210,21 +241,143 @@ WaveformEditor::~WaveformEditor()
 void WaveformEditor::loadPreferences()
 {
     QSettings settings;
-    settings.beginGroup(u"instruments/gen/editor"_s);
+    settings.beginGroup(kPreferences);
+    m_loadingPreferences = true;
     m_showCursors = settings.value(u"showCursors"_s, false).toBool();
-    m_plotStyle = std::clamp(settings.value(u"plotStyle"_s, 0).toInt(), 0, 2);
-    m_stepPlot = settings.value(u"stepPlot"_s, false).toBool();
-    m_lineWidth = std::clamp(settings.value(u"lineWidth"_s, 1.5).toDouble(), 1.0, 5.0);
+    m_traceStyle.reset();
+    const QJsonObject style = QJsonDocument::fromJson(settings.value(u"traceStyle"_s).toByteArray()).object();
+    if (!style.isEmpty())
+        m_traceStyle.fromJson(style.toVariantMap());
+    if (m_traceStyle.lineWidth() > 0)
+        m_lastLineWidth = m_traceStyle.lineWidth();
+    m_loadingPreferences = false;
+    auto color = [&](const QString& key) {
+        const QString name = settings.value(key).toString();
+        return name.isEmpty() ? QColor() : QColor(name);
+    };
+    m_selectionColor = color(u"selectionColor"_s);
+    m_gridColor = color(u"gridColor"_s);
+    m_cursorColor = color(u"cursorColor"_s);
+    m_backgroundColor = color(u"backgroundColor"_s);
+    m_maxPoints = std::clamp(settings.value(u"maxPoints"_s, kDefaultMaxPoints).toInt(), kMinMaxPoints, int(kMaxWaveformSamples));
+    m_animateGraphs = settings.value(u"animateGraphs"_s, false).toBool();
 }
 
 void WaveformEditor::savePreferences() const
 {
     QSettings settings;
-    settings.beginGroup(u"instruments/gen/editor"_s);
+    settings.beginGroup(kPreferences);
     settings.setValue(u"showCursors"_s, m_showCursors);
-    settings.setValue(u"plotStyle"_s, m_plotStyle);
-    settings.setValue(u"stepPlot"_s, m_stepPlot);
-    settings.setValue(u"lineWidth"_s, m_lineWidth);
+    settings.setValue(u"traceStyle"_s, QJsonDocument(QJsonObject::fromVariantMap(m_traceStyle.toJson())).toJson(QJsonDocument::Compact));
+    auto color = [&](const QString& key, const QColor& c) { settings.setValue(key, c.isValid() ? c.name(QColor::HexArgb) : QString()); };
+    color(u"selectionColor"_s, m_selectionColor);
+    color(u"gridColor"_s, m_gridColor);
+    color(u"cursorColor"_s, m_cursorColor);
+    color(u"backgroundColor"_s, m_backgroundColor);
+    settings.setValue(u"maxPoints"_s, m_maxPoints);
+    settings.setValue(u"animateGraphs"_s, m_animateGraphs);
+}
+
+void WaveformEditor::resetPreferences()
+{
+    m_loadingPreferences = true;
+    m_traceStyle.reset();
+    m_loadingPreferences = false;
+    m_selectionColor = m_gridColor = m_cursorColor = m_backgroundColor = QColor();
+    m_maxPoints = kDefaultMaxPoints;
+    m_animateGraphs = false;
+    m_showCursors = false;
+    savePreferences();
+    emit preferencesChanged();
+    emit viewChanged();
+}
+
+void WaveformEditor::setPlotColor(const QColor& color)
+{
+    // The trace style's line color (invalid = the theme accent).
+    if (m_traceStyle.lineColor() == stored(color))
+        return;
+    m_traceStyle.setLineColor(stored(color));
+}
+
+void WaveformEditor::setSelectionColor(const QColor& color)
+{
+    if (m_selectionColor == stored(color))
+        return;
+    m_selectionColor = stored(color);
+    savePreferences();
+    emit preferencesChanged();
+}
+
+void WaveformEditor::setGridColor(const QColor& color)
+{
+    if (m_gridColor == stored(color))
+        return;
+    m_gridColor = stored(color);
+    savePreferences();
+    emit preferencesChanged();
+}
+
+void WaveformEditor::setCursorColor(const QColor& color)
+{
+    if (m_cursorColor == stored(color))
+        return;
+    m_cursorColor = stored(color);
+    savePreferences();
+    emit preferencesChanged();
+}
+
+void WaveformEditor::setBackgroundColor(const QColor& color)
+{
+    if (m_backgroundColor == stored(color))
+        return;
+    m_backgroundColor = stored(color);
+    savePreferences();
+    emit preferencesChanged();
+}
+
+void WaveformEditor::setMaxPoints(int points)
+{
+    points = std::clamp(points, kMinMaxPoints, int(kMaxWaveformSamples));
+    if (m_maxPoints == points)
+        return;
+    m_maxPoints = points;
+    savePreferences();
+    emit preferencesChanged();
+}
+
+void WaveformEditor::setAnimateGraphs(bool animate)
+{
+    if (m_animateGraphs == animate)
+        return;
+    m_animateGraphs = animate;
+    savePreferences();
+    emit preferencesChanged();
+}
+
+QString WaveformEditor::timeUnit() const
+{
+    switch (m_doc.units) {
+    case FrequencyUnit::kHz: return u"ms"_s;
+    case FrequencyUnit::MHz: return u"µs"_s;
+    case FrequencyUnit::Hz: break;
+    }
+    return u"s"_s;
+}
+
+QString WaveformEditor::timeLabel() const
+{
+    return m_doc.units == FrequencyUnit::Hz ? u"sec"_s : timeUnit();
+}
+
+QString WaveformEditor::rateUnit() const
+{
+    switch (m_doc.units) {
+    case FrequencyUnit::kHz: return u"kS/s"_s;
+    case FrequencyUnit::MHz: return u"MS/s"_s;
+    case FrequencyUnit::Hz: break;
+    }
+    return u"S/s"_s;
 }
 
 void WaveformEditor::setDocument(const Document& document, const QString& filePath, bool modified)
@@ -242,6 +395,11 @@ void WaveformEditor::setDocument(const Document& document, const QString& filePa
     m_forcedModified = modified;
     documentEdited();
     emit undoChanged();
+    const size_t total = m_doc.totalSamples();
+    if (total > size_t(m_maxPoints)) {
+        setStatus(tr("%1 samples: above Max Points (%2). Edits may not make it longer; raise Max Points in Settings to lengthen it.")
+                      .arg(groupDigits(qint64(total)), groupDigits(m_maxPoints)));
+    }
 }
 
 QJsonObject WaveformEditor::saveState() const
@@ -285,10 +443,12 @@ QString WaveformEditor::windowTitle() const
 
 bool WaveformEditor::refuseTooLarge(const Document& candidate)
 {
+    // A document that is already above Max Points (a large channel waveform, a file, a lower
+    // setting) stays editable: only edits that make it longer than both are refused.
     const size_t total = candidate.totalSamples();
-    if (total <= kMaxWaveformSamples)
+    if (total <= std::max(size_t(m_maxPoints), m_doc.totalSamples()))
         return false;
-    setStatus(tr("The waveform would have %1 samples (max 10 000 000).").arg(total));
+    setStatus(tr("The waveform would have %1 samples (max %2).").arg(groupDigits(qint64(total)), groupDigits(m_maxPoints)));
     emit message(2, tr("Waveform Editor"), m_statusText);
     return true;
 }
@@ -334,6 +494,7 @@ void WaveformEditor::documentEdited()
         if (!c || c->type != ComponentType::Sketch) {
             m_drawMode = false;
             m_view = m_viewBeforeDraw;
+            m_xAxis = m_xAxisBeforeDraw;
             emit viewChanged();
         }
     }
@@ -341,7 +502,8 @@ void WaveformEditor::documentEdited()
     emit documentChanged();
     emit selectionChanged();
     emit drawChanged();
-    setStatus(tr("%1 samples · %2 s").arg(m_doc.totalSamples()).arg(shortDuration(m_doc.totalDuration())));
+    setStatus(tr("%1 samples · %2 %3").arg(groupDigits(qint64(m_doc.totalSamples())),
+                                           shortDuration(m_doc.totalDuration() * displayScale()), timeUnit()));
     scheduleRender();
 }
 
@@ -353,8 +515,9 @@ void WaveformEditor::rebuildRows()
         WaveformRowModel::Row header;
         header.kind = 0;
         header.segment = int(k);
-        header.text = s.name.isEmpty() ? u"%1: (%2 sec)"_s.arg(k + 1).arg(shortDuration(s.duration))
-                                       : u"%1: %2 (%3 sec)"_s.arg(k + 1).arg(s.name, shortDuration(s.duration));
+        const QString duration = shortDuration(s.duration * displayScale()) + u' ' + timeLabel();
+        header.text = s.name.isEmpty() ? u"%1: (%2)"_s.arg(k + 1).arg(duration)
+                                       : u"%1: %2 (%3)"_s.arg(k + 1).arg(s.name, duration);
         header.detail = s.gain != 1.0 ? tr("gain %1").arg(s.gain) : QString();
         header.icon = u"layers"_s;
         rows.push_back(header);
@@ -423,14 +586,37 @@ void WaveformEditor::setSampleRate(double rate)
 {
     if (!std::isfinite(rate))
         return;
-    const double r = std::round(std::clamp(rate, 1.0, 1e6) * 10.0) / 10.0;
+    // 1.0 ... 1 000 000.0 in the current Units, one decimal (gen.md 4.3.7).
+    const double scale = displayScale();
+    const double r = std::round(std::clamp(rate / scale, kMinRate, kMaxRate) * 10.0) / 10.0 * scale;
     edit(tr("Change Sample Rate"), [&](Document& d) { d.sampleRate = r; });
     emit documentChanged();
 }
 
 void WaveformEditor::setUnits(int units)
 {
-    edit(tr("Change Units"), [&](Document& d) { d.units = FrequencyUnit(std::clamp(units, 0, 2)); });
+    const FrequencyUnit to = FrequencyUnit(std::clamp(units, 0, 2));
+    if (to == m_doc.units)
+        return;
+    // The numbers stay, their meaning changes (ELVISmx): 10000.0 S/s -> 10000.0 kS/s, 10 s ->
+    // 10 ms, 1 Hz -> 1 kHz. Sample counts and shapes are unchanged.
+    const double k = unitScale(to) / unitScale(m_doc.units);
+    edit(tr("Change Units"), [&](Document& d) {
+        d.units = to;
+        d.sampleRate *= k;
+        for (Segment& s : d.segments) {
+            s.duration /= k;
+            for (Component& c : s.components) {
+                if (c.type != ComponentType::Library)
+                    continue;
+                const FunctionInfo& info = functionInfo(c.function);
+                for (size_t i = 0; i < info.params.size(); ++i) {
+                    if (info.params[i].kind == ParamKind::Frequency)
+                        c.params[i] *= k;
+                }
+            }
+        }
+    });
 }
 
 // --- View -------------------------------------------------------------------------------------------------
@@ -464,33 +650,74 @@ void WaveformEditor::setShowCursors(bool show)
     emit viewChanged();
 }
 
+int WaveformEditor::plotStyle() const
+{
+    if (m_traceStyle.lineWidth() <= 0)
+        return 2;
+    return m_traceStyle.pointStyle() != mybench::plot::TraceStyle::NoPoints ? 1 : 0;
+}
+
 void WaveformEditor::setPlotStyle(int style)
 {
+    using TS = mybench::plot::TraceStyle;
     style = std::clamp(style, 0, 2);
-    if (m_plotStyle == style)
+    if (plotStyle() == style)
         return;
-    m_plotStyle = style;
-    savePreferences();
-    emit viewChanged();
+    const TS::PointStyle points = m_traceStyle.pointStyle() == TS::NoPoints ? TS::FilledCircle : m_traceStyle.pointStyle();
+    m_traceStyle.setPointStyle(style == 0 ? TS::NoPoints : points);
+    m_traceStyle.setLineWidth(style == 2 ? 0.0 : m_lastLineWidth);
+}
+
+bool WaveformEditor::stepPlot() const
+{
+    return m_traceStyle.interpolation() == mybench::plot::TraceStyle::Step;
 }
 
 void WaveformEditor::setStepPlot(bool step)
 {
-    if (m_stepPlot == step)
-        return;
-    m_stepPlot = step;
-    savePreferences();
-    emit viewChanged();
+    m_traceStyle.setInterpolation(step ? mybench::plot::TraceStyle::Step : mybench::plot::TraceStyle::Linear);
+}
+
+double WaveformEditor::lineWidth() const
+{
+    return m_traceStyle.lineWidth() > 0 ? m_traceStyle.lineWidth() : m_lastLineWidth;
 }
 
 void WaveformEditor::setLineWidth(double width)
 {
     width = std::clamp(width, 1.0, 5.0);
-    if (m_lineWidth == width)
+    m_lastLineWidth = width;
+    if (m_traceStyle.lineWidth() > 0)
+        m_traceStyle.setLineWidth(width);
+}
+
+void WaveformEditor::setPlotVisible(bool visible)
+{
+    if (m_plotVisible == visible)
         return;
-    m_lineWidth = width;
-    savePreferences();
+    m_plotVisible = visible;
     emit viewChanged();
+}
+
+bool WaveformEditor::copyData()
+{
+    auto* app = qobject_cast<QGuiApplication*>(QCoreApplication::instance());
+    const auto samples = m_rendered;
+    if (!app || !samples || samples->empty())
+        return false;
+    QString text;
+    text.reserve(qsizetype(samples->size()) * 24 + 32);
+    text += tr("Time (s)") + u'\t' + tr("Amplitude (V)") + u'\n';
+    const double rate = m_doc.sampleRate;
+    for (size_t i = 0; i < samples->size(); ++i) {
+        text += QString::number(double(i) / rate, 'g', 10);
+        text += u'\t';
+        text += QString::number((*samples)[i], 'g', 10);
+        text += u'\n';
+    }
+    app->clipboard()->setText(text);
+    emit message(1, tr("Data copied"), tr("%n samples, tab separated", nullptr, int(samples->size())));
+    return true;
 }
 
 // --- Selection ------------------------------------------------------------------------------------------------
@@ -598,7 +825,8 @@ void WaveformEditor::setSegmentDuration(double seconds)
 {
     if (!std::isfinite(seconds))
         return;
-    const double v = std::clamp(seconds, kMinDuration, kMaxDuration);
+    const double scale = displayScale();
+    const double v = std::clamp(seconds, kMinDuration / scale, kMaxDuration / scale);
     edit(tr("Change Duration"), [&](Document& d) { d.segments[size_t(m_segment)].duration = v; });
 }
 
@@ -635,7 +863,7 @@ void WaveformEditor::setComponentType(int type)
         Component& c = d.segments[size_t(m_segment)].components[size_t(m_component)];
         const Operator op = c.op;
         switch (ComponentType(type)) {
-        case ComponentType::Library: c = Component{}; break;
+        case ComponentType::Library: c = Component::library(m_lastFunction); break;
         case ComponentType::Expression: c = Component::makeExpression(); break;
         case ComponentType::Sketch: c = Component::makeSketch(tr("Sketch %1").arg(sketches + 1)); break;
         }
@@ -669,6 +897,7 @@ void WaveformEditor::setLibraryFunction(int function)
     if (!c || c->type != ComponentType::Library || function < 0 || function >= kLibraryFunctionCount
         || int(c->function) == function)
         return;
+    m_lastFunction = LibraryFunction(function);   // New Component uses it (gen.md 4.3.4)
     edit(tr("Change Function"), [&](Document& d) {
         d.segments[size_t(m_segment)].components[size_t(m_component)].setFunction(LibraryFunction(function));
     });
@@ -726,6 +955,7 @@ void WaveformEditor::setParam(int index, double displayValue)
     double value = std::clamp(displayValue * scale, p.minimum, p.maximum);
     if (p.kind == ParamKind::Count)
         value = std::round(value);
+    value = coercePercentParam(*c, p.key, value);   // Trapezoid/Pulse: Delay + Rise + Hold + Fall <= 100 %
     edit(tr("Change %1").arg(tr(p.label)),
          [&](Document& d) { d.segments[size_t(m_segment)].components[size_t(m_component)].params[size_t(index)] = value; });
 }
@@ -759,7 +989,9 @@ QString WaveformEditor::expression() const
 
 void WaveformEditor::setExpression(const QString& text)
 {
-    edit(tr("Edit Expression"), [&](Document& d) { d.segments[size_t(m_segment)].components[size_t(m_component)].expression = text; });
+    // Applied while typing; consecutive edits of this expression are one undo step.
+    edit(tr("Edit Expression"), [&](Document& d) { d.segments[size_t(m_segment)].components[size_t(m_component)].expression = text; },
+         kExpressionMergeBase + m_segment * 1024 + m_component);
 }
 
 QString WaveformEditor::expressionError() const
@@ -874,7 +1106,7 @@ void WaveformEditor::newComponent()
     const State before = state();
     Segment& s = m_doc.segments[size_t(m_segment)];
     const int at = m_component >= 0 ? m_component + 1 : int(s.components.size());
-    s.components.insert(s.components.begin() + at, Component{});
+    s.components.insert(s.components.begin() + at, Component::library(m_lastFunction));
     m_component = at;
     pushState(tr("New Component"), before);
 }
@@ -1062,7 +1294,7 @@ void WaveformEditor::scaleSelection(double timeFactor, double amplitudeFactor)
     };
     edit(tr("Scale Selection"), [&](Document& d) {
         auto scaleSegment = [&](Segment& s) {
-            s.duration = std::clamp(s.duration * timeFactor, kMinDuration, kMaxDuration);
+            s.duration = std::clamp(s.duration * timeFactor, kMinDuration / unitScale(d.units), kMaxDuration / unitScale(d.units));
             s.gain *= amplitudeFactor;
             for (Component& c : s.components) {
                 if (c.type == ComponentType::Library)
@@ -1111,6 +1343,7 @@ void WaveformEditor::setDrawMode(bool on)
     m_drawMode = on;
     if (on) {
         m_viewBeforeDraw = m_view;
+        m_xAxisBeforeDraw = m_xAxis;
         m_view = 2;
         m_xAxis = 0;
         // Freeze the Y range at its current extent (at least +-1 V).
@@ -1125,6 +1358,7 @@ void WaveformEditor::setDrawMode(bool on)
         m_viewMax = hi + margin;
     } else {
         m_view = m_viewBeforeDraw;
+        m_xAxis = m_xAxisBeforeDraw;
     }
     emit viewChanged();
     emit drawChanged();
@@ -1351,6 +1585,18 @@ bool WaveformEditor::openFile(const QUrl& file)
     if (!loaded) {
         emit message(3, tr("Could not open %1").arg(QFileInfo(path).fileName()), error);
         return false;
+    }
+    if (loaded->document) {
+        // NI Waveform Editor document (.wfm): segments and components are kept.
+        Document doc = *loaded->document;
+        doc.name = QFileInfo(path).completeBaseName();
+        if (refuseTooLarge(doc))
+            return false;
+        setDocument(doc);
+        setLinkedChannel(-1);
+        for (const QString& notice : loaded->notices)
+            emit message(1, doc.name, notice);
+        return true;
     }
     const double rate = loaded->sampleRate > 0 ? std::clamp(loaded->sampleRate, 1.0, 1e6) : m_doc.sampleRate;
     Document doc = documentFromSamples(loaded->samples, rate, QFileInfo(path).completeBaseName());
@@ -1593,6 +1839,7 @@ void WaveformEditor::startRender()
             hlEnd = double(view.size()) / rate;
         }
         double lo = 0, hi = 0, start = 0, end = 1;
+        bool flat = false;
         if (job.xAxis == 1 && view.size() >= 2) {
             // Power spectrum of the viewed part (Hann window), dBVrms floored at -200 dB.
             std::vector<double> part(view.begin(), view.begin() + qsizetype(std::min<size_t>(view.size(), 1 << 20)));
@@ -1605,6 +1852,8 @@ void WaveformEditor::startRender()
                 hi = std::max(hi, v);
             }
             lo = std::max(-200.0, hi - 140.0);
+            for (double& v : db)
+                v = std::max(v, lo);   // the plot's autoscale fits the shown 140 dB
             const double scale = unitScale(job.doc.units);
             if (!job.draw)
                 m_preview.setUniform(0.0, ps.info.df / scale, db);
@@ -1617,6 +1866,7 @@ void WaveformEditor::startRender()
             lo = *mn;
             hi = *mx;
             if (hi - lo < 1e-12) {
+                flat = true;
                 lo -= 1;
                 hi += 1;
             } else {
@@ -1633,13 +1883,14 @@ void WaveformEditor::startRender()
         }
         QMetaObject::invokeMethod(
             guard.data(),
-            [this, guard, generation, full = std::move(full), samplesPtr, lo, hi, start, end, hlStart, hlEnd, draw = job.draw] {
+            [this, guard, generation, full = std::move(full), samplesPtr, lo, hi, start, end, hlStart, hlEnd, flat, draw = job.draw] {
                 if (!guard || generation != m_generation)
                     return;
                 m_rendering = false;
                 m_rendered = samplesPtr;
                 m_warnings = full.warnings;
                 m_alias = full.alias;
+                m_flat = flat;
                 if (!draw) {
                     m_viewStart = start;
                     m_viewEnd = end;

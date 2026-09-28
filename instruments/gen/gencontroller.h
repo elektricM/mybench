@@ -45,6 +45,8 @@ class GenController : public InstrumentController
     Q_PROPERTY(double taskRate READ taskRate NOTIFY strategyChanged)
     Q_PROPERTY(bool canSingle READ canSingle NOTIFY channelsChanged)   // an Arbitrary channel has a waveform
     Q_PROPERTY(bool anyFunction READ anyFunction NOTIFY channelsChanged)
+    Q_PROPERTY(bool canSweep READ canSweep NOTIFY channelsChanged)     // a Function channel is not generating
+    Q_PROPERTY(QUrl lastWaveformFolder READ lastWaveformFolder NOTIFY lastWaveformFolderChanged)
     Q_PROPERTY(QString outputSummary READ outputSummary NOTIFY channelsChanged)
     Q_PROPERTY(QStringList presetNames READ presetNames NOTIFY presetsChanged)
     Q_PROPERTY(QStringList builtInPresets READ builtInPresets CONSTANT)
@@ -84,6 +86,8 @@ public:
     double taskRate() const { return m_taskRate; }
     bool canSingle() const;
     bool anyFunction() const;
+    bool canSweep() const;
+    QUrl lastWaveformFolder() const;
     QString outputSummary() const;
     QStringList presetNames() const;
     QStringList builtInPresets() const;
@@ -100,13 +104,18 @@ public:
     Q_INVOKABLE bool loadWaveformPath(int channel, const QString& path) { return loadWaveform(channel, QUrl::fromLocalFile(path)); }
     Q_INVOKABLE void loadLibraryWaveform(int channel, int function);
     Q_INVOKABLE void clearWaveform(int channel);
-    Q_INVOKABLE void editChannel(int channel);   // opens the editor on the channel's waveform
+    // Opens the editor on the channel's waveform. When the editor holds another, modified document,
+    // emits editChannelNeedsConfirmation() instead (unless `discard`), so the view can ask first.
+    Q_INVOKABLE void editChannel(int channel, bool discard = false);
     Q_INVOKABLE bool exportChannel(int channel, const QUrl& file);
     Q_INVOKABLE void savePreset(const QString& name);
     Q_INVOKABLE void loadPreset(const QString& name);
     Q_INVOKABLE void deletePreset(const QString& name);
     Q_INVOKABLE void loadBuiltInPreset(int index);
     Q_INVOKABLE void clearRecentFiles();
+    // Screenshot scenes of the dev executable (MYBENCH_GEN_SCENE=settings|draw|unsaved|help ...),
+    // "" otherwise: the panel opens that dialog/state once loaded (documentation, visual checks).
+    Q_INVOKABLE QString devScene() const { return qEnvironmentVariable("MYBENCH_GEN_SCENE"); }
 
 signals:
     void outputPairChanged();
@@ -118,11 +127,14 @@ signals:
     void channelsChanged();
     void presetsChanged();
     void recentFilesChanged();
+    void lastWaveformFolderChanged();
+    void editChannelNeedsConfirmation(int channel);
 
 protected:
     WorkerFunction createWorker() override;
     void onStarted() override;
     void onFinished() override;
+    void applySafeState() override;   // Stop / Stop all / panel close while idle: Done channels to 0 V
     void saveExtraSettings(QJsonObject& settings) const override;
     void restoreExtraSettings(const QJsonObject& settings) override;
     DataTable exportTable() const override;
@@ -144,6 +156,9 @@ private:
     void onEditorUse(int channel);
     void onEditorRendered();
     void notify(int level, const QString& title, const QString& message = {});
+    void releaseDone(uint8_t mask);   // Done (holding) channels of `mask` back to 0 V
+    void updateHolds();               // singleEnabled / holdsOutputs from the channel states
+    void addPaletteCommands();
 
     std::array<std::unique_ptr<GenChannel>, 2> m_channels;
     WaveformEditor m_editor;
@@ -160,7 +175,6 @@ private:
     std::array<bool, 2> m_editorLinked{};
     std::array<std::pair<double, const void*>, 2> m_clipWarned{};
     bool m_restarting = false;
-    uint8_t m_releaseMask = 0;       // idle Done channels to set to 0 V (a short run)
     std::optional<gen::EngineResult> m_lastResult;
 
     QString m_strategyText;

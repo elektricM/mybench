@@ -29,7 +29,7 @@ Section {
         Layout.fillWidth: true
         text: qsTr("%1 samples · %2 · %n segment(s)", "", root.editor.segmentCount)
               .arg(root.editor.totalSamples.toLocaleString(Qt.locale("en_US"), "f", 0))
-              .arg(Units.format(root.editor.totalDuration, "s", 4))
+              .arg(Units.format(root.editor.totalDuration, "s", 4, true))
         color: Theme.textMuted
         font.pixelSize: Theme.fontSizeS
         font.features: Theme.tabularFigures
@@ -39,19 +39,22 @@ Section {
         Field {
             label: qsTr("Sample Rate")
             SiField {
+                // Samples per second in the document's Units (1.0 ... 1 000 000.0, one decimal).
                 Layout.fillWidth: true
-                unit: "S/s"
+                unit: root.editor.rateUnit
+                engineering: false
+                decimals: 1
+                stepSize: 1000
                 from: 1
                 to: 1000000
-                digits: 6
-                toolTip: qsTr("Rendering rate of the document (1 S/s to 1 MS/s); durations are kept")
-                value: root.editor.sampleRate
-                onValueModified: v => root.editor.sampleRate = v
+                toolTip: qsTr("Rendering rate of the document, 1.0 to 1 000 000.0 %1; durations are kept, sample counts change").arg(root.editor.rateUnit)
+                value: root.editor.sampleRate / root.editor.displayScale
+                onValueModified: v => root.editor.sampleRate = v * root.editor.displayScale
             }
         }
         Field {
             label: qsTr("Units")
-            hint: qsTr("Display unit of the frequency parameters")
+            hint: qsTr("Unit system of the document: Hz with seconds and S/s, kHz with milliseconds and kS/s, MHz with microseconds and MS/s. Switching keeps the numbers and changes their meaning (10 s becomes 10 ms), as in ELVISmx; undoable.")
             ComboBox {
                 Layout.fillWidth: true
                 model: ["Hz", "kHz", "MHz"]
@@ -74,10 +77,12 @@ Section {
             compact: true
             tone: "subtle"
             color: Theme.ch0
+            toolTip: qsTr("Play this waveform on %1 (Arbitrary mode)").arg(root.controller.channel0.name)
             onClicked: root.editor.useInChannel(0)
         }
         ActionButton {
             Layout.fillWidth: true
+            toolTip: qsTr("Play this waveform on %1 (Arbitrary mode)").arg(root.controller.channel1.name)
             text: root.controller.channel1.name
             compact: true
             tone: "subtle"

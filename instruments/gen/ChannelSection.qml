@@ -150,13 +150,16 @@ Section {
             }
             Text {
                 Layout.fillWidth: true
-                text: qsTr("Generates %1").arg(root.channel.outputOn && root.channel.actualFrequency > 0
-                                                 ? root.channel.readoutText : root.controller.engineMode === GenController.Stream
-                                                   ? Units.format(root.channel.frequency, "Hz", 6) : formatDisplay(root.channel.expectedFrequency))
+                text: qsTr("Generates %1").arg(formatDisplay(root.channel.expectedFrequency))
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSizeXs
                 font.features: Theme.tabularFigures
                 elide: Text.ElideRight
+                ToolTip.visible: generatesHover.hovered
+                ToolTip.text: root.controller.engineMode === GenController.Regenerate
+                              ? qsTr("Frequency of the looped buffer (Regenerate engine): whole samples per period at up to 200 kS/s")
+                              : qsTr("Exact frequency of the streaming synthesizer")
+                HoverHandler { id: generatesHover }
                 function formatDisplay(f: real): string {
                     const prefixes = [[1e6, "MHz"], [1e3, "kHz"], [1, "Hz"], [1e-3, "mHz"]]
                     for (const p of prefixes) {
@@ -174,16 +177,19 @@ Section {
         Layout.fillWidth: true
         Field {
             label: qsTr("Amplitude")
-            RowLayout {
+            // ELVISmx-like: knob with its end labels, the value field below.
+            ColumnLayout {
                 Layout.fillWidth: true
-                spacing: Theme.spacingXs
+                spacing: 2
                 Knob {
-                    diameter: 34
+                    Layout.alignment: Qt.AlignHCenter
+                    diameter: 48
                     from: 0
                     to: root.channel.audio ? 4 : 10
                     stepSize: 0.1
                     showValue: false
-                    showRangeLabels: false
+                    minLabel: "0.0"
+                    maxLabel: root.channel.audio ? "4.0" : "10.0"
                     color: root.channelColor
                     ToolTip.visible: hovered
                     ToolTip.text: root.channel.audio ? qsTr("0.0 to 4.0 Vpp") : qsTr("0.0 to 10.0 Vpp")
@@ -207,16 +213,18 @@ Section {
         }
         Field {
             label: qsTr("DC Offset")
-            RowLayout {
+            ColumnLayout {
                 Layout.fillWidth: true
-                spacing: Theme.spacingXs
+                spacing: 2
                 Knob {
-                    diameter: 34
+                    Layout.alignment: Qt.AlignHCenter
+                    diameter: 48
                     from: -5
                     to: 5
                     stepSize: 0.1
                     showValue: false
-                    showRangeLabels: false
+                    minLabel: "-5.0"
+                    maxLabel: "5.0"
                     color: root.channelColor
                     enabled: !root.channel.audio
                     ToolTip.visible: hovered
@@ -375,7 +383,10 @@ Section {
             tone: root.channel.sweeping ? "danger" : "subtle"
             color: root.channelColor
             compact: true
-            toolTip: qsTr("Single linear sweep from Start to Stop Frequency, then the output stops")
+            enabled: root.channel.sweeping || !root.channel.outputOn
+            toolTip: root.channel.outputOn && !root.channel.sweeping
+                     ? qsTr("Stop the output first: a sweep starts from a stopped channel")
+                     : qsTr("Single linear sweep from Start to Stop Frequency, then the output stops")
             onClicked: root.channel.sweeping ? root.controller.setOutput(root.channel.index, false)
                                              : root.controller.startSweep(root.channel.index)
         }
@@ -443,7 +454,7 @@ Section {
             text: qsTr("Open")
             iconName: "folder-open"
             compact: true
-            toolTip: qsTr("Load a waveform file (.mbw, .wav, .csv, .txt, .bin, .wdt)")
+            toolTip: qsTr("Load a waveform file (.mbw, .wav, .csv, .txt, .bin, .wdt, .wfm)")
             onClicked: openDialog.open()
         }
         ActionButton {
@@ -527,8 +538,9 @@ Section {
                 engineering: false
                 decimals: 2
                 stepSize: 0.01
-                from: -1000
-                to: 1000
+                from: -10
+                to: 10
+                toolTip: qsTr("-10.00 to 10.00; samples beyond the output range are clipped")
                 value: root.channel.gain
                 onValueModified: v => root.channel.gain = v
             }
@@ -565,10 +577,11 @@ Section {
             SiField {
                 Layout.fillWidth: true
                 unit: "S/s"
-                from: 1
+                from: 0.1
                 to: DeviceHub.maxAoRate > 0 ? DeviceHub.maxAoRate : 200000
-                digits: 5
-                toolTip: root.controller.linkUpdateRates ? qsTr("Shared by both channels (Link update rates)") : qsTr("Samples per second")
+                digits: 4
+                toolTip: root.controller.linkUpdateRates ? qsTr("0.1 S/s to 200 kS/s, shared by both channels (Link update rates)")
+                                                         : qsTr("0.1 S/s to 200 kS/s")
                 value: root.channel.updateRate
                 onValueModified: v => root.channel.updateRate = v
             }
@@ -610,6 +623,17 @@ Section {
         }
     }
 
+    CheckBox {
+        visible: root.isArbitrary
+        Layout.fillWidth: true
+        text: qsTr("Return to 0 V after Run Once")
+        enabled: !root.channel.outputOn
+        checked: root.channel.zeroAfterRunOnce
+        ToolTip.visible: hovered
+        ToolTip.text: qsTr("On: after one pass the output returns to 0 V and shows OFF (as ELVISmx). Off: it holds the last sample (Done) until stopped.")
+        onToggled: root.channel.zeroAfterRunOnce = checked
+    }
+
     // --- DC -------------------------------------------------------------------------------------------
     GroupLabel { visible: root.isDc; text: qsTr("Voltage") }
 
@@ -625,8 +649,8 @@ Section {
                 Layout.fillWidth: true
                 from: -root.channel.outputRange
                 to: root.channel.outputRange
-                stepSize: 0.1
-                snapMode: Slider.SnapOnRelease
+                stepSize: 0.01
+                snapMode: Slider.SnapAlways
                 value: root.channel.dcLevel
                 onMoved: root.channel.dcLevel = Math.round(value * 100) / 100
             }
@@ -652,7 +676,8 @@ Section {
             unit: "V"
             engineering: false
             decimals: 2
-            stepSize: 0.1
+            stepSize: 0.01
+            toolTip: qsTr("Level in 0.01 V steps; arrows and the wheel tune the digit at the cursor")
             from: -root.channel.outputRange
             to: root.channel.outputRange
             value: root.channel.dcLevel
@@ -663,9 +688,10 @@ Section {
     FileDialog {
         id: openDialog
         title: qsTr("Open waveform for %1").arg(root.channel.name)
-        nameFilters: [qsTr("Waveforms (*.mbw *.wav *.csv *.txt *.bin *.wdt)"), qsTr("MYBENCH waveform (*.mbw)"),
+        currentFolder: root.controller.lastWaveformFolder
+        nameFilters: [qsTr("Waveforms (*.mbw *.wav *.csv *.txt *.bin *.wdt *.wfm)"), qsTr("MYBENCH waveform (*.mbw)"),
                       qsTr("WAV audio (*.wav)"), qsTr("Text data (*.csv *.txt)"), qsTr("Binary 16-bit (*.bin)"),
-                      qsTr("LabVIEW waveform (*.wdt)"), qsTr("All files (*)")]
+                      qsTr("LabVIEW waveform (*.wdt)"), qsTr("NI Waveform Editor document (*.wfm)"), qsTr("All files (*)")]
         onAccepted: root.controller.loadWaveform(root.channel.index, selectedFile)
     }
     FileDialog {

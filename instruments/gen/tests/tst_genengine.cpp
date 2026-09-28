@@ -308,12 +308,11 @@ private slots:
         s.start = s.stop = 500;
         QCOMPARE(makeSweep(s).frequencies.size(), size_t(1));
         s.intervalMs = 300;
-        QCOMPARE(makeSweep(s).stepDuration, 0.5);    // ELVISmx: whole 250 ms blocks
+        QCOMPARE(makeSweep(s).stepDuration, 0.3);    // default: exactly the Step Interval (audit gen #9)
+        s.blockTiming = true;
+        QCOMPARE(makeSweep(s).stepDuration, 0.5);    // option: ELVISmx whole 250 ms blocks
         s.intervalMs = 1;
         QCOMPARE(makeSweep(s).stepDuration, 0.25);
-        s.blockTiming = false;
-        s.intervalMs = 300;
-        QCOMPARE(makeSweep(s).stepDuration, 0.3);
     }
 
     void dds()
@@ -326,22 +325,28 @@ private slots:
 
     void strategyChoice()
     {
+        // Default (Auto): DC-only on the AO pair = on-demand writes, everything else streams
+        // (audit gen #1: phase-continuous live changes, no disturbance between channels).
         EngineSettings s = functionOn(100);
-        QCOMPARE(chooseStrategy(s, StrategyKind::None), StrategyKind::Regenerate);
-        QCOMPARE(chooseStrategy(s, StrategyKind::Stream), StrategyKind::Stream);   // no downgrade
+        QCOMPARE(s.preference, EnginePreference::Auto);
+        QCOMPARE(chooseStrategy(s, StrategyKind::None), StrategyKind::Stream);
+        QCOMPARE(chooseStrategy(s, StrategyKind::None, false), StrategyKind::Regenerate);   // backend cannot stream
         s.preference = EnginePreference::Stream;
         QCOMPARE(chooseStrategy(s, StrategyKind::None), StrategyKind::Stream);
+        // Regenerate: the ELVISmx looped buffer whenever one buffer can represent the outputs.
         s.preference = EnginePreference::Regenerate;
+        QCOMPARE(chooseStrategy(s, StrategyKind::None), StrategyKind::Regenerate);
         QCOMPARE(chooseStrategy(s, StrategyKind::Stream), StrategyKind::Regenerate);
-        s.preference = EnginePreference::Auto;
 
         EngineSettings two = functionOn(100);
+        two.preference = EnginePreference::Regenerate;
         two.channels[1] = functionOn(100, 1, 1).channels[1];
         QCOMPARE(chooseStrategy(two, StrategyKind::None), StrategyKind::Regenerate);   // same frequency
         two.channels[1].function.frequency = 300;
         QCOMPARE(chooseStrategy(two, StrategyKind::None), StrategyKind::Stream);
 
         EngineSettings sweep = functionOn(100);
+        sweep.preference = EnginePreference::Regenerate;
         sweep.channels[0].sweep = true;
         QCOMPARE(chooseStrategy(sweep, StrategyKind::None), StrategyKind::Stream);
 
@@ -349,6 +354,7 @@ private slots:
         dc.channels[0].mode = ChannelMode::Dc;
         dc.channels[0].active = true;
         QCOMPARE(chooseStrategy(dc, StrategyKind::None), StrategyKind::Static);
+        QCOMPARE(chooseStrategy(dc, StrategyKind::Stream), StrategyKind::Stream);   // no downgrade
         dc.channels[0].active = false;
         QCOMPARE(chooseStrategy(dc, StrategyKind::None), StrategyKind::None);
 
@@ -356,7 +362,14 @@ private slots:
         arb.channels[0].mode = ChannelMode::Arbitrary;
         arb.channels[0].active = true;
         arb.channels[0].arb.waveform = std::make_shared<const std::vector<double>>(100, 1.0);
+        QCOMPARE(chooseStrategy(arb, StrategyKind::None), StrategyKind::Stream);
+        arb.preference = EnginePreference::Regenerate;
         QCOMPARE(chooseStrategy(arb, StrategyKind::None), StrategyKind::Regenerate);
+        // Linear interpolation exists only in the stream (audit gen #5).
+        arb.channels[0].arb.linear = true;
+        QVERIFY(!isRegenerable(arb));
+        QCOMPARE(chooseStrategy(arb, StrategyKind::None), StrategyKind::Stream);
+        arb.channels[0].arb.linear = false;
         arb.channels[1] = arb.channels[0];
         arb.channels[1].arb.waveform = std::make_shared<const std::vector<double>>(50, 1.0);
         QCOMPARE(chooseStrategy(arb, StrategyKind::None), StrategyKind::Stream);   // different lengths
@@ -368,11 +381,96 @@ private slots:
         QCOMPARE(chooseStrategy(arb, StrategyKind::None, false), StrategyKind::Stream);
     }
 
+    void regenerateShowsRequestedFrequency()
+    {
+        // ELVISmx shows the requested 1.2345 kHz although its 162-sample buffer gives 1.2346 kHz
+        // (audit gen #2); the realised buffer frequency stays available for the caption.
+        mydaq::SimDevice sim;
+        quiet(sim);
+        EngineSettings s = functionOn(1234.5, 2.0);
+        s.preference = EnginePreference::Regenerate;
+        Runner run(sim, s);
+        QVERIFY(run.waitStatus([](const EngineStatus& st) { return st.channels[0].state == ChannelState::Running; }));
+        const EngineStatus status = run.host.last();
+        QCOMPARE(status.strategy, StrategyKind::Regenerate);
+        QCOMPARE(status.channels[0].frequency, 1234.5);
+        QCOMPARE(status.channels[0].bufferLength, 162);
+        QVERIFY(std::abs(status.channels[0].bufferFrequency - 200000.0 / 162) < 1e-6);
+        run.join();
+    }
+
+    void slowUpdateRate()
+    {
+        // Update Rate down to 0.1 S/s (audit gen #3), both engines; Stop stays responsive.
+        mydaq::SimDevice sim;
+        quiet(sim);
+        EngineSettings s;
+        ChannelSettings& c = s.channels[0];
+        c.mode = ChannelMode::Arbitrary;
+        c.active = true;
+        c.startId = 3;
+        c.arb.waveform = std::make_shared<const std::vector<double>>(std::vector<double>{0.5, -0.5});
+        c.arb.updateRate = 0.1;
+        for (EnginePreference preference : {EnginePreference::Regenerate, EnginePreference::Stream}) {
+            s.preference = preference;
+            Runner run(sim, s);
+            QVERIFY(run.waitStatus([](const EngineStatus& st) { return st.channels[0].state == ChannelState::Running; }));
+            QVERIFY2(std::abs(run.host.last().channels[0].updateRate - 0.1) < 1e-6,
+                     qPrintable(QString::number(run.host.last().channels[0].updateRate)));
+            std::this_thread::sleep_for(50ms);
+            QVERIFY(std::abs(sim.aiReadStatic(mydaq::AiChannel::AI0, 10) - 0.5) < 0.01);
+            const auto t0 = std::chrono::steady_clock::now();
+            run.join();
+            QVERIFY(std::chrono::steady_clock::now() - t0 < 1s);
+            QVERIFY2(run.error.isEmpty(), qPrintable(run.error));
+        }
+    }
+
+    void runOnceReturnsToZero()
+    {
+        // ELVISmx Run Once: plays once, then 0 V and OFF (audit gen #4, option).
+        mydaq::SimDevice sim;
+        quiet(sim);
+        EngineSettings s;
+        ChannelSettings& c = s.channels[0];
+        c.mode = ChannelMode::Arbitrary;
+        c.active = true;
+        c.startId = 9;
+        c.arb.waveform = std::make_shared<const std::vector<double>>(50, 1.5);
+        c.arb.updateRate = 1000;
+        c.arb.once = true;
+        c.arb.zeroAfterOnce = true;
+        for (EnginePreference preference : {EnginePreference::Regenerate, EnginePreference::Stream}) {
+            s.preference = preference;
+            Runner run(sim, s);
+            QVERIFY(run.waitFinished(3000));
+            QVERIFY2(run.error.isEmpty(), qPrintable(run.error));
+            QVERIFY(!run.result.done[0]);
+            bool finished = false;
+            for (const EngineStatus& st : run.host.statuses()) {
+                finished = finished || st.channels[0].finished;
+                QVERIFY(st.channels[0].state != ChannelState::Done);
+            }
+            QVERIFY(finished);
+            QVERIFY(std::abs(sim.aiReadStatic(mydaq::AiChannel::AI0, 10)) < 0.01);
+        }
+        // The other channel keeps going while AO 0 has returned to 0 V (stream).
+        s.preference = EnginePreference::Auto;
+        s.channels[1] = functionOn(100, 1, 1).channels[1];
+        Runner both(sim, s);
+        QVERIFY(both.waitStatus([](const EngineStatus& st) { return st.channels[0].finished; }, 3000));
+        QVERIFY(!both.finished);
+        QCOMPARE(both.host.last().channels[1].state, ChannelState::Running);
+        both.join();
+    }
+
     void regenerateFunction()
     {
         mydaq::SimDevice sim;
         quiet(sim);
-        Runner run(sim, functionOn(1000, 2.0));
+        EngineSettings settings = functionOn(1000, 2.0);
+        settings.preference = EnginePreference::Regenerate;
+        Runner run(sim, settings);
         QVERIFY(run.waitStatus([](const EngineStatus& s) { return s.channels[0].state == ChannelState::Running; }));
         const EngineStatus status = run.host.last();
         QCOMPARE(status.strategy, StrategyKind::Regenerate);
@@ -462,7 +560,7 @@ private slots:
         c.arb.updateRate = 1000;
         c.arb.once = true;
         c.arb.gain = 2.0;
-        for (EnginePreference preference : {EnginePreference::Auto, EnginePreference::Stream}) {
+        for (EnginePreference preference : {EnginePreference::Regenerate, EnginePreference::Stream}) {
             s.preference = preference;
             Runner run(sim, s);
             QVERIFY(run.waitFinished(3000));
@@ -489,10 +587,11 @@ private slots:
         run.host.post(s);
         QVERIFY(run.waitStatus([](const EngineStatus& st) { return st.channels[0].level == -1.25; }));
         QVERIFY(std::abs(sim.aiReadStatic(mydaq::AiChannel::AI0, 10) + 1.25) < 0.01);
-        // A function on AO 1 upgrades to a timed task; the DC level stays.
+        // A function on AO 1 upgrades to the stream; the DC level stays.
         s.channels[1] = functionOn(100, 1, 1).channels[1];
         run.host.post(s);
-        QVERIFY(run.waitStatus([](const EngineStatus& st) { return st.strategy == StrategyKind::Regenerate; }));
+        QVERIFY(run.waitStatus([](const EngineStatus& st) { return st.strategy == StrategyKind::Stream; }));
+        std::this_thread::sleep_for(150ms);
         const auto y = acquireAi0(sim, 0.01);
         QVERIFY(std::abs(y[100] + 1.25) < 0.01);
         run.join();

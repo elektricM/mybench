@@ -24,8 +24,8 @@ struct LoadedWaveform {
     int channels = 1;                 // WAV: channels in the file
 };
 
-// Loads any supported file by extension (.mbw, .wav, .csv, .txt, .bin, .wdt; unknown extensions
-// are tried as text). `channel` selects the WAV channel. nullopt + `error` on failure.
+// Loads any supported file by extension (.mbw, .wfm, .wav, .csv, .txt, .bin, .wdt; unknown
+// extensions are tried as text). `channel` selects the WAV channel. nullopt + `error` on failure.
 std::optional<LoadedWaveform> loadWaveformFile(const QString& path, QString* error = nullptr, int channel = 0);
 
 // --- Text (4.2.3 automatic rules, 4.3.9 Text File Wizard) ----------------------------------------
@@ -64,16 +64,28 @@ struct WdtWaveform {
     std::vector<double> samples;
 };
 std::vector<WdtWaveform> parseWdt(const QByteArray& data);
-// A file in the same layout (a datalog-like header, one record holding an array of waveforms),
-// for the tests. Not offered as an export: NI's software may not accept it.
+// A file in the same layout (a datalog-like header, one record holding an array of waveforms):
+// the editor's "Export > LabVIEW waveform (.wdt)". MYBENCH reads it back; NI's software was not
+// available to verify that it accepts it (no NI sample file, audit gen #19/#22).
 QByteArray encodeWdt(const std::vector<WdtWaveform>& waveforms);
+
+// --- NI Waveform Editor documents (.wfm), best effort ------------------------------------------------
+// LabVIEW flattened, big-endian (algorithms/gen.md 3.2, 3.5): U16 Units, then an I32-counted array
+// of records {I32 Type (0 segment, 1 library, 2 expression, 3 sketch), string (I32 length +
+// bytes), I32 Op, I32 A, SGL B, SGL array C (I32 count + values)}. Segment: name, B = duration;
+// library: A = function index, C = parameters; expression: text, C = {From, To, Cycles}; sketch:
+// name, B = cycles, C = values. Times and frequencies are in the document Units (s/Hz, ms/kHz,
+// us/MHz). The file has no sample rate: the document gets 10000 (in its Units). The layout comes
+// from the code study (confidence M); nullopt + `error` when the file does not match it.
+std::optional<Document> parseWfm(const QByteArray& data, QString* error = nullptr);
+QByteArray encodeWfm(const Document& document);   // same layout (tests)
 
 // --- Export -----------------------------------------------------------------------------------------
 
 // "# sampleRate=<fs>" then one value per line.
 QByteArray encodeCsv(const std::vector<double>& samples, double sampleRate);
-// Writes `samples` to `path` by extension (.csv/.txt, .wav, .bin, .wdt); `clipped` receives the
-// number of samples beyond +-1 V (WAV) or the binary reference.
+// Writes `samples` to `path` by extension (.csv/.txt, .wav, .bin, .wdt; other extensions are
+// refused); `clipped` receives the number of samples beyond +-1 V (WAV) or the binary reference.
 bool saveWaveformFile(const QString& path, const std::vector<double>& samples, double sampleRate,
                       QString* error = nullptr, size_t* clipped = nullptr);
 

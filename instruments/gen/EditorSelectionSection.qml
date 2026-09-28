@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MyBench.Framework
 import MyBench.Controls
 
 // Parameters of the selected segment or component (the ELVISmx editor's right-hand pane):
@@ -29,6 +28,8 @@ Section {
             Layout.fillWidth: true
             text: root.editor.segmentName
             placeholderText: qsTr("(no name)")
+            ToolTip.visible: hovered
+            ToolTip.text: qsTr("Name of the segment (shown in the list)")
             onEditingFinished: if (text !== root.editor.segmentName) root.editor.segmentName = text
         }
     }
@@ -38,15 +39,17 @@ Section {
         Field {
             label: qsTr("Duration")
             SiField {
+                // In the document's time unit (s, ms or µs).
                 Layout.fillWidth: true
-                unit: "s"
+                unit: root.editor.timeUnit
                 engineering: false
                 decimals: 4
                 stepSize: 0.1
                 from: 0.0001
                 to: 100000
-                value: root.editor.segmentDuration
-                onValueModified: v => root.editor.segmentDuration = v
+                toolTip: qsTr("Duration of the segment, 0.0001 to 100 000 %1").arg(root.editor.timeUnit)
+                value: root.editor.segmentDuration * root.editor.displayScale
+                onValueModified: v => root.editor.segmentDuration = v / root.editor.displayScale
             }
         }
         Field {
@@ -57,6 +60,7 @@ Section {
                 engineering: false
                 decimals: 4
                 stepSize: 0.1
+                toolTip: qsTr("Gain of the segment")
                 value: root.editor.segmentGain
                 onValueModified: v => root.editor.segmentGain = v
             }
@@ -79,7 +83,10 @@ Section {
         SegmentedControl {
             Layout.fillWidth: true
             compact: true
-            model: [qsTr("Library"), qsTr("Expression"), qsTr("Sketch")]
+            enabled: !root.editor.drawMode
+            model: [ { text: qsTr("Library"), toolTip: qsTr("One of the 21 library functions") },
+                     { text: qsTr("Expression"), toolTip: qsTr("A formula of x") },
+                     { text: qsTr("Sketch"), toolTip: qsTr("Freehand values, drawn or imported") } ]
             currentIndex: root.type
             onActivated: index => root.editor.componentType = index
         }
@@ -108,6 +115,8 @@ Section {
             Layout.fillWidth: true
             model: root.editor.functionNames
             currentIndex: root.editor.libraryFunction
+            ToolTip.visible: hovered
+            ToolTip.text: qsTr("Library function (New Component uses the last one chosen)")
             onActivated: index => root.editor.libraryFunction = index
         }
     }
@@ -136,6 +145,7 @@ Section {
                     from: paramField.modelData.min
                     to: paramField.modelData.max
                     accentColor: paramField.modelData.alias ? Theme.warning : Theme.accent
+                    toolTip: paramField.modelData.label
                     value: paramField.modelData.value
                     onValueModified: v => root.editor.setParam(paramField.modelData.index, v)
                 }
@@ -145,7 +155,7 @@ Section {
             visible: root.editor.hasSeed
             Layout.fillWidth: true
             label: qsTr("Seed")
-            hint: qsTr("Noise seed: the same seed renders the same samples everywhere")
+            hint: qsTr("Noise seed: the same seed renders the same samples everywhere; 0 = new random values at every render (as ELVISmx)")
             SiField {
                 Layout.fillWidth: true
                 engineering: false
@@ -178,7 +188,10 @@ Section {
                 Layout.fillWidth: true
                 font.family: Theme.monoFamily
                 text: root.editor.expression
-                onEditingFinished: if (text !== root.editor.expression) root.editor.expression = text
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Formula of x; the preview and the error follow the typing")
+                // Applied while typing (one undo step), so the error text and the preview follow.
+                onTextEdited: root.editor.expression = text
             }
         }
     }
@@ -205,11 +218,13 @@ Section {
         Field {
             label: qsTr("From")
             SiField { Layout.fillWidth: true; engineering: false; decimals: 4; stepSize: 0.1
+                      toolTip: qsTr("x at the start of each cycle")
                       value: root.editor.expressionFrom; onValueModified: v => root.editor.expressionFrom = v }
         }
         Field {
             label: qsTr("To")
             SiField { Layout.fillWidth: true; engineering: false; decimals: 4; stepSize: 0.1
+                      toolTip: qsTr("x at the end of each cycle")
                       value: root.editor.expressionTo; onValueModified: v => root.editor.expressionTo = v }
         }
     }
@@ -223,12 +238,15 @@ Section {
             TextField {
                 Layout.fillWidth: true
                 text: root.editor.sketchName
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Name of the sketch")
                 onEditingFinished: if (text !== root.editor.sketchName) root.editor.sketchName = text
             }
         }
         Field {
             label: qsTr("Samples")
             SiField { Layout.fillWidth: true; engineering: false; decimals: 0; stepSize: 1; from: 2; to: 1000000
+                      toolTip: qsTr("Values in one cycle (2 to 1 000 000); changing it resamples the sketch")
                       value: root.editor.sketchSamples; onValueModified: v => root.editor.sketchSamples = v }
         }
     }
@@ -239,11 +257,13 @@ Section {
         Field {
             label: qsTr("Cycles")
             SiField { Layout.fillWidth: true; engineering: false; decimals: root.type === 2 ? 3 : 4; stepSize: 1; from: 0.0001; to: 1e6
+                      toolTip: qsTr("Repetitions over the segment")
                       value: root.editor.componentCycles; onValueModified: v => root.editor.componentCycles = v }
         }
         Field {
             label: qsTr("Gain")
             SiField { Layout.fillWidth: true; engineering: false; decimals: 4; stepSize: 0.1
+                      toolTip: qsTr("Gain of the component")
                       value: root.editor.componentGain; onValueModified: v => root.editor.componentGain = v }
         }
     }
@@ -256,6 +276,7 @@ Section {
             text: qsTr("Import…")
             iconName: "upload"
             compact: true
+            enabled: !root.editor.drawMode
             toolTip: qsTr("Replace the sketch values with data from a file")
             onClicked: importFile.open()
         }
@@ -274,8 +295,8 @@ Section {
     Text {
         visible: root.kind === 3
         Layout.fillWidth: true
-        text: qsTr("%1 samples, %2 s. Copy copies the whole waveform, Scale Selection scales every segment, Clear resets the document.")
-              .arg(root.editor.totalSamples).arg(root.editor.totalDuration)
+        text: qsTr("%1 samples, %2 %3. Copy copies the whole waveform, Scale Selection scales every segment, Clear resets the document.")
+              .arg(root.editor.totalSamples).arg(Number((root.editor.totalDuration * root.editor.displayScale).toPrecision(6))).arg(root.editor.timeUnit)
         color: Theme.textSecondary
         font.pixelSize: Theme.fontSizeS
         wrapMode: Text.WordWrap

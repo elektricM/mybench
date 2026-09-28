@@ -4,22 +4,24 @@
 // simulator, the USB backend and in the unit tests. The worker thread calls Engine::run(), which
 // generates until every channel has stopped or finished, or until the host asks it to stop.
 //
-// Strategies, chosen automatically from the channel settings (chooseStrategy()):
+// Strategies, chosen from the channel settings and the engine preference (chooseStrategy()):
 //   Static      every generating channel is a DC level: on-demand writes (Device::aoWriteStatic),
 //               no sample clock (the ELVISmx "DC Level" application).
+//   Stream      the reference engine (gen.md 3.1-3.5): a continuous stream at the device's maximum
+//               rate for both channels of the pair. Function channels are DDS phase accumulators
+//               (glitch-free, phase-continuous changes, sample-exact sweep steps), Arbitrary
+//               channels are resampled by a position accumulator at their own Update Rate (Hold or
+//               Linear interpolation), DC levels are ramped. One channel starts or stops without
+//               disturbing the other.
 //   Regenerate  one buffer that the device loops, as ELVISmx does: a Function channel is one period
 //               of planFgenBuffer() (Fs = 10 000 f up to the maximum rate, else f round(Rmax / f));
 //               Arbitrary channels play gain x waveform at their Update Rate (Run Once = a finite
 //               task). Live changes stop, rewrite and restart the task (not phase continuous).
 //               Only the generating channels are in the task (ELVISmx: one AO channel).
-//   Stream      a continuous stream at the device's maximum rate for both channels of the pair:
-//               Function channels are DDS phase accumulators (glitch-free, phase-continuous
-//               changes, sample-exact sweep steps), Arbitrary channels are resampled by a position
-//               accumulator at their own Update Rate, DC levels are ramped. Needed for sweeps and
-//               for combinations one buffer cannot represent (different frequencies, Function +
-//               Arbitrary, different waveform lengths/rates).
-// In Auto mode a running Stream is never downgraded (so one channel can stop without disturbing the
-// other); Regenerate/Static are upgraded when a new combination needs it.
+// Preferences: Auto (default) streams everything except DC-only outputs (Static), and falls back
+// to Regenerate when the backend cannot stream; Regenerate reproduces ELVISmx (looped buffer
+// whenever one buffer can represent the outputs, else the stream); Stream always streams. A running
+// Stream is never downgraded in Auto (so one channel can stop without disturbing the other).
 #pragma once
 
 #include <mydaq/device.h>
@@ -36,6 +38,9 @@
 namespace mybench::instruments::gen {
 
 enum class ChannelMode { Off, Function, Arbitrary, Dc };
+
+// Arbitrary Update Rate limits: ELVISmx accepts 0.1 S/s (gen.md 4.2.2); the top is the task rate.
+inline constexpr double kMinUpdateRate = 0.1;
 enum class Shape { Sine, Triangle, Square };   // ELVISmx button order
 enum class OutputPair { AnalogOutputs, AudioOutputs };
 enum class StrategyKind { None, Static, Regenerate, Stream };
@@ -56,7 +61,7 @@ struct SweepSettings {
     double stop = 1000.0;      // Hz
     double step = 100.0;       // Hz
     double intervalMs = 1000;  // 1 ... 300 000 ms
-    bool blockTiming = true;   // ELVISmx: steps last a whole number of 250 ms blocks
+    bool blockTiming = false;  // true: steps last a whole number of 250 ms blocks (ELVISmx)
     bool operator==(const SweepSettings&) const = default;
 };
 
@@ -66,6 +71,7 @@ struct ArbSettings {
     double updateRate = 1000.0;   // S/s
     bool once = false;            // Run Once (else Run Continuously)
     bool linear = false;          // [MYBENCH] linear interpolation between samples (Stream)
+    bool zeroAfterOnce = false;   // Run Once ends at 0 V (ELVISmx) instead of holding the last sample
 };
 
 struct ChannelSettings {
@@ -92,12 +98,15 @@ enum class ChannelState { Idle, Running, Sweeping, Done };
 struct ChannelStatus {
     ChannelState state = ChannelState::Idle;
     uint64_t startId = 0;
-    double frequency = 0;     // Function: actual generated frequency (Hz)
+    double frequency = 0;     // Function: generated frequency (Hz): DDS, or the requested one (Regenerate)
+    int bufferLength = 0;     // Function in Regenerate: samples per period of the looped buffer
+    double bufferFrequency = 0;   // ... and the frequency that buffer really produces
     double updateRate = 0;    // Arbitrary: actual update rate (S/s)
     double level = 0;         // DC level / held value of a finished Run Once
     int sweepStep = 0;        // 1-based current step
     int sweepSteps = 0;
     bool sweepFinished = false;
+    bool finished = false;    // Run Once over with zeroAfterOnce: back at 0 V
     bool operator==(const ChannelStatus&) const = default;
 };
 
@@ -123,7 +132,7 @@ public:
 };
 
 struct EngineResult {
-    std::array<bool, 2> done{};       // Run Once finished (holding `held`)
+    std::array<bool, 2> done{};       // Run Once finished (holding `held`; not with zeroAfterOnce)
     std::array<double, 2> held{};
     std::array<uint64_t, 2> startId{};
 };
@@ -162,6 +171,10 @@ bool isRegenerable(const EngineSettings& settings);
 // DDS phase increment for `frequency` at `rate` and the frequency it really produces.
 uint64_t phaseIncrement(double frequency, double rate);
 double ddsFrequency(uint64_t increment, double rate);
+
+// The engine's own wording of an error when the framework would replace it (a second underflow:
+// "... The generator was stopped.", gen.md 7): returned as a Generic error, others unchanged.
+mydaq::DeviceError userFacingError(const mydaq::DeviceError& error);
 
 // --- Engine --------------------------------------------------------------------------------------
 

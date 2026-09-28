@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MyBench.Framework
 import MyBench.Controls
 
 // The display readout of one channel (the ELVISmx "frequency display" / "Update Rate :" readout):

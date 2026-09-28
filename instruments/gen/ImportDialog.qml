@@ -17,13 +17,16 @@ Dialog {
     property int mode: 0           // 0: insert a new segment, 1: replace the selected sketch's values
     property var info: ({})
     readonly property bool text: (info.kind ?? "") === "text"
+    // Manual options (Automatic off); with Automatic on the fields show what was detected.
+    property int manualStartLine: 0
+    property int manualCount: 0
 
     function openFor(url: url) {
         file = url
         automatic.checked = true
         column.value = 1
-        startLine.value = 0
-        count.value = 0
+        manualStartLine = 0
+        manualCount = 0
         channel.currentIndex = 0
         refresh()
         open()
@@ -36,7 +39,7 @@ Dialog {
         if (space.checked) delimiters += " "
         if (other.checked && otherChar.text.length > 0) delimiters += otherChar.text[0]
         return { automatic: automatic.checked, delimiters: delimiters, column: column.value,
-                 startLine: startLine.value, count: count.value, channel: Math.max(0, channel.currentIndex) }
+                 startLine: manualStartLine, count: manualCount, channel: Math.max(0, channel.currentIndex) }
     }
     function refresh() {
         info = editor.inspectImport(file, options())
@@ -68,10 +71,19 @@ Dialog {
             visible: root.text
             text: qsTr("Automatic (header, time column and sample rate detected)")
             checked: true
-            onToggled: root.refresh()
+            onToggled: {
+                if (!checked) {
+                    // Start from what was detected.
+                    root.manualStartLine = root.info.firstNumericLine ?? 0
+                    root.manualCount = 0
+                }
+                root.refresh()
+            }
         }
         GridLayout {
-            visible: root.text && !automatic.checked
+            // Always shown (grayed while Automatic) so the detected layout is visible.
+            visible: root.text
+            enabled: !automatic.checked
             Layout.fillWidth: true
             columns: 2
             columnSpacing: Theme.spacingL
@@ -92,17 +104,19 @@ Dialog {
                 SiField { id: column; Layout.preferredWidth: 80; engineering: false; decimals: 0; stepSize: 1; from: 1; to: 1000; value: 1
                           onValueModified: v => { value = v; root.refresh() } }
                 Text { text: qsTr("Start Line"); color: Theme.textSecondary; font.pixelSize: Theme.fontSizeS }
-                SiField { id: startLine; Layout.preferredWidth: 80; engineering: false; decimals: 0; stepSize: 1; from: 0; to: 1e9; value: 0
-                          toolTip: qsTr("0: the first line whose column is a number")
-                          onValueModified: v => { value = v; root.refresh() } }
+                SiField { id: startLine; Layout.preferredWidth: 80; engineering: false; decimals: 0; stepSize: 1; from: 0; to: 1e9
+                          value: automatic.checked ? (root.info.firstNumericLine ?? 0) : root.manualStartLine
+                          toolTip: qsTr("First line read (1-based); 0: the first line whose column is a number")
+                          onValueModified: v => { root.manualStartLine = v; root.refresh() } }
                 Text { text: qsTr("No. Samples"); color: Theme.textSecondary; font.pixelSize: Theme.fontSizeS }
-                SiField { id: count; Layout.preferredWidth: 90; engineering: false; decimals: 0; stepSize: 1; from: 0; to: 1e7; value: 0
-                          toolTip: qsTr("0: all remaining values")
-                          onValueModified: v => { value = v; root.refresh() } }
+                SiField { id: count; Layout.preferredWidth: 90; engineering: false; decimals: 0; stepSize: 1; from: 0; to: 1e7
+                          value: automatic.checked ? (root.info.count ?? 0) : root.manualCount
+                          toolTip: qsTr("Number of values; 0: all remaining values")
+                          onValueModified: v => { root.manualCount = v; root.refresh() } }
             }
         }
         Rectangle {
-            visible: root.text && !automatic.checked
+            visible: root.text
             Layout.fillWidth: true
             Layout.preferredHeight: 90
             radius: Theme.radiusS

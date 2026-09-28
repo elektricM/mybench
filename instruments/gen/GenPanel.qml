@@ -2,9 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import MyBench.Framework
 import MyBench.Controls
-import MyBench.Plot
 
 // Waveform Generator panel (docs/instruments/gen.md): the ELVISmx Function Generator, Arbitrary
 // Waveform Generator, Waveform Editor and DC Level in one panel. Display: a "Generator" tab (a
@@ -23,7 +21,11 @@ Item {
         controller: root.controller
         displayTitle: root.editorTab ? qsTr("Waveform Editor · %1").arg(root.editor.windowTitle) : ""
         displayInfo: root.controller.strategyText
-        runBar.singleToolTip: qsTr("Play the Arbitrary channels once, then stop")
+        runBar.singleToolTip: root.controller.singleEnabled ? qsTr("Play the Arbitrary channels once, then stop")
+                                                            : qsTr("Load a waveform into an Arbitrary channel to play it once")
+        // The editor's trace in the panel menu and the plots' "Trace style…" (editor tab).
+        traceStyles: root.editorTab ? [{ name: root.editor.documentName, style: root.editor.traceStyle,
+                                         color: root.editor.plotColor.a > 0 ? root.editor.plotColor : Theme.accent }] : []
         runBar.runText: qsTr("Run")
 
         ColumnLayout {
@@ -112,6 +114,7 @@ Item {
 
                 // --- Waveform Editor view --------------------------------------------------------
                 EditorView {
+                    id: editorView
                     controller: root.controller
                     editor: root.editor
                 }
@@ -140,7 +143,7 @@ Item {
                     Layout.fillWidth: true
                     Field {
                         label: qsTr("Engine")
-                        hint: qsTr("Auto: one looped buffer like ELVISmx when it can represent the outputs, otherwise a glitch-free stream (sweeps, two frequencies, Function + Arbitrary). Regenerate: prefer the looped buffer. Stream: always stream (phase-continuous changes).")
+                        hint: qsTr("Auto (default): a continuous stream: phase-continuous live changes, exact frequencies, linear interpolation, channels independent; DC-only outputs use on-demand writes. Regenerate: the ELVISmx looped buffer whenever it can represent the outputs (changes restart the buffer). Stream: always stream, DC included.")
                         ComboBox {
                             Layout.fillWidth: true
                             model: [qsTr("Auto"), qsTr("Regenerate"), qsTr("Stream")]
@@ -229,18 +232,26 @@ Item {
                 controller: root.controller
                 channel: root.controller.channel1
             },
+            // The editor's shortcuts also apply while a field of its cards has the focus.
             EditorDocumentSection {
                 visible: root.editorTab
                 controller: root.controller
                 editor: root.editor
+                Keys.onShortcutOverride: event => event.accepted = editorView.claimsShortcut(event)
+                Keys.onPressed: event => editorView.handleShortcut(event)
             },
             EditorSelectionSection {
                 visible: root.editorTab
                 editor: root.editor
+                Keys.onShortcutOverride: event => event.accepted = editorView.claimsShortcut(event)
+                Keys.onPressed: event => editorView.handleShortcut(event)
             },
             EditorDisplaySection {
                 visible: root.editorTab
                 editor: root.editor
+                onTraceStyleRequested: editorView.openTraceStyle()
+                Keys.onShortcutOverride: event => event.accepted = editorView.claimsShortcut(event)
+                Keys.onPressed: event => editorView.handleShortcut(event)
             }
         ]
 
@@ -249,11 +260,18 @@ Item {
                 text: panel.width < 640 ? "" : qsTr("Sweep")
                 iconName: "sweep"
                 compact: true
-                enabled: root.controller.anyFunction
-                toolTip: qsTr("Sweep every Function channel from Start to Stop Frequency")
+                enabled: root.controller.canSweep
+                toolTip: qsTr("Sweep every stopped Function channel from Start to Stop Frequency")
                 onClicked: root.controller.sweepAll()
             }
         ]
+    }
+
+    // Screenshot scenes (dev executable, MYBENCH_GEN_SCENE): open a dialog or state once loaded.
+    Timer {
+        interval: 300
+        running: root.controller.devScene().length > 0
+        onTriggered: editorView.showScene(root.controller.devScene())
     }
 
     Dialog {
