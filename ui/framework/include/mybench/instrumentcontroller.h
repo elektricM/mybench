@@ -202,6 +202,9 @@ protected:
     // capture everything the loop needs *by value* (a snapshot). Throw mydaq::DeviceError
     // (InvalidConfig) to refuse with a message; return {} to refuse silently.
     virtual WorkerFunction createWorker() = 0;
+    // During createWorker(): the mode being started (Run = Continuous, Single = Once, Resume = the
+    // paused run's mode). runMode() still reports the previous run at that point.
+    RunMode startingRunMode() const { return m_startingMode; }
     // UI thread: the worker started / ended (after errors too) and every task is released.
     virtual void onStarted() {}
     virtual void onFinished() {}
@@ -255,6 +258,7 @@ private:
     State m_state = Idle;
     RunMode m_runMode = Continuous;
     RunMode m_pausedMode = Continuous;
+    RunMode m_startingMode = Continuous;
     bool m_pausePending = false;
     bool m_restartPending = false;
     bool m_supportsSingle = true;

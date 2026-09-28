@@ -1,148 +1,182 @@
 # Waveform Generator
 
-The Waveform Generator drives the myDAQ outputs. Each of its two channels can be switched **Off**,
-used as a **Function** generator (sine, triangle or square wave with adjustable frequency, amplitude,
-offset and duty cycle, plus frequency sweeps), or play an **Arbitrary** waveform that you load from a
-file or draw in the built-in **Waveform Editor**.
+The Waveform Generator drives the myDAQ outputs. It combines four tools in one panel: a
+**function generator** (sine, triangle, square, frequency sweeps), an **arbitrary waveform
+generator** (play a waveform from a file or from the editor), a **DC level** source, and the
+**Waveform Editor**, where you build your own waveforms.
 
-Both channels can run at the same time and are independent: you can change or stop one without
-disturbing the other. All changes you make while a channel runs reach the output within about a
-tenth of a second, without interrupting the signal.
+Each of the two channels is set to **Off**, **Function**, **Arbitrary** or **DC**. Both channels can
+run at the same time, and you can start, stop or change one without disturbing the other.
 
 ## Connections
 
 - **AO 0** and **AO 1** screw terminals, referenced to **AGND**: up to ±10 V. This is the default
   output pair.
-- **AUDIO OUT** jack (left and right): up to ±2 V, AC-coupled (no DC). Select the audio pair in the
-  **Output** card to use it.
-- You cannot mix an AO terminal and an audio output: the two channels always use the same pair.
-- To look at the signal, wire AO 0 to **AI 0+** and AGND to **AI 0-** and open the Oscilloscope, or
-  connect AUDIO OUT to AUDIO IN.
-- The outputs can deliver only a few milliamps: use a buffer amplifier for low-impedance loads.
+- **AUDIO OUT** jack (left and right): up to ±2 V, AC coupled (no DC). Choose
+  `AudioOutput L / R` under **Output Channel** to use it. The two channels always use the same pair.
+- To look at a signal, wire AO 0 to **AI 0+** and AGND to **AI 0-** and open the Oscilloscope (or
+  connect AUDIO OUT to AUDIO IN).
+- The outputs deliver only a few milliamps: use a buffer amplifier for low-impedance loads.
 
 ## Quick start: function generator
 
-1. On the **AO 0** card, set **Mode** to **Function** (the default).
-2. Pick **Sine**, **Triangle** or **Square**, then set **Frequency**, **Amplitude** (peak-to-peak) and
-   **DC Offset** with the knobs or by typing (`1.5k` means 1500 Hz).
-3. Press **Run** (or the card's **Output** switch). The big readout shows the generated frequency.
-4. Turn the knobs while it runs: the output follows smoothly.
-5. Press **Stop**: the output returns to 0 V and the readout shows `OFF`.
+1. On the **AO 0** card, **Mode** is **Function** by default.
+2. Pick **Sine**, **Triangle** or **Square**, then set **Frequency**, **Amplitude** (peak to peak)
+   and **DC Offset** with the knobs or by typing (`1.5k` means 1500 Hz).
+3. Press **Run** (or the card's switch). The big readout shows the frequency actually generated, with
+   four decimals (`100.0000 Hz`).
+4. Press **Stop**: the output returns to 0 V and the readout shows `OFF`.
 
 ## Quick start: arbitrary waveform
 
-1. On a channel card, set **Mode** to **Arbitrary**.
-2. Press **Open** and choose a waveform (`.mbw` from the editor, a `.wav` sound file or a `.csv`/`.txt`
-   list of values), or press **Edit** to create one in the Waveform Editor.
-3. Check **Update Rate** (samples per second; a file that stores its own rate sets it for you) and
-   **Gain**.
-4. Choose **Run Continuously** (loops) or **Run Once** (plays once), then press **Run** or the
-   card's **Output** switch.
+1. Set a channel's **Mode** to **Arbitrary**.
+2. **Open** a file (`.mbw` editor document, `.wav`, `.csv`/`.txt`, raw `.bin`, or an NI `.wdt`),
+   pick one of the 21 **Library** shapes, or press the pencil to build one in the Waveform Editor.
+3. Check **Update Rate** (a file that stores its sample rate sets it for you) and **Gain**.
+4. Choose **Run Continuously** or **Run Once**, then press **Run** (or **Single** to play every
+   Arbitrary channel once).
 
-## Controls
+## The display
 
-### Output card
+- **Generator** / **Waveform Editor** tabs switch between the outputs and the editor.
+- One readout per channel: `OFF`, the generated frequency, the update rate, the DC level, or `Done`
+  after a Run Once (the output then holds the last value). Its switch starts or stops that channel.
+- Below, a live preview of each output. **Display** switches between **Time** (volts against time)
+  and **Frequency** (spectrum in dBV: the harmonics of a function, the FFT of a waveform). A DC channel
+  shows a chart of its level; you can drag the level line.
+- At high frequencies the preview shows the real output samples as steps (for example 10 samples
+  per period at 20 kHz).
 
-- **Output pair**: `AO 0 / AO 1` or `AudioOutput Left / Right`. Changing it while running moves the
-  running signals to the new outputs.
-- **Link update rates**: when on (default), both Arbitrary channels share one Update Rate.
+## Instrument Control card
 
-### Channel cards (AO 0 in green, AO 1 in cyan)
+- **Output Channel**: `AO 0 / AO 1` or `AudioOutput L / R`. Changing it while running moves the
+  signals to the other outputs.
+- **Engine**: how the signal is produced.
+  - **Auto** (default): like NI ELVISmx, one period (or the waveform) is loaded into the device and
+    repeated. This is exact and light on the USB link. When one buffer cannot describe both channels
+    (two different frequencies, a function next to a waveform, a sweep), MYBENCH switches to a
+    continuous stream computed on the fly.
+  - **Regenerate**: prefer the repeated buffer. Every change briefly restarts the output, as in
+    ELVISmx.
+  - **Stream**: always stream. Frequency, amplitude and offset changes are smooth and
+    phase-continuous (no restart); both channels run at 200 kS/s.
+  The engine in use and its rate appear at the top right of the display.
+- **Presets**: ready-made setups (1 kHz sine, TTL clock, quadrature pair, sweep, ±5 V reference,
+  ELVISmx defaults) and your own saved setups.
+- **Link update rates**: both Arbitrary channels share one Update Rate (as in ELVISmx).
+- **Align phases**: restarts both Function channels at phase 0 on the same sample (streaming).
 
-- **Mode**: Off, Function or Arbitrary. Changing the mode stops that channel.
-- **Output** switch and LED: starts or stops this channel only. Green = generating, amber = paused or
-  finished a Run Once and holding its last value.
-- The big readout shows `OFF`, the frequency (Function) or the update rate (Arbitrary).
+## Function mode
 
-### Function mode: Waveform Settings
+- **Sine / Triangle / Square**, **Frequency** 0.2 Hz to 20 kHz. The frequency knob has **Coarse**
+  (whole range) and **Fine** (±25 % around the current value) modes; in the field, arrow keys or the
+  mouse wheel change the digit at the cursor.
+- **Amplitude** 0 to 10 Vpp and **DC Offset** -5 to +5 V (the audio outputs: up to 4 Vpp, no offset).
+- **Duty Cycle** 0 to 100 % (square only), **Phase** in degrees (useful for two channels at the same
+  frequency, e.g. 90° for quadrature).
+- **Modulation Type** and **Manual Mode** belong to the NI ELVIS II hardware and are grayed.
+- **"Generates …"** under the frequency tells the exact frequency you will get. With a repeated
+  buffer the rate must be 100 MHz divided by a whole number, so some frequencies are slightly
+  different (3 Hz becomes 3.0003 Hz).
 
-- **Sine / Triangle / Square**: waveform shape.
-- **Frequency**: 0.2 Hz to 20 kHz (logarithmic knob).
-- **Amplitude**: 0 to 10 V peak-to-peak.
-- **DC Offset**: -5 to +5 V, added to the waveform.
-- **Duty Cycle**: 1 to 99 %, the fraction of each period at the high level (square only).
-- **Modulation Type**: always None on the myDAQ.
+### Sweep Settings
 
-### Function mode: Sweep Settings
+- **Start Frequency**, **Stop Frequency**, **Step** and **Step Interval** (1 ms to 300 s) define a
+  single linear sweep. Stop is included when it falls exactly on a step. **Sweep** (on the card, or
+  in the run bar for every Function channel) starts it; the readout follows the steps and a bar shows
+  progress; the channel stops (0 V) after the last step.
+- **Whole 250 ms steps (as ELVISmx)**: on, each step lasts the Step Interval rounded up to a
+  multiple of 250 ms, as in ELVISmx; off, exactly the Step Interval.
+- The frequency settings are locked during the sweep; shape, amplitude, offset and duty stay live.
 
-- **Start Frequency**, **Stop Frequency**, **Step** and **Step Interval** (ms) define a sweep that
-  goes from Start towards Stop in equal steps, holding each frequency for the step interval.
-- **Sweep** runs the sweep once; the channel stops after the last step. Shape, amplitude, offset and
-  duty stay adjustable during the sweep; the frequency settings are locked until it ends.
+## Arbitrary mode
 
-### Arbitrary mode: Waveform Settings
+- The thumbnail shows the loaded waveform and its name (`< empty >` when none). Hover it for the path
+  and sample count.
+- **Open**, **Library** (the 21 editor shapes as one-cycle waveforms), **Recent** (clock icon),
+  **Edit** (pencil: opens it in the Waveform Editor), and in **⋯** **Export waveform** and **Clear**.
+- **Gain** multiplies the waveform. Samples beyond ±10 V (±2 V audio) are clipped and a warning tells
+  how many.
+- **Waveform Points**: number of samples, and how long one pass lasts at the Update Rate.
+- **Update Rate**: samples per second, 1 S/s to 200 kS/s.
+- **Trigger Source**: always Immediate (the myDAQ has no generator trigger input).
+- **Generation Mode**: **Run Continuously** loops; **Run Once** plays once and holds the last value
+  (`Done`, amber LED) until you switch the channel off, which returns it to 0 V.
+- **Interpolation**: **Hold** keeps each sample until the next update, like a DAC at the Update Rate;
+  **Linear** draws straight lines between samples (streaming engine).
 
-- **Waveform Name**: the loaded file, or `< empty >`.
-- **Open**, **Recent**, **Library**: load a waveform. **Clear** unloads it.
-- **Edit**: opens the Waveform Editor on this channel's waveform.
-- **Gain**: multiplies the waveform (-10 to 10). Values beyond the output range (±10 V on AO,
-  ±2 V on audio) are clipped and you get a warning.
+Files: `.mbw` documents are rendered at their own sample rate; `.wav` uses the first channel with
+full scale = 1 V; text files take the first column (the second when the first is a `Time` column)
+and read the rate from a `# sampleRate=` line or the time column; `.bin` is 16-bit signed
+little-endian with ±5 V full scale; `.wdt` files from the NI Waveform Editor are read on a best-effort
+basis.
 
-### Arbitrary mode: Timing and Triggering Settings
+## DC mode
 
-- **Update Rate**: how many waveform samples are output per second (1 S/s to 200 kS/s). A waveform of
-  1000 samples at 1 kS/s lasts one second.
-- **Trigger Source**: always Immediate (the myDAQ has no trigger input for the generator).
-- **Generation Mode**: **Run Continuously** loops the waveform; **Run Once** plays it once and then
-  holds the last value.
+The **DC Level** tool: a slider and a field from -10 to +10 V. When only DC channels run, MYBENCH
+writes the level directly (no sample clock) and each change applies at once; next to a function or
+waveform the level is part of the running output. Stop returns to 0 V.
 
-### Run bar
+## Run bar
 
-- **Run** starts every channel that is not Off. **Stop** stops everything and sets the outputs to 0 V.
-- **Single** plays all Arbitrary channels once.
-
-### Preview
-
-The plot shows what each channel generates (green = AO 0, cyan = AO 1). The **Display** selector
-switches between **Time** and **Frequency** (amplitude spectrum).
+- **Run** starts every channel whose Mode is not Off. **Stop** stops everything: outputs go to 0 V.
+- **Single** plays every Arbitrary channel once. **Sweep** sweeps every Function channel.
+- If another instrument (the Bode Analyzer) needs the outputs, the generator pauses; **Resume**
+  restarts the channels (a sweep in progress is not resumed).
 
 ## Waveform Editor
 
-A waveform is a chain of **segments** played one after another. Each segment has a **Duration** and
-contains **components** that are combined with the **Function** operator (`+`, `-`, `x`, `/`, or `FM`,
-which uses the previous result to modulate the frequency of the new component). A segment with no
-component is 0 V.
+A waveform is a chain of **segments** played one after the other. Each segment has a **Duration**
+and **components**, combined from top to bottom with the **Function** operator: `+`, `−`, `×`, `/`,
+or **FM** (the result so far speeds up or slows down the new component: +0.5 means 50 % faster). An
+empty segment is 0 V. The document's **Sample Rate** fixes how many points each second has.
 
-- **New Segment** adds a segment after the selected one; **New Component** adds a component to the
-  selected segment. Select items in the list; **Index** with its arrows steps through segments.
-- **Library** components: 21 ready-made shapes (Sine, Square, Triangle, Sawtooth, three kinds of
-  noise, rising and falling exponentials, Hanning, Haversine, linear and logarithmic sweeps,
-  Multitone, Pulse, Ramp, Circle, DC Level, sin x/x, Trapezoid, Stairstep) with **Amplitude**,
-  **Offset**, **Freq** and **Phase**, plus extra settings for some shapes (duty cycle, stop frequency,
-  number of tones or steps...). Shapes repeat at Freq: set Freq = 1 / Duration for exactly one shape
-  per segment.
-- **Expression** components: type a formula of `x`, e.g. `sin(2*pi*x) + 0.3*sin(6*pi*x)`. **X Range**
-  From/To is spread across the segment and repeated **Cycles** times. Operators `+ - * / ^`, constants
-  `pi` and `e`, functions `abs atan ceil cos exp floor ln log max min mod sin sqrt tan` (and `asin
-  acos sinh cosh tanh sign`). Mistakes are shown in red with the character position.
-- **Sketch** components: press **Draw**, then paint with the **Freehand** pencil or place and drag
-  points with the **Line** tool. **Samples** sets the resolution, **Cycles** how often the sketch
-  repeats in the segment. **Import...** fills a sketch from a text, WAV, MYBENCH or binary file.
-- **View** shows the whole waveform, the selected segment or the selected component. **X Axis**
-  switches to a frequency view (power spectrum in dB). **Sample Rate** sets how many points per second
-  the waveform has; **Units** chooses Hz, kHz or MHz for frequency values.
-- **Edit** commands: Undo/Redo, Cut/Copy/Paste, Clear, Select All, Import from File, Scale Selection
-  (stretch in time or scale in amplitude), Info (description), Settings (cursors and colors).
-- **Save** stores the document as a `.mbw` file; **Use in channel** sends it straight to a generator
-  channel; **Export** writes CSV or WAV.
+- The list shows segments (`1: name (10 sec)`) and their components. Click to select; drag a row to
+  move it, or use the arrows (Alt+↑/↓). **Index** steps through segments; clicking the plot selects
+  the segment under the pointer. **New Segment** (1 s) and **New Component** (a 1 Hz sine) insert
+  after the selection.
+- The inspector shows the selection's parameters:
+  - **Segment**: Name, Duration, Gain.
+  - **Library**: the 21 functions of the NI editor, each with its own parameters: DC Level,
+    Sine, Square (duty cycle), Triangle, Sawtooth, Uniform / Triangular / Gaussian Noise (with a
+    Seed so a waveform always renders the same), Rising / Falling Exponential (Tau), Hanning, Ramp,
+    Linear / Log Sweep (Start and Stop Freq), Sin x/x, Multitone (all tones between Start and Stop
+    Freq, scaled so the peak equals Amplitude), Trapezoid and Pulse (Delay, Rise, Hold, Fall in % of
+    the segment; Pulse has rounded edges), Stairstep, Circle, Haversine. Shapes with a frequency
+    repeat at it (Freq = 0 gives one cycle per segment); the others span the whole segment. A warning
+    appears when a frequency exceeds half the sample rate.
+  - **Expression**: `f(x) =` a formula of `x`, for example `sin(2*pi*x) + 0.3*sin(6*pi*x)`. **X
+    Range** From/To is spread over the segment and repeated **Cycles** times. Operators `+ - * / ^`,
+    `pi`, `e`, and `abs acos asin atan ceil cos cosh exp floor ln log max min mod sign sin sinh sqrt
+    tan tanh`. Mistakes show in red with the character position.
+  - **Sketch**: Name, Cycles, Samples, **Import…** (replace the values from a file) and **Draw**:
+    paint one cycle with **Freehand**, or use **Line** to click points, drag them, and right-click to
+    delete one.
+- **Display** card: **View** (whole Waveform, the selected Segment, or the selected Component
+  alone), **X Axis** (Time, or Frequency: power spectrum in dBVrms), plot style, step interpolation
+  and two **Cursors** with their difference.
+- **File** menu: New, Open (`.mbw`, or any supported file as a one-sketch document), Save / Save As
+  (`.mbw`), Import from File (text wizard with delimiters, column, start line and count; WAV
+  channel; binary), Export (CSV, 32-bit float WAV, 16-bit binary).
+- **Edit** menu: Undo / Redo (every edit, ⌘Z / ⇧⌘Z), Cut, Copy, Paste, Clear, Select All, Scale
+  Selection (stretch in time and scale in amplitude), Info (description).
+- **Use in AO 0 / AO 1** loads the document into that channel (Arbitrary mode; its Update Rate follows
+  the document). With **Live update**, every later edit reaches the channel, also while it plays.
 
 ## Tips
 
-- For clean signals keep at least 10 samples per period (Update Rate or editor Sample Rate at least 10
-  times the highest frequency); below 2 samples per period the waveform aliases.
-- At high frequencies the square wave's edges move by up to 5 µs from period to period: the output is
-  updated 200 000 times per second.
+- Keep at least 10 samples per period (Update Rate or editor Sample Rate at least 10 times the
+  highest frequency).
+- For glitch-free knob turning while generating, set **Engine** to **Stream**.
 - The audio outputs block DC: offsets and very slow waveforms fade away.
-- To compare two signals, run Function on AO 0 and Arbitrary on AO 1 and view both on the Oscilloscope.
-- Save your editor work: `.mbw` files keep every segment and component editable.
+- Run Function on AO 0 and Arbitrary on AO 1 and view both on the Oscilloscope to compare them.
 
 ## Troubleshooting
 
-- **"Generator paused - AO in use by Bode"**: the Bode Analyzer needs the analog outputs. Stop it and
+- **"Generator paused - AO in use by …"**: another instrument needs the analog outputs. Stop it and
   press **Resume**.
-- **"Output was interrupted... continuing at 100 kS/s"**: the computer could not keep up; close other
-  heavy programs. Waveforms still play at their update rates.
-- **Clipping warning**: reduce Gain or the waveform's amplitude so it stays within ±10 V (±2 V audio).
-- **No signal on the audio jack**: select the `AudioOutput Left / Right` pair in the Output card.
-- **Could not load a file**: use `.mbw`, PCM or float `.wav`, or a text file with one number per line
-  (a `Time` column is skipped automatically).
+- **"Output was interrupted… continuing at 100 kS/s"**: the computer could not keep up with the
+  stream; close heavy programs, or use Engine **Regenerate**.
+- **Clipping warning**: reduce Gain or the waveform's amplitude.
+- **"no waveform loaded"**: an Arbitrary channel needs a waveform before it can start.
+- **No signal on the audio jack**: select `AudioOutput L / R` under Output Channel.

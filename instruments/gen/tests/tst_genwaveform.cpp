@@ -46,7 +46,7 @@ private slots:
             const FunctionInfo& info = functionInfo(LibraryFunction(i));
             QCOMPARE(QString::fromLatin1(info.name), names[i]);
             QVERIFY(info.params.size() >= 1 && info.params.size() <= size_t(kMaxLibraryParams));
-            QCOMPARE(functionFromId(QString::fromLatin1(info.id)), std::optional(LibraryFunction(i)));
+            QVERIFY(functionFromId(QString::fromLatin1(info.id)) == LibraryFunction(i));
         }
         auto keys = [](LibraryFunction f) {
             QStringList k;

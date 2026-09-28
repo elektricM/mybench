@@ -6,207 +6,277 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Waveform Generator panel. SKELETON: layout and section titles of docs/instruments/gen.md
-// (FGEN + ARB + Waveform Editor merged) with placeholder content.
+// Waveform Generator panel (docs/instruments/gen.md): the ELVISmx Function Generator, Arbitrary
+// Waveform Generator, Waveform Editor and DC Level in one panel. Display: a "Generator" tab (a
+// readout and a live preview per channel) and a "Waveform Editor" tab. Inspector: the Output card
+// and one card per channel, or the editor's cards while the editor tab is shown.
 Item {
     id: root
 
     required property GenController controller
-
-    readonly property var waveforms: [
-        { icon: "wave-sine-line", toolTip: qsTr("Sine") },
-        { icon: "wave-square-line", toolTip: qsTr("Square") },
-        { icon: "wave-triangle-line", toolTip: qsTr("Triangle") }
-    ]
+    readonly property bool editorTab: controller.activeTab === 1
+    readonly property WaveformEditor editor: controller.editor
 
     InstrumentPanel {
+        id: panel
         anchors.fill: parent
         controller: root.controller
-        displayTitle: qsTr("Output")
-        displayInfo: root.controller.sampleRate > 0 && root.controller.running
-                     ? qsTr("Update Rate %1").arg(Units.format(root.controller.sampleRate, "S/s")) : ""
+        displayTitle: root.editorTab ? qsTr("Waveform Editor · %1").arg(root.editor.windowTitle) : ""
+        displayInfo: root.controller.strategyText
+        runBar.singleToolTip: qsTr("Play the Arbitrary channels once, then stop")
+        runBar.runText: qsTr("Run")
 
-        // --- Display ---------------------------------------------------------------------
         ColumnLayout {
             anchors.fill: parent
-            spacing: Theme.spacingM
-            Text {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.topMargin: Theme.spacingL
-                text: root.controller.running ? qsTr("ON") : qsTr("OFF")
-                color: root.controller.running ? Theme.success : Theme.textMuted
-                font.pixelSize: 56
-                font.weight: Font.Light
-                font.letterSpacing: 4
+            spacing: Theme.spacingS
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingS
+                SegmentedControl {
+                    compact: true
+                    model: [ { text: qsTr("Generator"), icon: "instrument-gen" },
+                             { text: qsTr("Waveform Editor"), icon: "edit" } ]
+                    currentIndex: root.controller.activeTab
+                    onActivated: index => root.controller.activeTab = index
+                }
+                Item { Layout.fillWidth: true }
+                Text {
+                    visible: !root.editorTab && panel.width > 700
+                    text: qsTr("Display")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeS
+                }
+                SegmentedControl {
+                    visible: !root.editorTab
+                    compact: true
+                    model: [ { text: qsTr("Time"), toolTip: qsTr("Amplitude (V) against time") },
+                             { text: qsTr("Frequency"), toolTip: qsTr("Spectrum of each output (dBV)") } ]
+                    currentIndex: root.controller.displayMode
+                    onActivated: index => root.controller.displayMode = index
+                }
             }
-            Text {
-                Layout.alignment: Qt.AlignHCenter
-                text: root.controller.outputSummary
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeL
-                font.features: Theme.tabularFigures
-            }
-            BenchPlot {
-                id: previewPlot
+
+            StackLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                xAxis { unit: "s"; title: qsTr("Time") }
-                yAxis { min: -10.5; max: 10.5; unit: "V"; title: qsTr("Amplitude") }
-                Component.onCompleted: xAxis.setRange(root.controller.preview0.xMinimum(), root.controller.preview0.xMaximum())
-                PlotTrace { buffer: root.controller.preview0; name: "AO 0"; unit: "V"; color: Theme.ch0; width: 2 }
-                PlotTrace { buffer: root.controller.preview1; name: "AO 1"; unit: "V"; color: Theme.ch1; width: 2 }
-                Connections {
-                    target: root.controller.preview0
-                    function onChanged() {
-                        const b = root.controller.preview0
-                        if (b.count > 0)
-                            previewPlot.xAxis.setRange(b.xMinimum(), b.xMaximum())
+                currentIndex: root.controller.activeTab
+
+                // --- Generator view -----------------------------------------------------------
+                ColumnLayout {
+                    id: generatorView
+                    spacing: Theme.spacingS
+                    readonly property bool stacked: width < 560
+                    readonly property int offCount: (root.controller.channel0.mode === GenChannel.Off ? 1 : 0)
+                                                    + (root.controller.channel1.mode === GenChannel.Off ? 1 : 0)
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: generatorView.stacked ? 1 : 2
+                        columnSpacing: Theme.spacingS
+                        rowSpacing: Theme.spacingS
+                        ChannelReadout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            controller: root.controller
+                            channel: root.controller.channel0
+                            compact: generatorView.stacked
+                        }
+                        ChannelReadout {
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            controller: root.controller
+                            channel: root.controller.channel1
+                            compact: generatorView.stacked
+                        }
                     }
+                    ChannelPreview {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 40
+                        Layout.preferredHeight: root.controller.channel0.mode === GenChannel.Off ? 40 : 300
+                        Layout.maximumHeight: root.controller.channel0.mode === GenChannel.Off && generatorView.offCount < 2 ? 40 : Number.POSITIVE_INFINITY
+                        controller: root.controller
+                        channel: root.controller.channel0
+                    }
+                    ChannelPreview {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 40
+                        Layout.preferredHeight: root.controller.channel1.mode === GenChannel.Off ? 40 : 300
+                        Layout.maximumHeight: root.controller.channel1.mode === GenChannel.Off && generatorView.offCount < 2 ? 40 : Number.POSITIVE_INFINITY
+                        controller: root.controller
+                        channel: root.controller.channel1
+                    }
+                }
+
+                // --- Waveform Editor view --------------------------------------------------------
+                EditorView {
+                    controller: root.controller
+                    editor: root.editor
                 }
             }
         }
 
-        // --- Inspector -------------------------------------------------------------------
         inspector: [
             Section {
-                title: qsTr("AO 0 · Waveform Settings")
-                accentColor: Theme.ch0
-                summary: Units.format(root.controller.ch0Frequency, "Hz")
-                headerTools: ToggleSwitch {
-                    checked: root.controller.ch0Enabled
-                    onToggled: root.controller.ch0Enabled = checked
-                }
-                SegmentedControl {
+                title: qsTr("Instrument Control")
+                visible: !root.editorTab
+                iconName: "sliders"
+                summary: root.controller.outputPair === GenController.AudioOutputs ? qsTr("Audio out") : qsTr("AO 0 / AO 1")
+                Field {
                     Layout.fillWidth: true
-                    model: [qsTr("Function"), qsTr("Arbitrary")]
-                    currentIndex: root.controller.ch0Mode
-                    onActivated: index => root.controller.ch0Mode = index
+                    label: qsTr("Output Channel")
+                    hint: qsTr("Both channels always use the same pair: the screw terminals AO 0 / AO 1 (±10 V) or the AUDIO OUT jack (±2 V, AC coupled)")
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        compact: true
+                        model: [ { text: qsTr("AO 0 / AO 1") }, { text: qsTr("AudioOutput L / R") } ]
+                        currentIndex: root.controller.outputPair
+                        onActivated: index => root.controller.outputPair = index
+                    }
                 }
-                SegmentedControl {
+                FieldRow {
                     Layout.fillWidth: true
-                    model: root.waveforms
-                    accentColor: Theme.ch0
-                    currentIndex: root.controller.ch0Waveform
-                    onActivated: index => root.controller.ch0Waveform = index
+                    Field {
+                        label: qsTr("Engine")
+                        hint: qsTr("Auto: one looped buffer like ELVISmx when it can represent the outputs, otherwise a glitch-free stream (sweeps, two frequencies, Function + Arbitrary). Regenerate: prefer the looped buffer. Stream: always stream (phase-continuous changes).")
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: [qsTr("Auto"), qsTr("Regenerate"), qsTr("Stream")]
+                            currentIndex: root.controller.engineMode
+                            onActivated: index => root.controller.engineMode = index
+                        }
+                    }
+                    Field {
+                        label: qsTr("Presets")
+                        ActionButton {
+                            Layout.fillWidth: true
+                            text: qsTr("Presets")
+                            iconName: "layers"
+                            compact: true
+                            onClicked: presetMenu.popup()
+                            Menu {
+                                id: presetMenu
+                                Repeater {
+                                    model: root.controller.builtInPresets
+                                    delegate: MenuItem {
+                                        required property string modelData
+                                        required property int index
+                                        text: modelData
+                                        onTriggered: root.controller.loadBuiltInPreset(index)
+                                    }
+                                }
+                                MenuSeparator { visible: root.controller.presetNames.length > 0 }
+                                Repeater {
+                                    model: root.controller.presetNames
+                                    delegate: MenuItem {
+                                        required property string modelData
+                                        text: modelData
+                                        icon.source: Theme.icon("file")
+                                        onTriggered: root.controller.loadPreset(modelData)
+                                    }
+                                }
+                                MenuSeparator {}
+                                MenuItem {
+                                    text: qsTr("Save current settings as preset…")
+                                    icon.source: Theme.icon("save")
+                                    onTriggered: presetDialog.open()
+                                }
+                                Menu {
+                                    title: qsTr("Delete preset")
+                                    enabled: root.controller.presetNames.length > 0
+                                    Repeater {
+                                        model: root.controller.presetNames
+                                        delegate: MenuItem {
+                                            required property string modelData
+                                            text: modelData
+                                            onTriggered: root.controller.deletePreset(modelData)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 RowLayout {
-                    spacing: Theme.spacingM
-                    Knob {
-                        label: qsTr("Frequency")
-                        from: 0.2
-                        to: 20000
-                        logarithmic: true
-                        unit: "Hz"
-                        minLabel: "200m"
-                        maxLabel: "20k"
-                        color: Theme.ch0
-                        value: root.controller.ch0Frequency
-                        onMoved: v => root.controller.ch0Frequency = v
-                    }
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingS
-                        Field {
-                            label: qsTr("Frequency")
-                            SiField {
-                                Layout.fillWidth: true
-                                unit: "Hz"
-                                from: 0.2
-                                to: 20000
-                                value: root.controller.ch0Frequency
-                                onValueModified: v => root.controller.ch0Frequency = v
-                            }
-                        }
-                        Field {
-                            label: qsTr("Amplitude")
-                            SiField {
-                                Layout.fillWidth: true
-                                unit: "Vpp"
-                                from: 0
-                                to: 20
-                                digits: 3
-                                value: root.controller.ch0Amplitude
-                                onValueModified: v => root.controller.ch0Amplitude = v
-                            }
-                        }
-                    }
-                }
-                Field {
-                    label: qsTr("DC Offset")
-                    SiField {
-                        Layout.fillWidth: true
-                        unit: "V"
-                        from: -10
-                        to: 10
-                        digits: 3
-                        value: root.controller.ch0Offset
-                        onValueModified: v => root.controller.ch0Offset = v
-                    }
-                }
-            },
-            Section {
-                title: qsTr("AO 0 · Sweep Settings")
-                accentColor: Theme.ch0
-                collapsed: true
-                FieldRow {
-                    Field { label: qsTr("Start Frequency"); SiField { Layout.fillWidth: true; unit: "Hz"; value: 100 } }
-                    Field { label: qsTr("Stop Frequency"); SiField { Layout.fillWidth: true; unit: "Hz"; value: 1000 } }
-                }
-                FieldRow {
-                    Field { label: qsTr("Step"); SiField { Layout.fillWidth: true; unit: "Hz"; value: 100 } }
-                    Field { label: qsTr("Step Interval"); SiField { Layout.fillWidth: true; unit: "s"; value: 1 } }
-                }
-            },
-            Section {
-                title: qsTr("AO 1 · Waveform Settings")
-                accentColor: Theme.ch1
-                summary: Units.format(root.controller.ch1Frequency, "Hz")
-                collapsed: !root.controller.ch1Enabled
-                headerTools: ToggleSwitch {
-                    checked: root.controller.ch1Enabled
-                    onToggled: root.controller.ch1Enabled = checked
-                }
-                SegmentedControl {
                     Layout.fillWidth: true
-                    model: root.waveforms
-                    accentColor: Theme.ch1
-                    currentIndex: root.controller.ch1Waveform
-                    onActivated: index => root.controller.ch1Waveform = index
-                }
-                FieldRow {
-                    Field {
-                        label: qsTr("Frequency")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "Hz"
-                            from: 0.2
-                            to: 20000
-                            value: root.controller.ch1Frequency
-                            onValueModified: v => root.controller.ch1Frequency = v
-                        }
+                    ToggleSwitch {
+                        Layout.fillWidth: true
+                        text: qsTr("Link update rates")
+                        checked: root.controller.linkUpdateRates
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Both Arbitrary channels share one Update Rate (as ELVISmx)")
+                        onToggled: root.controller.linkUpdateRates = checked
                     }
-                    Field {
-                        label: qsTr("Amplitude")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "Vpp"
-                            digits: 3
-                            value: root.controller.ch1Amplitude
-                            onValueModified: v => root.controller.ch1Amplitude = v
-                        }
+                    ActionButton {
+                        text: qsTr("Align phases")
+                        compact: true
+                        tone: "ghost"
+                        enabled: root.controller.strategy === GenController.Streaming
+                        toolTip: qsTr("Restart both Function channels at phase 0 on the same sample (streaming engine)")
+                        onClicked: root.controller.alignPhases()
                     }
                 }
             },
-            Section {
-                title: qsTr("Arbitrary Waveform")
-                collapsed: true
-                Text { text: qsTr("Placeholder: waveform library and Waveform Editor."); color: Theme.textMuted; font.pixelSize: Theme.fontSizeM }
+            ChannelSection {
+                visible: !root.editorTab
+                controller: root.controller
+                channel: root.controller.channel0
             },
-            Section {
-                title: qsTr("Timing and Triggering Settings")
-                collapsed: true
-                Field { label: qsTr("Update Rate"); SiField { Layout.fillWidth: true; unit: "S/s"; value: 200000 } }
+            ChannelSection {
+                visible: !root.editorTab
+                controller: root.controller
+                channel: root.controller.channel1
+            },
+            EditorDocumentSection {
+                visible: root.editorTab
+                controller: root.controller
+                editor: root.editor
+            },
+            EditorSelectionSection {
+                visible: root.editorTab
+                editor: root.editor
+            },
+            EditorDisplaySection {
+                visible: root.editorTab
+                editor: root.editor
             }
         ]
+
+        runBarControls: [
+            ActionButton {
+                text: panel.width < 640 ? "" : qsTr("Sweep")
+                iconName: "sweep"
+                compact: true
+                enabled: root.controller.anyFunction
+                toolTip: qsTr("Sweep every Function channel from Start to Stop Frequency")
+                onClicked: root.controller.sweepAll()
+            }
+        ]
+    }
+
+    Dialog {
+        id: presetDialog
+        title: qsTr("Save preset")
+        anchors.centerIn: parent
+        modal: true
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onOpened: presetName.text = ""
+        onAccepted: root.controller.savePreset(presetName.text)
+        ColumnLayout {
+            spacing: Theme.spacingS
+            Text {
+                text: qsTr("Name of the preset (both channels and the output pair):")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeM
+            }
+            TextField {
+                id: presetName
+                Layout.preferredWidth: 280
+                placeholderText: qsTr("My setup")
+                onAccepted: presetDialog.accept()
+            }
+        }
     }
 }

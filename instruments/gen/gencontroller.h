@@ -1,15 +1,23 @@
-// GenController: the Waveform Generator (docs/instruments/gen.md) — FGEN + ARB + Waveform Editor
-// merged: AO 0 and AO 1 each generate a function (sine/square/triangle, sweep) or an arbitrary
-// waveform, together in one AO task. SKELETON — to be completed.
+// GenController: the Waveform Generator (docs/instruments/gen.md) — ELVISmx Function Generator,
+// Arbitrary Waveform Generator, Waveform Editor and the "DC Level" application merged. AO 0 and
+// AO 1 (or AudioOutput Left/Right) are two GenChannels, each Off / Function / Arbitrary / DC, that
+// run together through the generation engine (genengine.h), which picks a regenerated buffer
+// (ELVISmx behaviour), a DDS stream or on-demand writes.
 #pragma once
+
+#include "genchannel.h"
+#include "genengine.h"
+#include "waveformeditor.h"
 
 #include <mybench/instrumentcontroller.h>
 #include <mybench/instrumentregistry.h>
-#include <mybench/plot/tracebuffer.h>
 
+#include <QElapsedTimer>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
 #include <array>
+#include <memory>
 
 namespace mybench::instruments {
 
@@ -19,93 +27,149 @@ class GenController : public InstrumentController
     QML_ELEMENT
     QML_UNCREATABLE("Created by the InstrumentRegistry")
 
-    // Settings: AO 0
-    Q_PROPERTY(bool ch0Enabled READ ch0Enabled WRITE setCh0Enabled NOTIFY channelsChanged)
-    Q_PROPERTY(Mode ch0Mode READ ch0Mode WRITE setCh0Mode NOTIFY channelsChanged)
-    Q_PROPERTY(Waveform ch0Waveform READ ch0Waveform WRITE setCh0Waveform NOTIFY channelsChanged)
-    Q_PROPERTY(double ch0Frequency READ ch0Frequency WRITE setCh0Frequency NOTIFY channelsChanged)
-    Q_PROPERTY(double ch0Amplitude READ ch0Amplitude WRITE setCh0Amplitude NOTIFY channelsChanged)
-    Q_PROPERTY(double ch0Offset READ ch0Offset WRITE setCh0Offset NOTIFY channelsChanged)
-    // Settings: AO 1
-    Q_PROPERTY(bool ch1Enabled READ ch1Enabled WRITE setCh1Enabled NOTIFY channelsChanged)
-    Q_PROPERTY(Waveform ch1Waveform READ ch1Waveform WRITE setCh1Waveform NOTIFY channelsChanged)
-    Q_PROPERTY(double ch1Frequency READ ch1Frequency WRITE setCh1Frequency NOTIFY channelsChanged)
-    Q_PROPERTY(double ch1Amplitude READ ch1Amplitude WRITE setCh1Amplitude NOTIFY channelsChanged)
-    // Results
-    Q_PROPERTY(QString outputSummary READ outputSummary NOTIFY summaryChanged)
-    // Preview of two periods of each output (x in s, y in V), updated when the settings change.
-    Q_PROPERTY(mybench::plot::TraceBuffer* preview0 READ preview0 CONSTANT)
-    Q_PROPERTY(mybench::plot::TraceBuffer* preview1 READ preview1 CONSTANT)
+    // Settings (persisted)
+    Q_PROPERTY(OutputPair outputPair READ outputPair WRITE setOutputPair NOTIFY outputPairChanged)
+    Q_PROPERTY(EngineMode engineMode READ engineMode WRITE setEngineMode NOTIFY engineModeChanged)
+    Q_PROPERTY(bool linkUpdateRates READ linkUpdateRates WRITE setLinkUpdateRates NOTIFY linkUpdateRatesChanged)
+    Q_PROPERTY(DisplayMode displayMode READ displayMode WRITE setDisplayMode NOTIFY displayModeChanged)
+    Q_PROPERTY(int activeTab READ activeTab WRITE setActiveTab NOTIFY activeTabChanged)   // 0 generator, 1 editor
+
+    // Channels, editor
+    Q_PROPERTY(mybench::instruments::GenChannel* channel0 READ channel0 CONSTANT)
+    Q_PROPERTY(mybench::instruments::GenChannel* channel1 READ channel1 CONSTANT)
+    Q_PROPERTY(mybench::instruments::WaveformEditor* editor READ editor CONSTANT)
+
+    // Indicators
+    Q_PROPERTY(QString strategyText READ strategyText NOTIFY strategyChanged)   // "Streaming · 200 kS/s × 2"
+    Q_PROPERTY(Strategy strategy READ strategy NOTIFY strategyChanged)
+    Q_PROPERTY(double taskRate READ taskRate NOTIFY strategyChanged)
+    Q_PROPERTY(bool canSingle READ canSingle NOTIFY channelsChanged)   // an Arbitrary channel has a waveform
+    Q_PROPERTY(bool anyFunction READ anyFunction NOTIFY channelsChanged)
+    Q_PROPERTY(QString outputSummary READ outputSummary NOTIFY channelsChanged)
+    Q_PROPERTY(QStringList presetNames READ presetNames NOTIFY presetsChanged)
+    Q_PROPERTY(QStringList builtInPresets READ builtInPresets CONSTANT)
+    Q_PROPERTY(QStringList recentFiles READ recentFiles NOTIFY recentFilesChanged)
+    Q_PROPERTY(QStringList libraryNames READ libraryNames CONSTANT)
 
 public:
-    enum Mode { Function, Arbitrary };
-    Q_ENUM(Mode)
-    enum Waveform { Sine, Square, Triangle };
-    Q_ENUM(Waveform)
+    enum OutputPair { AnalogOutputs, AudioOutputs };
+    Q_ENUM(OutputPair)
+    enum EngineMode { Auto, Regenerate, Stream };
+    Q_ENUM(EngineMode)
+    enum DisplayMode { Time, Frequency };
+    Q_ENUM(DisplayMode)
+    enum Strategy { NoStrategy, StaticWrites, RegeneratedBuffer, Streaming };
+    Q_ENUM(Strategy)
 
     GenController();
     ~GenController() override;
 
-    bool ch0Enabled() const { return m_ch[0].enabled; }
-    void setCh0Enabled(bool v) { set(m_ch[0].enabled, v); }
-    Mode ch0Mode() const { return m_ch0Mode; }
-    void setCh0Mode(Mode v) { set(m_ch0Mode, v); }
-    Waveform ch0Waveform() const { return m_ch[0].waveform; }
-    void setCh0Waveform(Waveform v) { set(m_ch[0].waveform, v); }
-    double ch0Frequency() const { return m_ch[0].frequency; }
-    void setCh0Frequency(double v) { set(m_ch[0].frequency, v); }
-    double ch0Amplitude() const { return m_ch[0].amplitude; }
-    void setCh0Amplitude(double v) { set(m_ch[0].amplitude, v); }
-    double ch0Offset() const { return m_ch[0].offset; }
-    void setCh0Offset(double v) { set(m_ch[0].offset, v); }
-    bool ch1Enabled() const { return m_ch[1].enabled; }
-    void setCh1Enabled(bool v) { set(m_ch[1].enabled, v); }
-    Waveform ch1Waveform() const { return m_ch[1].waveform; }
-    void setCh1Waveform(Waveform v) { set(m_ch[1].waveform, v); }
-    double ch1Frequency() const { return m_ch[1].frequency; }
-    void setCh1Frequency(double v) { set(m_ch[1].frequency, v); }
-    double ch1Amplitude() const { return m_ch[1].amplitude; }
-    void setCh1Amplitude(double v) { set(m_ch[1].amplitude, v); }
+    OutputPair outputPair() const { return m_pair; }
+    void setOutputPair(OutputPair pair);
+    EngineMode engineMode() const { return m_engineMode; }
+    void setEngineMode(EngineMode mode);
+    bool linkUpdateRates() const { return m_linkUpdateRates; }
+    void setLinkUpdateRates(bool link);
+    DisplayMode displayMode() const { return m_displayMode; }
+    void setDisplayMode(DisplayMode mode);
+    int activeTab() const { return m_activeTab; }
+    void setActiveTab(int tab);
 
+    GenChannel* channel0() { return m_channels[0].get(); }
+    GenChannel* channel1() { return m_channels[1].get(); }
+    WaveformEditor* editor() { return &m_editor; }
+
+    QString strategyText() const { return m_strategyText; }
+    Strategy strategy() const { return m_strategy; }
+    double taskRate() const { return m_taskRate; }
+    bool canSingle() const;
+    bool anyFunction() const;
     QString outputSummary() const;
-    mybench::plot::TraceBuffer* preview0() { return &m_preview[0]; }
-    mybench::plot::TraceBuffer* preview1() { return &m_preview[1]; }
+    QStringList presetNames() const;
+    QStringList builtInPresets() const;
+    QStringList recentFiles() const { return m_recentFiles; }
+    QStringList libraryNames() const;
+
+    Q_INVOKABLE mybench::instruments::GenChannel* channel(int index);
+    // Per-channel Output switch (the channel's Run/Stop).
+    Q_INVOKABLE void setOutput(int channel, bool on);
+    Q_INVOKABLE void startSweep(int channel);
+    Q_INVOKABLE void sweepAll();                 // run bar Sweep: every Function channel
+    Q_INVOKABLE void alignPhases();              // restart both Function phases together (Stream)
+    Q_INVOKABLE bool loadWaveform(int channel, const QUrl& file);
+    Q_INVOKABLE bool loadWaveformPath(int channel, const QString& path) { return loadWaveform(channel, QUrl::fromLocalFile(path)); }
+    Q_INVOKABLE void loadLibraryWaveform(int channel, int function);
+    Q_INVOKABLE void clearWaveform(int channel);
+    Q_INVOKABLE void editChannel(int channel);   // opens the editor on the channel's waveform
+    Q_INVOKABLE bool exportChannel(int channel, const QUrl& file);
+    Q_INVOKABLE void savePreset(const QString& name);
+    Q_INVOKABLE void loadPreset(const QString& name);
+    Q_INVOKABLE void deletePreset(const QString& name);
+    Q_INVOKABLE void loadBuiltInPreset(int index);
+    Q_INVOKABLE void clearRecentFiles();
 
 signals:
-    // One NOTIFY for all settings keeps the skeleton short; the gen agent may split it.
+    void outputPairChanged();
+    void engineModeChanged();
+    void linkUpdateRatesChanged();
+    void displayModeChanged();
+    void activeTabChanged();
+    void strategyChanged();
     void channelsChanged();
-    void summaryChanged();
+    void presetsChanged();
+    void recentFilesChanged();
 
 protected:
     WorkerFunction createWorker() override;
-    void onStarted() override { emit summaryChanged(); }
-    void onFinished() override { emit summaryChanged(); }
+    void onStarted() override;
+    void onFinished() override;
+    void saveExtraSettings(QJsonObject& settings) const override;
+    void restoreExtraSettings(const QJsonObject& settings) override;
+    DataTable exportTable() const override;
 
 private:
-    struct Channel {
-        bool enabled = true;
-        Waveform waveform = Sine;
-        double frequency = 1000;   // Hz
-        double amplitude = 2.0;    // Vpp
-        double offset = 0;         // V
-    };
-    template <typename T>
-    void set(T& member, T value)
-    {
-        if (member == value)
-            return;
-        member = value;
-        emit channelsChanged();
-        emit summaryChanged();
-        updatePreview();
-        restart();   // regenerated buffer: new task with the new waveform (no-op when idle)
-    }
+    gen::EngineSettings engineSettings() const;
+    void postLive();
+    void applyEngineStatus(const gen::EngineStatus& status);
+    void onChannelSettingChanged(int index);
+    void restartEngine();
+    bool validateChannel(int index, bool notify);
+    void warnClipping(int index);
+    void setChannelSource(int index, GenChannel::Source source, bool adoptRate);
+    void addRecentFile(const QString& path);
+    QJsonObject channelsJson() const;
+    void applyChannelsJson(const QJsonObject& json);
+    void updateStatusText();
+    void updateStrategy(gen::StrategyKind kind, double rate, int channels);
+    void onEditorUse(int channel);
+    void onEditorRendered();
+    void notify(int level, const QString& title, const QString& message = {});
 
-    void updatePreview();
+    std::array<std::unique_ptr<GenChannel>, 2> m_channels;
+    WaveformEditor m_editor;
+    OutputPair m_pair = AnalogOutputs;
+    EngineMode m_engineMode = Auto;
+    bool m_linkUpdateRates = true;
+    DisplayMode m_displayMode = Time;
+    int m_activeTab = 0;
 
-    std::array<Channel, 2> m_ch{Channel{}, Channel{false, Square, 100, 1.0, 0}};
-    Mode m_ch0Mode = Function;
-    std::array<mybench::plot::TraceBuffer, 2> m_preview;
+    std::shared_ptr<Mailbox<gen::EngineSettings>> m_live = std::make_shared<Mailbox<gen::EngineSettings>>();
+    uint64_t m_startCounter = 0;
+    uint64_t m_alignCounter = 0;
+    std::array<bool, 2> m_forceOnce{};
+    std::array<bool, 2> m_editorLinked{};
+    std::array<std::pair<double, const void*>, 2> m_clipWarned{};
+    bool m_restarting = false;
+    uint8_t m_releaseMask = 0;       // idle Done channels to set to 0 V (a short run)
+    std::optional<gen::EngineResult> m_lastResult;
+
+    QString m_strategyText;
+    Strategy m_strategy = NoStrategy;
+    double m_taskRate = 0;
+    QStringList m_recentFiles;
+    QTimer m_historyTimer;
+    QElapsedTimer m_runClock;
+    bool m_syncingRates = false;
 };
 
 void registerGen(InstrumentRegistry& registry);

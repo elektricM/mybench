@@ -264,6 +264,7 @@ void InstrumentController::startRun(RunMode mode)
     }
 
     WorkerFunction function;
+    m_startingMode = mode;
     try {
         function = createWorker();
     } catch (const mydaq::DeviceError& error) {

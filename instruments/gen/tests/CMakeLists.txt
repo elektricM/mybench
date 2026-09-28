@@ -1,8 +1,8 @@
 # Qt Test unit tests of the Waveform Generator. Run: ctest --test-dir <build> -R gen_
-set(GEN_TESTS genexpression genwaveform genfileio genengine)
+set(GEN_TESTS genexpression genwaveform genfileio genengine gencontroller)
 foreach(name IN LISTS GEN_TESTS)
     add_executable(tst_${name} tst_${name}.cpp)
-    target_link_libraries(tst_${name} PRIVATE mybench_instrument_gen mydaq_core Qt6::Test)
+    target_link_libraries(tst_${name} PRIVATE mybench_instrument_gen Qt6::Test)
     target_include_directories(tst_${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
     if(MSVC)
         target_compile_options(tst_${name} PRIVATE /W4)

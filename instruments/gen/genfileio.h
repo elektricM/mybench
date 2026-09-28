@@ -64,8 +64,8 @@ struct WdtWaveform {
     std::vector<double> samples;
 };
 std::vector<WdtWaveform> parseWdt(const QByteArray& data);
-// A file in the same layout (a datalog-like header, one record holding an array of waveforms);
-// used by the tests and the editor's .wdt export.
+// A file in the same layout (a datalog-like header, one record holding an array of waveforms),
+// for the tests. Not offered as an export: NI's software may not accept it.
 QByteArray encodeWdt(const std::vector<WdtWaveform>& waveforms);
 
 // --- Export -----------------------------------------------------------------------------------------
