@@ -77,7 +77,7 @@ std::vector<double> powersToDb(std::span<const double> powers)
     return db;
 }
 
-std::vector<size_t> localMaxima(std::span<const double> values, double minProminence, size_t first)
+std::vector<size_t> localMaxima(std::span<const double> values, double minProminence, size_t first, double minValue)
 {
     std::vector<size_t> peaks;
     const size_t n = values.size();
@@ -108,17 +108,26 @@ std::vector<size_t> localMaxima(std::span<const double> values, double minPromin
                 break;
             rightMin = std::min(rightMin, values[k]);
         }
-        if (v - std::max(leftMin, rightMin) >= minProminence)
+        if (v - std::max(leftMin, rightMin) >= minProminence && v >= minValue)
             peaks.push_back(i);
         i = j;
     }
     return peaks;
 }
 
-std::optional<size_t> searchPeak(std::span<const double> values, PeakSearch search, size_t from,
-                                 double minProminence, size_t first)
+double medianValue(std::span<const double> values, size_t first)
 {
-    const std::vector<size_t> peaks = localMaxima(values, minProminence, first);
+    if (first >= values.size())
+        return 0.0;
+    std::vector<double> v(values.begin() + std::ptrdiff_t(first), values.end());
+    std::nth_element(v.begin(), v.begin() + std::ptrdiff_t(v.size() / 2), v.end());
+    return v[v.size() / 2];
+}
+
+std::optional<size_t> searchPeak(std::span<const double> values, PeakSearch search, size_t from,
+                                 double minProminence, size_t first, double minValue)
+{
+    const std::vector<size_t> peaks = localMaxima(values, minProminence, first, minValue);
     if (peaks.empty())
         return std::nullopt;
     switch (search) {
@@ -159,7 +168,9 @@ std::vector<SpectralPeak> strongestPeaks(const dsp::PowerSpectrum& spectrum, siz
         return peaks;
     const int lobe = std::max(1, spectrum.info.lobeHalfWidth);
     const std::vector<double> db = powersToDb(spectrum.power);
-    for (size_t bin : localMaxima(db, minProminenceDb, size_t(lobe) + 1)) {
+    // Only components 10 dB above the noise floor (median line), not the noise's own ripples.
+    const double floor = medianValue(db, size_t(lobe) + 1) + 10.0;
+    for (size_t bin : localMaxima(db, minProminenceDb, size_t(lobe) + 1, floor)) {
         const dsp::PeakEstimate e = dsp::estimatePeak(spectrum, bin, lobe);
         peaks.push_back({bin, finiteOrZero(e.frequency), finiteOrZero(e.power)});
     }

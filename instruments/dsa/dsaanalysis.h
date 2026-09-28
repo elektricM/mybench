@@ -9,6 +9,7 @@
 #include <mydaq/dsp/window.h>
 
 #include <cstddef>
+#include <limits>
 #include <optional>
 #include <span>
 #include <vector>
@@ -67,7 +68,7 @@ double halfPeakToPeak(std::span<const double> record);
 std::vector<double> scaledTimeDomainWindow(std::span<const double> record, mydaq::dsp::WindowType window);
 
 // The strongest spectral peaks (local maxima standing out by at least `minProminenceDb` from the
-// surrounding spectrum, DC lobe excluded), strongest first.
+// surrounding spectrum and 10 dB above the median line, DC lobe excluded), strongest first.
 std::vector<SpectralPeak> strongestPeaks(const mydaq::dsp::PowerSpectrum& spectrum, size_t maxCount,
                                          double minProminenceDb = 6.0);
 
@@ -77,8 +78,10 @@ std::vector<SpectralPeak> strongestPeaks(const mydaq::dsp::PowerSpectrum& spectr
 // volts for records).
 
 // Indices of the local maxima of values[first..] whose prominence (height above the higher of
-// the two surrounding minima) is at least `minProminence`.
-std::vector<size_t> localMaxima(std::span<const double> values, double minProminence, size_t first = 0);
+// the two surrounding minima) is at least `minProminence` and whose value is at least `minValue`
+// (e.g. a margin above a spectrum's noise floor).
+std::vector<size_t> localMaxima(std::span<const double> values, double minProminence, size_t first = 0,
+                                double minValue = -std::numeric_limits<double>::infinity());
 
 enum class PeakSearch {
     Highest,     // the highest peak
@@ -88,7 +91,11 @@ enum class PeakSearch {
 };
 // Index of the peak found, or nullopt (the cursor stays where it is).
 std::optional<size_t> searchPeak(std::span<const double> values, PeakSearch search, size_t from,
-                                 double minProminence, size_t first = 0);
+                                 double minProminence, size_t first = 0,
+                                 double minValue = -std::numeric_limits<double>::infinity());
+
+// Median of values[first..] (0 when empty): the noise floor of a spectrum in dB.
+double medianValue(std::span<const double> values, size_t first = 0);
 
 // Powers (V²) to dB for peak searches (zero power maps to -400 dB).
 std::vector<double> powersToDb(std::span<const double> powers);

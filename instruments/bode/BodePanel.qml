@@ -162,7 +162,8 @@ Item {
                         size: 11
                         color: Theme.math
                         guides: true
-                        labelPosition: PlotMarker.Right
+                        // Left of the point: the cursor's value chip is drawn on the right.
+                        labelPosition: PlotMarker.Left
                         label: qsTr("−3 dB  %1").arg(Units.format(modelData, "Hz", 3))
                     }
                 }
@@ -174,7 +175,7 @@ Item {
                     size: 10
                     color: Theme.ref
                     guides: true
-                    labelPosition: PlotMarker.Right
+                    labelPosition: PlotMarker.Left
                     label: qsTr("0 dB  %1").arg(Units.format(root.controller.unityGainFrequency, "Hz", 3))
                 }
                 PlotMarker {
@@ -202,7 +203,6 @@ Item {
                     position: root.controller.cursorFrequency
                     trace: gainTrace
                     snap: true
-                    readoutVisible: false
                     label: "C"
                     color: Theme.cursor1
                     onMoved: position => root.controller.setCursorFrequency(position)
@@ -284,7 +284,7 @@ Item {
                     size: 10
                     color: Theme.cursor2
                     guides: true
-                    labelPosition: PlotMarker.Right
+                    labelPosition: PlotMarker.Left
                     label: qsTr("PM %1°").arg(root.controller.phaseMargin.toFixed(1))
                 }
                 Instantiator {
@@ -297,7 +297,7 @@ Item {
                         shape: PlotMarker.Ring
                         size: 11
                         color: Theme.math
-                        labelPosition: PlotMarker.Right
+                        labelPosition: PlotMarker.Left
                         label: phaseTrace.valueAt(modelData).toFixed(1) + "°"
                     }
                 }
@@ -306,7 +306,6 @@ Item {
                     position: root.controller.cursorFrequency
                     trace: phaseTrace
                     snap: true
-                    readoutVisible: false
                     label: "C"
                     color: Theme.cursor1
                     onMoved: position => root.controller.setCursorFrequency(position)
