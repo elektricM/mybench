@@ -86,12 +86,13 @@ private slots:
         QCOMPARE(m_dmm->selectedRangeLabel(), u"20MΩ"_s);   // back to the largest range
         measureOnce();
         QCOMPARE(m_dmm->activeRangeLabel(), u"20kΩ"_s);
-        QCOMPARE(m_dmm->readingText(), u"4.70"_s);
+        QVERIFY2(qAbs(m_dmm->reading() - 4700) < 15, qPrintable(m_dmm->readingText()));
+        QCOMPARE(m_dmm->readingText().size(), 4);   // "4.70": 2 decimals on 20kΩ
         QCOMPARE(m_dmm->readingUnit(), u"kΩ"_s);
         m_sim->setDmmOpenCircuit(true);
         measureOnce();
         QVERIFY(m_dmm->overload());
-        QCOMPARE(m_dmm->readingText(), u"+Over"_s);
+        QCOMPARE(m_dmm->readingText(), u"+OVER"_s);
         QCOMPARE(m_dmm->fullScaleFraction(), 1.0);
     }
 
@@ -101,8 +102,11 @@ private slots:
         m_sim->setDmmValue(mydaq::DmmFunction::DcVoltage, -1.0);
         measureOnce();
         QVERIFY(m_dmm->overload());
-        QCOMPARE(m_dmm->readingText(), u"-Over"_s);
-        QCOMPARE(m_dmm->statOverloads(), 1);
+        QCOMPARE(m_dmm->readingText(), u"+OVER"_s);   // ELVISmx: +Over whatever the sign
+        m_dmm->setSignedOverload(true);
+        measureOnce();
+        QCOMPARE(m_dmm->readingText(), u"-OVER"_s);
+        QCOMPARE(m_dmm->statOverloads(), 2);
         QCOMPARE(m_dmm->statCount(), 0);
     }
 
@@ -130,7 +134,8 @@ private slots:
         m_dmm->setSelectedFunction(DmmController::Diode);
         QCOMPARE(m_dmm->rangeLabels(), QStringList{u"2V"_s});
         measureOnce();
-        QCOMPARE(m_dmm->readingText(), u"0.650"_s);
+        QVERIFY(qAbs(m_dmm->reading() - 0.650) < 0.0015);   // ±1 count of simulated noise
+        QCOMPARE(m_dmm->readingText().size(), 5);           // "0.650": 3 decimals on 2V
         QCOMPARE(m_dmm->diodeStatus(), u"GOOD"_s);
         m_sim->setDmmOpenCircuit(true);
         measureOnce();
@@ -149,7 +154,7 @@ private slots:
         m_sim->setDmmOpenCircuit(true);
         measureOnce();
         QVERIFY(!m_dmm->continuityClosed());
-        QCOMPARE(m_dmm->readingText(), u"+Over"_s);
+        QCOMPARE(m_dmm->readingText(), u"+OVER"_s);
     }
 
     void holdFreezesReadout()
@@ -164,7 +169,7 @@ private slots:
         QCOMPARE(m_dmm->statCount(), 2);   // statistics continue
         m_dmm->setHold(false);
         measureOnce();
-        QCOMPARE(m_dmm->readingText(), u"0.500"_s);
+        QVERIFY(qAbs(m_dmm->reading() - 0.5) < 0.0015);
     }
 
     void continuousPacing()

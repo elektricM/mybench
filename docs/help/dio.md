@@ -1,89 +1,102 @@
 # Digital I/O
 
 The Digital I/O panel reads and drives the eight digital lines of the myDAQ, DIO 0 to DIO 7. It
-combines the classic **Digital Reader** (watch the level of some lines) and **Digital Writer** (set
-lines high or low by hand, or play a ramp, toggle or walking-ones sequence). Both work at the same
-time on different lines, so you can, for example, drive lines 0-3 and read them back on lines 4-7.
-
-A timeline under the line cards records the state of every line over the last seconds, like a
-simple logic analyzer.
+combines the classic **Digital Reader** (watch the level of a group of lines) and **Digital Writer**
+(set lines high or low by hand, or play a ramp, alternating or walking-ones pattern). Both work at
+the same time on different lines, so you can, for example, drive lines 0-3 and read them back on
+lines 4-7. A timeline records the state of every line, like a simple logic analyzer.
 
 ## Connections
 
-- The lines are on the myDAQ screw terminals `DIO 0` ... `DIO 7`; use `DGND` as the ground reference.
-- Outputs are 3.3 V logic (compatible with TTL inputs) and can only supply a few milliamps: drive
-  LEDs through a resistor (for example 330 Ω - 1 kΩ) and never connect an output directly to a
-  supply or to another output.
-- Inputs accept 0 V to 5 V logic signals. An unconnected input may read either level.
-- A line is either an input or an output, never both.
+- The lines are on the myDAQ screw terminals `DIO 0` … `DIO 7`; use `DGND` as the ground reference.
+- Outputs are 3.3 V logic (compatible with TTL inputs) and supply only a few milliamps: drive LEDs
+  through a resistor (330 Ω – 1 kΩ) and never connect an output to a supply or to another output.
+- Inputs accept 0 – 5 V logic. An unconnected input may read either level.
+- DIO 0 – 4 are also the terminals of the Counter/Timer and of the FREQOUT square wave (DIO 4). The
+  panel marks those lines with the instrument's name (see *Lines shared with other instruments*).
 
 ## Quick start
 
-1. Open **DIO** from the navigation rail.
-2. By default lines **4 - 7** are read and lines **0 - 3** are written (Manual pattern).
-3. Press **Run** (or `Space`).
-4. Flip the switches on the output cards: the lines change at once and the LEDs follow.
-5. To see your outputs on the inputs, wire DIO 0-3 to DIO 4-7: the input LEDs and the `Inputs`
-   value follow the switches.
+1. By default lines **4 - 7** are read and lines **0 - 3** are written with the Manual pattern.
+2. Press **Run** (or `Space`).
+3. Flip the switches on the output cards (or press `0` … `7`): the lines change at once.
+4. Wire DIO 0-3 to DIO 4-7 and the input LEDs and the `Inputs` value follow the switches.
 
-## Controls
+## The display
 
-### Line cards and values
+- **Inputs / Outputs** – the read lines and the written lines as one number each. The lowest line of
+  a group is bit 0 ("right-justified": lines 4-7 all high give `x F`). Click the small prefix letter
+  to choose Decimal (`d`), Hex (`x`), Octal (`o`), Binary (`b`) or SI notation (`p`).
+- **Line cards** – `DIO 7` … `DIO 0`, most significant on the left. Each card shows an LED (lit =
+  high; for outputs the level written), the direction (`IN`, `OUT`, `–` unused), the HI/LO switch of
+  output lines, your label and, if another instrument uses the line, its name. A warning mark
+  appears if an output reads back a different level (short circuit or overload).
+- **Timeline** – every line over the last 5, 10, 30 or 60 s (inputs cyan, outputs amber). Buttons:
+  window, cursors (two cursors with the time, Δt and the level of all lines at each), pause (freezes
+  the view while recording continues) and clear. The last 10 minutes are kept.
 
-Each card shows one line: its name (`DIO 7` ... `DIO 0`, most significant on the left), an LED
-(lit = high), and its direction (`IN`, `OUT` or `–` when unused). Output cards have a **HI/LO switch**.
-**Inputs** and **Outputs** show the lines of each function as one number; click the small prefix
-letter to choose **Decimal**, **Hex**, **Octal**, **Binary** or **SI Notation**. The lowest line of a
-set is bit 0 (lines 4-7 all high give `x F`).
+## Line Directions
 
-### Line Directions
+Set each line to **In**, **Out** or **–** (unused), and give it a label (e.g. `LED`, `CLK`). A line
+is read or driven, never both. Unused lines are left as high-impedance inputs.
 
-Set each line to **In**, **Out** or **–** (unused). The presets below do the same for whole groups.
+### Lines shared with other instruments
 
-### Digital Reader
+Lines declared by another instrument (Counter/Timer inputs, pulse output on DIO 3, FREQOUT on DIO 4)
+carry that instrument's name. While that instrument runs, pressing Run here pauses it (and the other
+way round); set the line to `–` to leave it to the other instrument.
 
-**Lines to Read**: `0 - 3`, `4 - 7`, `0 - 7` (or `None` / `Custom`). Choosing a group that overlaps
-the written lines moves those lines to reading (a message tells you).
+## Digital Reader
 
-### Digital Writer
+- **Lines to Read** – `0 - 3`, `4 - 7`, `0 - 7` or `None` (shows `Custom` for any other set). If the
+  group overlaps written lines, those lines move to reading and a message says so.
+- **Sample interval** – how often the lines are read and added to the timeline (10 ms – 1 s,
+  default 100 ms).
 
-- **Lines to Write**: `0 - 3`, `4 - 7`, `0 - 7` (or `None` / `Custom`).
+## Digital Writer
+
+- **Lines to Write** – `0 - 3`, `4 - 7`, `0 - 7` or `None` (or `Custom`).
 - **Pattern**:
-  - **Manual** - you set each line with its switch or type a value in **Pattern Number**.
-  - **Ramp** - counts 0, 1, 2 ... up to the largest value, then starts again.
-  - **Toggle** - alternates between 0101... and 1010...
-  - **Walking 1's** - a single high line moves from the lowest to the highest line.
-- **Action** (Manual only): **Toggle** inverts every line, **Rotate** moves the pattern one line in
-  the chosen **Direction** (the bit that falls off comes back on the other side), **Shift** moves it
-  one line and fills with 0.
-- **Interval (ms)**: time each value of a Ramp/Toggle/Walking sequence is held (default 200 ms).
+  - **Manual** – set each line with its switch, or type a **Pattern Number** (in the chosen radix,
+    `−`/`+` step by one).
+  - **Ramp (0-15)** / **Ramp (0-255)** – counts 0, 1, 2 … up to the largest value, then again.
+  - **Alternating 1/0's** – alternates `0101…` and `1010…` (x 5 / x A on four lines, x 55 / x AA on
+    eight).
+  - **Walking 1's** – one high line moving through the group, in the chosen **Direction**.
+- **Action** (Manual): **Toggle** inverts every line; **Rotate** moves the pattern one line in the
+  **Direction** (the bit leaving comes back on the other side); **Shift** moves it one line and
+  fills with 0.
+- **Step interval** – how long each value of a pattern is held (10 ms – 10 s, default 100 ms).
+- **Release** – after Stop the outputs keep driving their last value; Release makes them inputs
+  again.
 
-### Timeline
+## Run bar
 
-Shows the last 10 s of all lines (choose 5-60 s). **Sample interval** sets how often the lines are
-read (default 100 ms). Pause freezes the view, Clear empties it; two cursors show times and Δt.
+- **Run** – read continuously and drive the outputs until **Stop**. Settings, patterns and even the
+  line directions can be changed while running (a pattern then restarts from its first value).
+- **Single** – reads the lines, writes the Manual value once or plays a pattern one time (one step
+  interval per value), reads again, then stops.
+- **Stop** – reading and patterns stop; outputs keep their last level until you change their
+  direction, press Release or quit. If another instrument takes a line, the outputs are released.
 
-### Run bar
+## Export
 
-- **Run** - read continuously and generate the pattern until you press **Stop**.
-- **Single** - read once; a Manual pattern is written once, a sequence is played one time.
-- **Stop** - reading and sequences stop; outputs keep their last level until you change their
-  direction, close the panel or quit.
+**Export ▾ → Export data…** saves the timeline (time and the 0/1 level of every line, one row per
+sample) with the directions and the sample interval in the header. Export image/PDF saves the
+display.
 
 ## Tips
 
-- The classic exercise: Writer on 0 - 3 with Ramp, wires from DIO 0-3 to DIO 4-7, Reader on 4 - 7:
+- Classic exercise: Writer on 0 - 3 with Ramp, wires from DIO 0-3 to DIO 4-7, Reader on 4 - 7:
   both values count together.
-- Keys `0` to `7` toggle the manual output lines while the panel has focus.
-- Pin the DIO tile to the dashboard to keep an eye on the lines while you use other instruments.
-- **Export data** saves the timeline as CSV (time and the level of every line).
+- With the Manual pattern, clicking an output LED on the dashboard tile flips it.
 
 ## Troubleshooting
 
-- **An output does not change the LED of a connected input**: check the wiring and DGND; the card
-  shows a warning mark if an output reads back a different level (short circuit or overload).
 - **Short pulses are missing**: the lines are read by software every sample interval (at best about
   10 ms), so faster pulses can be missed. This panel is not a hardware logic analyzer.
 - **Inputs flicker when nothing is connected**: floating inputs are undefined; tie them to DGND or
   3.3 V through a resistor.
-- **"Select lines to read or to write first."**: all lines are unused; choose a preset.
+- **"Select lines to read or to write first."**: every line is unused; choose a preset.
+- **The Counter/Timer paused**: it used one of the lines you run here; set that line to `–` and
+  resume the counter.

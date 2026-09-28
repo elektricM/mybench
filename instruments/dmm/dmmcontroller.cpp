@@ -121,6 +121,14 @@ void DmmController::setContinuityBeep(bool enabled)
     updateTone();
 }
 
+void DmmController::setSignedOverload(bool enabled)
+{
+    if (enabled == m_signedOverload)
+        return;
+    m_signedOverload = enabled;
+    emit signedOverloadChanged();
+}
+
 void DmmController::setAutoStart(bool enabled)
 {
     if (enabled == m_autoStart)
@@ -309,7 +317,7 @@ void DmmController::applyReading(const Reading& reading)
     if (over) {
         // ELVISmx: a diode on an open circuit shows OPEN in the readout itself; other functions
         // show +Over and no unit.
-        display.text = function == mydaq::DmmFunction::Diode ? u"OPEN"_s : dmm::overloadText(function, reading.raw);
+        display.text = function == mydaq::DmmFunction::Diode ? u"OPEN"_s : dmm::overloadText(function, reading.raw, m_signedOverload);
         display.unit.clear();
     } else {
         display.text = dmm::formatNumber(displayed, format);

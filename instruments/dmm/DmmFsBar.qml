@@ -40,7 +40,7 @@ Item {
                 height: major ? 14 : 8
                 radius: 1
                 color: lit ? (root.overload ? Theme.danger : root.color)
-                           : Theme.dark ? "#1C2027" : "#E1E5EA"
+                           : Theme.alpha(Theme.textMuted, Theme.dark ? 0.22 : 0.2)
                 Behavior on color { ColorAnimation { duration: Theme.durationFast } }
             }
         }

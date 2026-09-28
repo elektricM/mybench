@@ -69,9 +69,9 @@ QString formatNumber(double value, const DisplayFormat& format);
 // Rounds a base-unit value to the resolution of the format.
 double roundToResolution(double value, const DisplayFormat& format);
 
-// Overload text: ELVISmx shows "+Over"; MYBENCH also shows "-Over" for a DC reading whose value
-// is negative (spec 4.3).
-QString overloadText(mydaq::DmmFunction function, double value);
+// Overload text (spec 4.3): "+OVER" for either sign, like ELVISmx's "+Over"; with `signedOverload`
+// (MYBENCH option) a negative DC reading shows "-OVER".
+QString overloadText(mydaq::DmmFunction function, double value, bool signedOverload = false);
 
 // Functions whose value may be negative (bipolar % FS bar, "-Over").
 bool isBipolar(mydaq::DmmFunction function);

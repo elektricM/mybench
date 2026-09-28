@@ -33,7 +33,7 @@ qt_add_qml_module(${instrument_target}
     RESOURCES ${instrument_assets}
 )
 target_link_libraries(${instrument_target} PUBLIC mybench_ui)
-target_include_directories(${instrument_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(${instrument_target} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if(MSVC)
     target_compile_options(${instrument_target} PRIVATE /W4 /utf-8)
 else()
@@ -45,3 +45,6 @@ endif()
 qt_add_executable(mybench-${instrument_id} dev/main.cpp)
 target_link_libraries(mybench-${instrument_id} PRIVATE ${instrument_target} ${instrument_target}plugin)
 target_include_directories(mybench-${instrument_id} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Unit tests (line sets, patterns, actions, formats, controller against the simulator).
+add_subdirectory(tests)

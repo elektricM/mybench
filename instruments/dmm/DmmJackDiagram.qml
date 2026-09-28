@@ -13,13 +13,13 @@ Item {
 
     // Jack models: left = V Ω HI (red), middle = COM (black), right = A HI (red).
     readonly property var jacks: [
-        { label: "HI", caption: "V Ω ▸|", lead: qsTr("red lead"), hi: true, used: !currentMode },
+        { label: "HI", caption: "V Ω", lead: qsTr("red lead"), hi: true, used: !currentMode },
         { label: "COM", caption: "", lead: qsTr("black lead"), hi: false, used: true },
         { label: "HI", caption: "A", lead: qsTr("red lead"), hi: true, used: currentMode }
     ]
 
     implicitWidth: 280
-    implicitHeight: 128
+    implicitHeight: 118
     Accessible.role: Accessible.Graphic
     Accessible.name: currentMode ? qsTr("Connect the probes to COM and the A HI jack")
                                  : qsTr("Connect the probes to the V Ω HI jack and COM")
@@ -30,21 +30,11 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 4
         width: Math.min(parent.width, 260)
-        height: 76
+        height: 86
         radius: Theme.radiusL
-        color: Theme.dark ? "#101217" : "#F1F3F6"
+        color: Theme.surfaceSunken
         border.width: 1
         border.color: Theme.borderStrong
-
-        // Isolation hint: a thin line under the jacks, as silk-screened on the device.
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.margins: 18
-            y: parent.height - 16
-            height: 1
-            color: Theme.border
-        }
     }
 
     Repeater {
@@ -61,7 +51,7 @@ Item {
             // Caption above the jack (function symbols).
             Text {
                 x: jack.centerX - width / 2
-                y: plate.y + 6
+                y: plate.y + 5
                 text: jack.modelData.caption
                 color: jack.used ? Theme.textSecondary : Theme.textDisabled
                 font.pixelSize: Theme.fontSizeXs
@@ -72,7 +62,7 @@ Item {
             Rectangle {
                 id: ring
                 x: jack.centerX - width / 2
-                y: plate.y + 20
+                y: plate.y + 26
                 width: 34
                 height: 34
                 radius: width / 2
@@ -122,7 +112,7 @@ Item {
                 x: jack.centerX - 6
                 y: 0
                 width: 12
-                height: plate.y + 14
+                height: plate.y
                 preferredRendererType: Shape.CurveRenderer
                 ShapePath {
                     strokeColor: Theme.accent
@@ -130,15 +120,15 @@ Item {
                     fillColor: "transparent"
                     capStyle: ShapePath.RoundCap
                     startX: 6; startY: 2
-                    PathLine { x: 6; y: plate.y + 6 }
+                    PathLine { x: 6; y: plate.y - 8 }
                 }
                 ShapePath {
                     strokeColor: "transparent"
                     fillColor: Theme.accent
-                    startX: 0; startY: plate.y + 4
-                    PathLine { x: 12; y: plate.y + 4 }
-                    PathLine { x: 6; y: plate.y + 13 }
-                    PathLine { x: 0; y: plate.y + 4 }
+                    startX: 0; startY: plate.y - 10
+                    PathLine { x: 12; y: plate.y - 10 }
+                    PathLine { x: 6; y: plate.y - 1 }
+                    PathLine { x: 0; y: plate.y - 10 }
                 }
             }
         }

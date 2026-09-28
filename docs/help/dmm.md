@@ -3,9 +3,10 @@
 The Multimeter uses the myDAQ's built-in, electrically isolated meter (the three banana jacks) to
 measure DC and AC voltage, DC and AC current, resistance, diode forward voltage and continuity. It
 works independently of the analog inputs and outputs, so you can use it while the Oscilloscope,
-Generator or any other instrument is running.
+the Generator or any other instrument is running.
 
-The Multimeter starts measuring as soon as you open it (DC Voltage).
+It opens in DC Voltage, *Specify Range*, 60 V, and waits for you to press **Run** (an option in
+**Options** starts it automatically when the panel opens).
 
 ## Connections
 
@@ -13,83 +14,108 @@ The myDAQ has three banana jacks for the meter:
 
 | Jack | Used for |
 |---|---|
-| **HI (V Ω ⊣▶)** – red, left | voltage, resistance, diode, continuity |
+| **HI (V Ω)** – red, left | voltage, resistance, diode, continuity |
 | **COM** – black, middle | common (always used) |
 | **HI (A)** – red, right | current |
 
-- **Voltage, resistance, diode, continuity**: red lead in HI (V), black lead in COM.
+- **Voltage, resistance, diode, continuity**: red lead in HI (V Ω), black lead in COM.
 - **Current**: red lead in HI (A), black lead in COM, and put the meter *in series* with the load.
-- The picture in the Measurement Settings section always shows the two jacks to use for the selected
+- The **Banana Jack Connections** card always highlights the two jacks to use for the selected
   function.
 
-Safety: the meter is rated for low-voltage laboratory circuits only (up to 60 V DC / 20 V AC RMS).
-The current input is protected by a fuse (1 A max). Never connect the current jack across a voltage
-source. Measure resistance, diodes and continuity only on circuits that are switched off.
+Safety: the meter is meant for low-voltage laboratory circuits only (60 V DC / 20 V AC RMS at
+most). The current input is fused (1 A). Never connect the current jack across a voltage source.
+Measure resistance, diodes and continuity only on circuits that are switched off.
 
 ## Quick start
 
-1. Plug the leads into the jacks shown in the connection picture.
-2. Choose a function (DC Voltage is selected at start).
-3. Leave **Mode** on *Specify Range* with the largest range, or choose *Auto* to let the meter pick
-   the best range.
-4. Read the value on the big display. The bar under it shows how much of the range is used.
+1. Plug the leads into the jacks shown in the connection card.
+2. Choose a function (keys `1` … `9` select the function buttons in order).
+3. Choose **Mode**: *Auto* lets the meter pick the range, *Specify Range* uses the one you select.
+4. Press **Run** (or `Space`) to measure continuously, or **Single** for one reading.
 
-## Controls
+## Measurement Settings
 
-### Measurement Settings
+- **Function** – DC V, AC V, DC A, AC A, Ω (resistance), Diode and Continuity. Capacitance and
+  Inductance are shown but disabled: the myDAQ cannot measure them.
+- **Mode** – *Auto* or *Specify Range*. The mode is kept when you change the function. Continuity
+  always ranges automatically.
+- **Range** – listed from the smallest to the largest:
+  - DC voltage: 200mV, 2V, 20V, 60V · AC voltage (RMS): 200mV, 2V, 20V
+  - DC and AC current: 20mA, 200mA, 1A
+  - Resistance: 200Ω, 2kΩ, 20kΩ, 200kΩ, 2MΩ, 20MΩ
+  - Diode: 2V · Continuity: no range to choose
 
-- **Function** – DC Voltage, AC Voltage, DC Current, AC Current, Resistance, Diode, Continuity.
-  Capacitance and Inductance are shown for completeness but are not available on the myDAQ.
-- **Mode** – *Auto* chooses the range automatically (the display shows `AUTO` and the range in use);
-  *Specify Range* uses the range you choose.
-- **Range** – the full-scale value. Ranges available:
-  - DC voltage: 60 V, 20 V, 2 V, 200 mV
-  - AC voltage (RMS): 20 V, 2 V, 200 mV
-  - DC and AC current: 1 A, 200 mA, 20 mA
-  - Resistance: 20 MΩ, 2 MΩ, 200 kΩ, 20 kΩ, 2 kΩ, 200 Ω
-  - Diode (2 V) and Continuity have a fixed range.
-- **Null Offset** – relative mode. When you switch it on, the next reading is stored as the null
-  value and later readings are shown relative to it (useful to cancel the resistance of the test
-  leads or an offset). The null value is shown in the display. Each function keeps its own null
-  value. Switch it off and on again to take a new null value.
+  Changing the function selects its largest range again. In Auto the box shows the range in use.
+- **Null Offset** – relative mode. When you switch it on, the next valid reading becomes the null
+  value (shown as `Null value: …` in the display) and later readings are shown minus that value.
+  Use it to cancel the resistance of the test leads or an offset. Switch it off and on again to take
+  a new null value; changing the function switches it off.
 
-### Display
+## The display
 
-- The main readout shows the value with a resolution fixed by the range (3½ digits).
-- **% FS** – percentage of the range in use. A low percentage means a smaller range would give more
-  resolution.
-- **+OVER / -OVER** – the input is above (or below) the selected range: choose a larger range or
-  Auto.
-- **Diode GOOD / OPEN** – in Diode mode: GOOD when the forward voltage is below 2 V, OPEN when the
-  diode is open or connected backwards.
-- **Continuity** – the computer beeps (and the indicator lights) while the resistance is below 15 Ω.
+- **Readout** – the value with the resolution of the range (3½ digits: e.g. `1.235 V` on 2V,
+  `12.3 mA` on 200mA, `4.70 kΩ` on 20kΩ). `---` means no reading yet.
+- **% FS** – how much of the range the raw reading uses (0 – 100 %). A small percentage means a
+  smaller range would give more resolution.
+- **+OVER** – the input is beyond the range: choose a larger range or Auto. (Option **Signed
+  overload** shows `-OVER` for negative DC values.)
+- **Badges** – `AUTO` / range in use, `Null value`, `HOLD`, `Diode GOOD/OPEN`, `Continuity`.
+- **Statistics strip** – minimum, maximum, average, standard deviation and number of readings.
+- **Trend** – the readings over the last 1 min, 10 min, 1 h or everything (buttons on the chart).
+  Overloads leave gaps. Drag to pan, scroll to zoom, double-click to return; the trash button
+  clears it. The trend restarts when you change the function.
+- A small dot at the top right blinks at every reading.
 
-### Run bar
+### Diode
 
-- **Run / Stop** – measure continuously, or stop.
+The meter drives 1 mA through the diode and shows its forward voltage (about 0.6 – 0.7 V for a
+silicon diode). An open or reversed diode shows `OPEN` in the readout.
+
+### Continuity
+
+Below 15 Ω the circuit is considered closed: a continuous 1 kHz tone plays on the computer's sound
+output and the `Continuity` badge lights (the dashboard tile glows too). An open circuit shows
+`+OVER` and `OPEN`. The tone can be turned off in **Options**.
+
+## Run bar
+
+- **Run / Stop** – measure continuously (at most five readings per second), or stop. The last
+  reading stays displayed.
 - **Single** – take one reading and stop.
+- **Hold** – freezes the readout; measuring, trend, statistics and logging continue.
 
-### Trend, statistics and logging
+## Statistics
 
-- **Trend** – a chart of the recent readings.
-- **Statistics** – minimum, maximum, average and standard deviation since the last **Reset**.
-- **Hold** – freezes the displayed value while measuring continues.
-- **Record / Export** – records every reading with its time stamp and saves the table as CSV.
+Count, minimum, maximum, peak to peak, average and standard deviation of the displayed values since
+the last **Reset statistics** or function change (relative values while Null Offset is on).
+Overloads are counted separately and left out of the numbers.
+
+## Logging
+
+- **Record** – every reading is added to a log (time, elapsed seconds, function, range, value,
+  unit, overload, relative, null value). The row count is shown; the log keeps rows across function
+  changes.
+- **Also write to file** – choose a file and every recorded reading is appended to it at once, so
+  long recordings are safe. Files are tab-separated text (or CSV if the name ends in `.csv`).
+- **Save log…** – writes the whole log to a file; **Clear** empties it.
+- **Export ▾ → Export data…** in the display header saves the readings of the current function
+  (elapsed time, value, overload) as CSV; Export image/PDF saves the display.
 
 ## Tips
 
 - AC functions display the RMS value and take longer per reading than DC functions.
-- In Auto mode the first reading of a function starts on the largest range, so it may take a moment
-  to settle on small signals.
-- For small resistances, short the leads, switch Null Offset on, then measure: the lead resistance is
-  removed.
-- Readings are shown at most five times per second.
+- In Auto the meter starts on the largest range and re-reads at once on the range that fits, so
+  the first value shown is already on the right range.
+- For small resistances, short the leads, switch on Null Offset, then measure: the lead resistance
+  is removed.
 
 ## Troubleshooting
 
 - **The display shows `---`**: no reading yet (just started or the function changed), or the meter
-  stopped because of an error — check the notification and press Run.
-- **Always +OVER in resistance or diode mode**: the leads are open, or the component is not
-  connected between HI (V) and COM.
-- **Current reads zero**: the red lead must be in the HI (A) jack, and the fuse may be blown.
-- **Nothing happens at start**: no device is connected; select one in the top bar.
+  stopped because of an error — check the message and press Run.
+- **Always +OVER in resistance or diode mode**: the leads are open, or the part is not connected
+  between HI (V Ω) and COM.
+- **Current reads zero**: the red lead must be in the HI (A) jack; the fuse may be blown.
+- **No continuity tone**: check the tone option and the computer's sound output; the badge still
+  lights.

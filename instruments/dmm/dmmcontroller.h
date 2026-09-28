@@ -45,6 +45,8 @@ class DmmController : public InstrumentController
     Q_PROPERTY(int trendWindow READ trendWindow WRITE setTrendWindow NOTIFY trendWindowChanged)
     // Continuity tone on/off (the visual indicator always works).
     Q_PROPERTY(bool continuityBeep READ continuityBeep WRITE setContinuityBeep NOTIFY continuityBeepChanged)
+    // [MYBENCH] "-OVER" for negative DC overloads (ELVISmx shows "+Over" for both signs).
+    Q_PROPERTY(bool signedOverload READ signedOverload WRITE setSignedOverload NOTIFY signedOverloadChanged)
     // [MYBENCH] start measuring when the panel or tile is first shown (default off).
     Q_PROPERTY(bool autoStart READ autoStart WRITE setAutoStart NOTIFY autoStartChanged)
 
@@ -115,6 +117,8 @@ public:
     void setTrendWindow(int window);
     bool continuityBeep() const { return m_continuityBeep; }
     void setContinuityBeep(bool enabled);
+    bool signedOverload() const { return m_signedOverload; }
+    void setSignedOverload(bool enabled);
     bool autoStart() const { return m_autoStart; }
     void setAutoStart(bool enabled);
 
@@ -190,6 +194,7 @@ signals:
     void rangesChanged();
     void trendWindowChanged();
     void continuityBeepChanged();
+    void signedOverloadChanged();
     void autoStartChanged();
     void nullOffsetChanged();
     void holdChanged();
@@ -234,6 +239,7 @@ private:
     int m_rangeIndex = 3;       // largest DC V range (60V)
     int m_trendWindow = 1;      // 10 min
     bool m_continuityBeep = true;
+    bool m_signedOverload = false;
     bool m_autoStart = false;
 
     // Transient
