@@ -30,7 +30,8 @@ Rectangle {
         { id: "trend", title: "DMM trend", icon: "∿" },
         { id: "xy", title: "XY mode", icon: "∞" },
         { id: "recorder", title: "Recorder", icon: "⏺" },
-        { id: "logic", title: "Digital I/O", icon: "⎍" }
+        { id: "logic", title: "Digital I/O", icon: "⎍" },
+        { id: "styles", title: "Trace styles", icon: "◇" }
     ]
 
     RowLayout {
@@ -109,7 +110,7 @@ Rectangle {
                 }
                 Text {
                     Layout.leftMargin: 6
-                    text: "Wheel: zoom · drag: pan\nShift-drag: zoom box\nDouble-click: reset"
+                    text: "Wheel: zoom · drag: pan\nCtrl/⌘-drag: zoom box\nDouble-click: reset"
                     color: root.theme.muted
                     font.pixelSize: 11
                     lineHeight: 1.25
@@ -130,6 +131,7 @@ Rectangle {
                 case "xy": return xyPage
                 case "recorder": return recorderPage
                 case "logic": return logicPage
+                case "styles": return stylesPage
                 default: return scopePage
                 }
             }
@@ -145,4 +147,5 @@ Rectangle {
     Component { id: xyPage; XYPage { theme: root.theme; demo: galleryData } }
     Component { id: recorderPage; RecorderPage { theme: root.theme; demo: galleryData } }
     Component { id: logicPage; LogicPage { theme: root.theme; demo: galleryData } }
+    Component { id: stylesPage; StylesPage { theme: root.theme; demo: galleryData } }
 }

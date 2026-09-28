@@ -11,6 +11,7 @@
 
 #include "mybench/plot/logicbuffer.h"
 #include "mybench/plot/tracebuffer.h"
+#include "mybench/plot/tracestyle.h"
 
 #include <QList>
 #include <QStringList>
@@ -36,7 +37,7 @@ class PlotElement : public QObject, public QQmlParserStatus
     Q_PROPERTY(double z READ z WRITE setZ NOTIFY zChanged FINAL)
 
 public:
-    enum LineStyle { Solid, Dash, Dot, DashDot };
+    enum LineStyle { Solid, Dash, Dot, DashDot, DashDotDot };
     Q_ENUM(LineStyle)
     enum Orientation { Vertical, Horizontal };
     Q_ENUM(Orientation)
@@ -85,6 +86,11 @@ class PlotTrace : public PlotElement
     Q_PROPERTY(bool pointsVisible READ pointsVisible WRITE setPointsVisible NOTIFY styleChanged FINAL)
     Q_PROPERTY(double pointSize READ pointSize WRITE setPointSize NOTIFY styleChanged FINAL)
     Q_PROPERTY(bool step READ step WRITE setStep NOTIFY styleChanged FINAL)
+    Q_PROPERTY(Interpolation interpolationMode READ interpolationMode WRITE setInterpolationMode NOTIFY styleChanged FINAL)
+    Q_PROPERTY(PointShape pointShape READ pointShape WRITE setPointShape NOTIFY styleChanged FINAL)
+    Q_PROPERTY(QColor fillColor READ fillColor WRITE setFillColor RESET resetFillColor NOTIFY styleChanged FINAL)
+    Q_PROPERTY(bool fillGradient READ fillGradient WRITE setFillGradient NOTIFY styleChanged FINAL)
+    Q_PROPERTY(mybench::plot::TraceStyle *userStyle READ userStyle WRITE setUserStyle NOTIFY userStyleChanged FINAL)
     Q_PROPERTY(bool fill READ fill WRITE setFill NOTIFY styleChanged FINAL)
     Q_PROPERTY(double fillBaseline READ fillBaseline WRITE setFillBaseline NOTIFY styleChanged FINAL)
     Q_PROPERTY(double fillOpacity READ fillOpacity WRITE setFillOpacity NOTIFY styleChanged FINAL)
@@ -97,6 +103,33 @@ class PlotTrace : public PlotElement
     Q_PROPERTY(QString unit READ unit WRITE setUnit NOTIFY styleChanged FINAL)
 
 public:
+    // How samples are joined. Step: hold each value until the next sample (= `step: true`);
+    // StepVertical: jump at the previous sample; CenterStep: jump halfway between samples;
+    // CenterStepVertical: horizontal at the mean of two samples, vertical at the samples.
+    enum Interpolation { Linear, Step, StepVertical, CenterStep, CenterStepVertical };
+    Q_ENUM(Interpolation)
+    // Point markers (pointsVisible). Cross: bold "+"; Plus: thin "+"; X: thin "×".
+    enum PointShape { FilledCircle, Circle, Square, FilledSquare, Diamond, FilledDiamond, Cross, Plus, X };
+    Q_ENUM(PointShape)
+
+    // The resolved look (the trace's properties, overridden by its userStyle when set).
+    struct Appearance {
+        QColor color;          // invalid: the plot palette color for the trace index
+        QColor fillColor;      // points and fill; invalid: `color`
+        double width = 1.5;
+        PlotElement::LineStyle style = PlotElement::Solid;
+        bool lineVisible = true;
+        bool pointsVisible = false;
+        bool pointsOnly = false;  // no line by choice: dense records fall back to a dotted line
+        PointShape pointShape = FilledCircle;
+        double pointSize = 4.5;
+        Interpolation interpolation = Linear;
+        bool fill = false;
+        double fillBaseline = qQNaN();  // display units; NaN or -inf: plot bottom, +inf: plot top
+        double fillOpacity = 0.22;
+        bool fillGradient = true;
+    };
+
     explicit PlotTrace(QObject *parent = nullptr);
 
     TraceBuffer *buffer() const { return m_buffer; }
@@ -120,10 +153,26 @@ public:
     void setPointsVisible(bool on);
     double pointSize() const { return m_pointSize; }  // diameter, px
     void setPointSize(double s);
-    // Hold each value until the next sample (staircase).
-    bool step() const { return m_step; }
+    // Hold each value until the next sample (staircase): interpolationMode == Step.
+    bool step() const { return m_interpolation == Step; }
     void setStep(bool on);
-    // Fill between the trace and fillBaseline (display units; NaN = bottom of the plot area).
+    Interpolation interpolationMode() const { return m_interpolation; }
+    void setInterpolationMode(Interpolation i);
+    PointShape pointShape() const { return m_pointShape; }
+    void setPointShape(PointShape s);
+    // Color of the points and of the fill; unset = the trace color.
+    QColor fillColor() const { return m_fillColor; }
+    void setFillColor(const QColor &c);
+    void resetFillColor();
+    // Fill fading towards the baseline (spectra) or flat (fillOpacity everywhere).
+    bool fillGradient() const { return m_fillGradient; }
+    void setFillGradient(bool on);
+    // User style (Trace style dialog) overriding this trace's look; null = none.
+    TraceStyle *userStyle() const { return m_userStyle; }
+    void setUserStyle(TraceStyle *style);
+    Appearance appearance() const;
+    // Fill between the trace and fillBaseline (display units; NaN or -Infinity = bottom of the plot
+    // area, +Infinity = top).
     bool fill() const { return m_fill; }
     void setFill(bool on);
     double fillBaseline() const { return m_fillBaseline; }
@@ -168,11 +217,13 @@ signals:
     void bufferChanged();
     void styleChanged();
     void transformChanged();
+    void userStyleChanged();
     // The buffer's data changed (forwarded, on the GUI thread).
     void dataChanged();
 
 private:
     QPointer<TraceBuffer> m_buffer;
+    QPointer<TraceStyle> m_userStyle;
     QString m_name;
     QString m_unit;
     QColor m_color;
@@ -181,7 +232,10 @@ private:
     bool m_lineVisible = true;
     bool m_pointsVisible = false;
     double m_pointSize = 4.5;
-    bool m_step = false;
+    Interpolation m_interpolation = Linear;
+    PointShape m_pointShape = FilledCircle;
+    QColor m_fillColor;
+    bool m_fillGradient = true;
     bool m_fill = false;
     double m_fillBaseline = qQNaN();
     double m_fillOpacity = 0.22;

@@ -29,6 +29,12 @@ ListView {
         onActionRequested: Notifications.trigger(toast.toastId)
     }
 
+    // `Details` of an error toast: the shell opens the event log (ShellActions.eventLogRequested).
+    Connections {
+        target: Notifications
+        function onDetailsRequested() { ShellActions.eventLogRequested() }
+    }
+
     add: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationNormal }

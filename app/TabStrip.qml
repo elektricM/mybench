@@ -7,7 +7,9 @@ import MyBench.Framework
 import MyBench.Controls
 
 // Workspace tabs: Home, one tab per open instrument (or two side by side), "+" to open one, and
-// the split actions of the current tab.
+// the split actions of the current tab. Drag a tab along the strip to reorder it, or onto the
+// left/right half of the workspace to show it in that pane (WorkspaceView's DropArea, drag keys
+// "mybench-tab" + "instrument:<id>"; app.md 2.4).
 Rectangle {
     id: strip
 
@@ -15,6 +17,41 @@ Rectangle {
 
     implicitHeight: 40
     color: Theme.chrome
+
+    // Tab drag state: the dragged tab, its instrument (single tabs only: split tabs are only
+    // reordered), the pointer in strip coordinates and the insertion index (0..tabs.length).
+    property int dragIndex: -1
+    property string dragInstrument: ""
+    property point dragPoint: Qt.point(0, 0)
+    readonly property bool pointerInStrip: dragPoint.y >= -8 && dragPoint.y <= height + 8
+    readonly property int insertIndex: {
+        if (dragIndex < 0)
+            return -1
+        for (let i = 0; i < tabRepeater.count; ++i) {
+            const item = tabRepeater.itemAt(i)
+            if (!item)
+                continue
+            const p = item.mapToItem(strip, item.width / 2, 0)
+            if (dragPoint.x < p.x)
+                return i
+        }
+        return tabRepeater.count
+    }
+    function beginDrag(index: int, instrumentId: string) {
+        dragInstrument = instrumentId
+        dragIndex = index
+    }
+    function endDrag() {
+        const from = dragIndex
+        const insert = insertIndex
+        const overPane = dragGhost.Drag.target !== null
+        if (overPane)
+            dragGhost.Drag.drop()
+        dragIndex = -1
+        dragInstrument = ""
+        if (!overPane && pointerInStrip && from >= 0 && insert >= 0)
+            workspace.moveTab(from, insert > from ? insert - 1 : insert)
+    }
 
     component StripTab: T.AbstractButton {
         id: tab
@@ -93,7 +130,7 @@ Rectangle {
                 iconSize: 12
                 iconName: "close"
                 toolTip: qsTr("Close tab")
-                shortcutText: "⌘W"
+                shortcutText: Theme.keys("Ctrl+W")
                 onClicked: tab.closeRequested()
             }
         }
@@ -121,6 +158,7 @@ Rectangle {
         }
 
         Repeater {
+            id: tabRepeater
             model: strip.workspace.tabs
             delegate: StripTab {
                 id: instrumentTab
@@ -138,6 +176,21 @@ Rectangle {
                          || (secondaryController !== null && secondaryController.running)
                 onClicked: strip.workspace.select(index)
                 onCloseRequested: strip.workspace.closeTab(index)
+
+                DragHandler {
+                    target: null
+                    dragThreshold: 8
+                    onActiveChanged: {
+                        if (active)
+                            strip.beginDrag(instrumentTab.index, instrumentTab.modelData.secondary.length > 0 ? "" : instrumentTab.modelData.primary)
+                        else
+                            strip.endDrag()
+                    }
+                    onCentroidChanged: {
+                        if (active)
+                            strip.dragPoint = strip.mapFromItem(null, centroid.scenePosition.x, centroid.scenePosition.y)
+                    }
+                }
             }
         }
 
@@ -205,6 +258,53 @@ Rectangle {
             iconSize: Theme.iconSizeS
             toolTip: qsTr("Swap sides")
             onClicked: strip.workspace.swap(strip.workspace.currentIndex)
+        }
+    }
+
+    // Insertion marker while a tab is dragged along the strip.
+    Rectangle {
+        visible: strip.dragIndex >= 0 && strip.pointerInStrip && dragGhost.Drag.target === null
+        readonly property Item before: strip.insertIndex >= 0 && strip.insertIndex < tabRepeater.count ? tabRepeater.itemAt(strip.insertIndex) : null
+        readonly property Item last: tabRepeater.count > 0 ? tabRepeater.itemAt(tabRepeater.count - 1) : null
+        x: before ? before.mapToItem(strip, 0, 0).x - 2
+                  : last ? last.mapToItem(strip, last.width, 0).x : 0
+        y: 8
+        width: 3
+        height: strip.height - 12
+        radius: 1.5
+        color: Theme.accent
+    }
+
+    // What follows the pointer while a tab is dragged; dropping it on the workspace shows the
+    // instrument in the pane under the pointer.
+    Rectangle {
+        id: dragGhost
+        parent: strip.Window.contentItem ?? strip
+        visible: strip.dragIndex >= 0
+        z: 10000
+        readonly property point scenePoint: strip.mapToItem(null, strip.dragPoint.x, strip.dragPoint.y)
+        readonly property point parentPoint: parent ? parent.mapFromItem(null, scenePoint.x, scenePoint.y) : Qt.point(0, 0)
+        x: parentPoint.x - width / 2
+        y: parentPoint.y - height / 2
+        width: ghostText.implicitWidth + 24
+        height: 28
+        radius: Theme.radiusL
+        color: Theme.surfaceRaised
+        border.width: 1
+        border.color: Theme.accent
+        opacity: 0.92
+        Drag.active: strip.dragIndex >= 0 && strip.dragInstrument.length > 0
+        Drag.keys: ["mybench-tab", "instrument:" + strip.dragInstrument]
+        Drag.hotSpot.x: width / 2
+        Drag.hotSpot.y: height / 2
+        Text {
+            id: ghostText
+            anchors.centerIn: parent
+            text: strip.dragIndex >= 0 && strip.dragIndex < strip.workspace.tabs.length
+                  ? (InstrumentRegistry.info(strip.workspace.tabs[strip.dragIndex].primary).title ?? "") : ""
+            color: Theme.text
+            font.pixelSize: Theme.fontSizeM
+            font.weight: Font.DemiBold
         }
     }
 }

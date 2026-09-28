@@ -43,11 +43,22 @@ struct PolylineInfo {
     double yMax = qQNaN();
 };
 
-// Appends the polyline to `out` (cleared first). `step`: hold each value until the next sample
-// (only when not decimated). `bucketPx`: bucket width in pixels (1 / devicePixelRatio for 2 points
-// per device pixel column; 1.0 for 2 per logical pixel).
+// Staircase joins between samples (only when not decimated). Hold: horizontal then vertical
+// (each value held until the next sample); Vertical: vertical then horizontal; CenterHorizontal:
+// the jump halfway between samples; CenterVertical: horizontal at the mean of two samples.
+enum class StepMode { None, Hold, Vertical, CenterHorizontal, CenterVertical };
+
+// Appends the polyline to `out` (cleared first). `step`: see StepMode. `bucketPx`: bucket width in
+// pixels (1 / devicePixelRatio for 2 points per device pixel column; 1.0 for 2 per logical pixel).
 PolylineInfo buildPolyline(const TraceData &data, const ScaleMap &xMap, const ScaleMap &yMap,
-                           const TraceTransform &transform, bool step, double bucketPx,
+                           const TraceTransform &transform, StepMode step, double bucketPx,
                            std::vector<PixelPoint> &out);
+// `step` true = StepMode::Hold.
+inline PolylineInfo buildPolyline(const TraceData &data, const ScaleMap &xMap, const ScaleMap &yMap,
+                                  const TraceTransform &transform, bool step, double bucketPx,
+                                  std::vector<PixelPoint> &out)
+{
+    return buildPolyline(data, xMap, yMap, transform, step ? StepMode::Hold : StepMode::None, bucketPx, out);
+}
 
 }  // namespace mybench::plot

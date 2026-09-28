@@ -125,6 +125,16 @@ void InstrumentRegistry::watch(InstrumentController* controller)
         emit runningChanged();
     });
     connect(controller, &InstrumentController::errorChanged, this, changed);
+    connect(controller, &InstrumentController::holdsOutputsChanged, this, &InstrumentRegistry::runningChanged);
+}
+
+bool InstrumentRegistry::anyStoppable() const
+{
+    for (InstrumentController* controller : m_controllers) {
+        if (controller->isRunning() || controller->isPaused() || controller->holdsOutputs())
+            return true;
+    }
+    return false;
 }
 
 QList<InstrumentController*> InstrumentRegistry::controllers() const
@@ -174,7 +184,41 @@ int InstrumentRegistry::indexOf(const QString& id) const
 void InstrumentRegistry::stopAll()
 {
     for (InstrumentController* controller : controllers())
-        controller->stop();
+        controller->stop();   // an idle controller holding outputs returns them to safe state
+}
+
+bool InstrumentRegistry::openInstrument(const QString& id, const QVariantMap& preset, bool beside)
+{
+    InstrumentController* target = controller(id);
+    if (!target)
+        return false;
+    if (!preset.isEmpty())
+        target->applyPreset(preset);
+    emit openRequested(id, beside);
+    return true;
+}
+
+void InstrumentRegistry::notifyPanelClosed(const QString& id)
+{
+    if (InstrumentController* existing = m_controllers.value(id))
+        existing->closePanel();
+}
+
+QStringList InstrumentRegistry::unsavedDocuments() const
+{
+    QStringList list;
+    for (const InstrumentDescriptor& descriptor : m_descriptors) {
+        const InstrumentController* controller = m_controllers.value(descriptor.id);
+        if (controller && !controller->unsavedDocument().isEmpty())
+            list.append(descriptor.title + u": "_s + controller->unsavedDocument());
+    }
+    return list;
+}
+
+void InstrumentRegistry::resetAllForSession()
+{
+    for (InstrumentController* controller : controllers())
+        controller->resetForSession();
 }
 
 void InstrumentRegistry::shutdown()

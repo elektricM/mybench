@@ -11,8 +11,6 @@ namespace mybench {
 
 namespace {
 
-constexpr int kMaxVisible = 5;
-
 int defaultTimeout(Notifications::Level level)
 {
     switch (level) {
@@ -58,9 +56,14 @@ Notifications* Notifications::create(QQmlEngine*, QJSEngine*)
     return notifications;
 }
 
-int Notifications::show(Level level, const QString& title, const QString& message, const QString& actionText,
+int Notifications::show(Level level, const QString& title, const QString& message, const QString& actionText_,
                         std::function<void()> action, const QString& source, int timeoutMs)
 {
+    QString actionText = actionText_;
+    if (level == Error && actionText.isEmpty() && !action) {
+        actionText = tr("Details");
+        action = [this, source] { emit detailsRequested(source); };
+    }
     if (timeoutMs < 0)
         timeoutMs = defaultTimeout(level);
     const qint64 now = QDateTime::currentMSecsSinceEpoch();

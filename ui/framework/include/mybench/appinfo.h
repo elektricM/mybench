@@ -2,6 +2,10 @@
 //
 //     AppInfo.name            "MYBENCH" (MYBENCH_APP_NAME, never hard-coded elsewhere)
 //     AppInfo.version         "0.1.0"
+//     AppInfo.homepage        project web site (MYBENCH_HOMEPAGE)
+//     AppInfo.qtVersion       Qt version at run time (qVersion())
+//     AppInfo.usbBackend      true if the native libusb backend is built in (MYBENCH_WITH_USB)
+//     AppInfo.licenseText()   the repository LICENSE (or the pending-license notice), compiled in
 //     AppInfo.screenshot      true when rendering offscreen (--screenshot): no animations needed,
 //                             no dialogs, deterministic layout
 //     AppInfo.theme           "dark" | "light" | "" (--theme)
@@ -38,6 +42,9 @@ class AppInfo : public QObject
     Q_PROPERTY(QString name READ name CONSTANT)
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(QString platform READ platform CONSTANT)   // "macos", "windows", "linux", ...
+    Q_PROPERTY(QString homepage READ homepage CONSTANT)
+    Q_PROPERTY(QString qtVersion READ qtVersion CONSTANT)
+    Q_PROPERTY(bool usbBackend READ usbBackend CONSTANT)
     Q_PROPERTY(bool screenshot READ screenshot CONSTANT)
     Q_PROPERTY(QString theme READ theme CONSTANT)
     Q_PROPERTY(QString instrument READ instrument CONSTANT)
@@ -52,6 +59,10 @@ public:
     QString name() const;
     QString version() const;
     QString platform() const;
+    QString homepage() const;
+    QString qtVersion() const;
+    bool usbBackend() const;
+    Q_INVOKABLE QString licenseText() const;
     bool screenshot() const { return m_screenshot; }
     QString theme() const { return m_theme; }
     QString instrument() const

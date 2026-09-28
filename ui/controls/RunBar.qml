@@ -24,6 +24,13 @@ Rectangle {
     property string singleIcon: "step"
     property string singleToolTip: qsTr("Acquire once, then stop")
     property bool showSingle: controller ? controller.supportsSingle : true
+    // Single allowed right now (InstrumentController.singleEnabled; override to add conditions).
+    property bool singleEnabled: controller ? controller.singleEnabled : true
+    // Idle instrument still driving outputs (InstrumentController.holdsOutputs): a button returns
+    // them to their safe state (the same as Stop / Shift+F5).
+    property bool showRelease: controller !== null && controller.holdsOutputs && !running
+    property string releaseText: qsTr("Release outputs")
+    property string releaseToolTip: qsTr("Return the outputs to their safe state (AO to 0 V, digital lines to inputs)")
     property bool showTimeout: false
     property string timeoutText: qsTr("Timeout")
     property bool showRate: true
@@ -51,6 +58,8 @@ Rectangle {
         default:
             if (c.hasError)
                 return c.errorText
+            if (c.inputWarning.length > 0)
+                return c.inputWarning
             if (!DeviceHub.connected)
                 return qsTr("No device")
             return c.statusText.length > 0 ? c.statusText : c.hasData ? qsTr("Stopped") : qsTr("Ready")
@@ -66,8 +75,13 @@ Rectangle {
             return Theme.warning
         if (c.hasError)
             return Theme.danger
+        if (c.inputWarning.length > 0)
+            return Theme.warning
         return Theme.textMuted
     }
+    readonly property bool statusHighlighted: controller !== null
+                                              && (controller.hasError || controller.paused
+                                                  || (!running && controller.inputWarning.length > 0))
 
     implicitHeight: 52
     color: Theme.surface
@@ -145,11 +159,23 @@ Rectangle {
             iconName: root.singleIcon
             toolTip: root.singleToolTip
             implicitHeight: Theme.controlHeightL
-            enabled: root.controller !== null
+            enabled: root.controller !== null && root.singleEnabled
                      && (root.controller.canRun
                          || (root.controller.state === InstrumentController.Running
                              && root.controller.runMode === InstrumentController.Continuous))
             onClicked: root.controller.runOnce()
+        }
+
+        ActionButton {
+            objectName: "releaseButton"
+            visible: root.showRelease
+            text: root.compact ? "" : root.releaseText
+            iconName: "stop-filled"
+            tone: "subtle"
+            color: Theme.stop
+            toolTip: root.releaseToolTip
+            implicitHeight: Theme.controlHeightL
+            onClicked: root.controller.returnToSafeState()
         }
 
         Row {
@@ -173,7 +199,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.minimumWidth: 60
             text: root.statusText
-            color: root.controller && (root.controller.hasError || root.controller.paused) ? root.statusColor : Theme.textSecondary
+            color: root.statusHighlighted ? root.statusColor : Theme.textSecondary
             font.pixelSize: Theme.fontSizeBody
             elide: Text.ElideRight
         }

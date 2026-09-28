@@ -16,6 +16,8 @@ layout(std140, binding = 0) uniform buf {
     float aa;        // item px per device px
     float dashOn;    // px, 0 = solid
     float dashOff;   // px
+    float dotLength; // px, dots between dashes (dash-dot styles)
+    float dots;      // 0, 1 or 2
 };
 
 void main()

@@ -2,6 +2,7 @@
 // Rendering (layout, geometry, scene graph) is in plotrender.cpp.
 #include "plot_p.h"
 
+#include <QClipboard>
 #include <QCursor>
 #include <QFile>
 #include <QGuiApplication>
@@ -54,8 +55,9 @@ QColor PlotPrivate::traceColor(const PlotTrace *trace) const
 {
     if (!trace)
         return palette(0);
-    if (trace->hasColor())
-        return trace->color();
+    const QColor own = trace->appearance().color;
+    if (own.isValid())
+        return own;
     int index = 0;
     for (const Entry &e : elements) {
         if (e.element == trace)
@@ -145,6 +147,8 @@ void Plot::connectAxis(PlotAxis *axis)
     connect(axis, &PlotAxis::appearanceChanged, this, &Plot::requestUpdate);
     connect(axis, &PlotAxis::autoScaleChanged, this, &Plot::requestUpdate);
     connect(axis, &PlotAxis::followChanged, this, &Plot::requestUpdate);
+    // A user zoom/pan of an axis ends its autoscale lock.
+    connect(axis, &PlotAxis::viewChangedByUser, this, [this, axis] { d->unlock(axis == d->xAxis, axis == d->yAxis); });
 }
 
 PlotAxis *Plot::xAxis() const { return d->xAxis; }
@@ -279,6 +283,27 @@ bool Plot::legendVisible() const { return d->legendVisible; }
 void Plot::setLegendVisible(bool on) { if (d->legendVisible == on) return; d->legendVisible = on; emit styleChanged(); }
 Plot::Corner Plot::legendPosition() const { return d->legendPosition; }
 void Plot::setLegendPosition(Corner c) { if (d->legendPosition == c) return; d->legendPosition = c; emit styleChanged(); }
+Plot::ZoomAxes Plot::zoomAxes() const { return d->zoomAxes; }
+void Plot::setZoomAxes(ZoomAxes axes) { if (d->zoomAxes == axes) return; d->zoomAxes = axes; emit interactionChanged(); }
+bool Plot::canUndoZoom() const { return !d->zoomHistory.empty(); }
+bool Plot::xAutoscaleLock() const { return d->xLock; }
+void Plot::setXAutoscaleLock(bool on)
+{
+    if (d->xLock == on)
+        return;
+    d->xLock = on;
+    emit autoscaleLockChanged();
+    requestUpdate();
+}
+bool Plot::yAutoscaleLock() const { return d->yLock; }
+void Plot::setYAutoscaleLock(bool on)
+{
+    if (d->yLock == on)
+        return;
+    d->yLock = on;
+    emit autoscaleLockChanged();
+    requestUpdate();
+}
 bool Plot::containsMouse() const { return d->hovering; }
 QPointF Plot::hoverValue() const
 {
@@ -543,38 +568,53 @@ void paddedRange(const PlotAxis *axis, double lo, double hi, double margin, doub
 
 }  // namespace
 
-void Plot::autoscaleX()
+void PlotPrivate::fitX()
 {
     double lo, hi;
-    if (!d->xAxis || !d->dataXRange(&lo, &hi))
+    if (!xAxis || !dataXRange(&lo, &hi))
         return;
     if (!(hi > lo))
         hi = lo + 1;
-    enforceMinimumSpan(d->xAxis, 0.5 * (lo + hi), &lo, &hi);
-    d->xAxis->setViewRange(lo, hi);
+    enforceMinimumSpan(xAxis, 0.5 * (lo + hi), &lo, &hi);
+    xAxis->setViewRange(lo, hi);
+}
+
+void PlotPrivate::fitY()
+{
+    double lo, hi;
+    if (!yAxis || !xAxis)
+        return;
+    if (!dataYRange(xAxis->min(), xAxis->max(), &lo, &hi))
+        return;
+    double a, b;
+    paddedRange(yAxis, lo, hi, yAxis->autoScaleMargin(), &a, &b);
+    yAxis->setViewRange(a, b);
+}
+
+void Plot::autoscaleX()
+{
+    d->pushHistory();
+    d->fitX();
 }
 
 void Plot::autoscaleY()
 {
-    double lo, hi;
-    if (!d->yAxis || !d->xAxis)
-        return;
-    if (!d->dataYRange(d->xAxis->min(), d->xAxis->max(), &lo, &hi))
-        return;
-    double a, b;
-    paddedRange(d->yAxis, lo, hi, d->yAxis->autoScaleMargin(), &a, &b);
-    d->yAxis->setViewRange(a, b);
+    d->pushHistory();
+    d->fitY();
 }
 
 void Plot::autoscale()
 {
-    autoscaleX();
-    autoscaleY();
+    d->pushHistory();
+    d->fitX();
+    d->fitY();
 }
 
 void PlotPrivate::applyAutoScale()
 {
-    if (xAxis && xAxis->follow()) {
+    if (xLock) {
+        fitX();
+    } else if (xAxis && xAxis->follow()) {
         double lo, hi;
         if (dataXRange(&lo, &hi)) {
             const double span = xAxis->max() - xAxis->min();
@@ -592,7 +632,9 @@ void PlotPrivate::applyAutoScale()
             xAxis->applyRange(lo, hi, true);
         }
     }
-    if (yAxis && yAxis->autoScale() && xAxis) {
+    if (yLock) {
+        fitY();
+    } else if (yAxis && yAxis->autoScale() && xAxis) {
         double lo, hi;
         if (dataYRange(xAxis->min(), xAxis->max(), &lo, &hi)) {
             double a, b;
@@ -607,8 +649,82 @@ void PlotPrivate::applyAutoScale()
     }
 }
 
+PlotPrivate::ViewState PlotPrivate::viewState() const
+{
+    return {xAxis ? xAxis->min() : 0.0, xAxis ? xAxis->max() : 0.0, yAxis ? yAxis->min() : 0.0,
+            yAxis ? yAxis->max() : 0.0};
+}
+
+void PlotPrivate::pushHistory(bool coalesce)
+{
+    if (historyGuard > 0 || !xAxis || !yAxis)
+        return;
+    if (coalesce) {
+        const bool burst = coalesceTimer.isValid() && coalesceTimer.elapsed() < 600;
+        coalesceTimer.restart();
+        if (burst)
+            return;
+    } else {
+        coalesceTimer.invalidate();
+    }
+    const ViewState v = viewState();
+    if (!zoomHistory.empty() && zoomHistory.back() == v)
+        return;
+    const bool wasEmpty = zoomHistory.empty();
+    zoomHistory.push_back(v);
+    if (zoomHistory.size() > 32)
+        zoomHistory.erase(zoomHistory.begin());
+    if (wasEmpty)
+        emit q->zoomHistoryChanged();
+}
+
+void PlotPrivate::unlock(bool x, bool y)
+{
+    bool changed = false;
+    if (x && xLock) {
+        xLock = false;
+        changed = true;
+    }
+    if (y && yLock) {
+        yLock = false;
+        changed = true;
+    }
+    if (changed)
+        emit q->autoscaleLockChanged();
+}
+
+void Plot::undoZoom()
+{
+    if (d->zoomHistory.empty())
+        return;
+    const PlotPrivate::ViewState v = d->zoomHistory.back();
+    d->zoomHistory.pop_back();
+    d->coalesceTimer.invalidate();
+    d->unlock(true, true);
+    if (d->xAxis && d->xAxis->interactive()) {
+        if (d->xAxis->follow())
+            d->xAxis->setFollow(false);
+        d->xAxis->setViewRange(v.x0, v.x1);
+    }
+    if (d->yAxis && d->yAxis->interactive())
+        d->yAxis->setViewRange(v.y0, v.y1);
+    if (d->zoomHistory.empty())
+        emit zoomHistoryChanged();
+    requestUpdate();
+}
+
+void Plot::clearZoomHistory()
+{
+    if (d->zoomHistory.empty())
+        return;
+    d->zoomHistory.clear();
+    emit zoomHistoryChanged();
+}
+
 void Plot::resetView()
 {
+    d->pushHistory();
+    d->unlock(true, true);
     if (d->xAxis && d->xAxis->interactive())
         d->xAxis->reset();
     if (d->yAxis && d->yAxis->interactive())
@@ -618,6 +734,8 @@ void Plot::resetView()
 
 void Plot::zoomAt(QPointF point, double factorX, double factorY)
 {
+    if ((factorX != 1.0 && d->xAxis && d->xAxis->interactive()) || (factorY != 1.0 && d->yAxis && d->yAxis->interactive()))
+        d->pushHistory();
     if (factorX != 1.0 && d->xAxis && d->xAxis->interactive()) {
         double anchor = pixelToX(point.x());
         if (d->xAxis->follow()) {
@@ -662,6 +780,7 @@ void Plot::mousePressEvent(QMouseEvent *event)
     d->dragElement = nullptr;
     d->pressXMap = d->xMap;
     d->pressYMap = d->yMap;
+    d->panPushed = false;
 
     if (event->button() == Qt::LeftButton) {
         if (const HitArea *hit = d->hitTest(p)) {
@@ -717,7 +836,8 @@ void Plot::mousePressEvent(QMouseEvent *event)
         return;
     }
     forceActiveFocus(Qt::MouseFocusReason);
-    const bool zoomDrag = event->button() == Qt::RightButton || (event->modifiers() & Qt::ShiftModifier)
+    const bool zoomDrag = event->button() == Qt::RightButton
+                          || (event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier))
                           || d->dragMode == Zoom;
     if (event->button() == Qt::MiddleButton || (!zoomDrag && d->dragMode == Pan))
         d->drag = PlotPrivate::Drag::Pan;
@@ -802,24 +922,34 @@ void Plot::mouseMoveEvent(QMouseEvent *event)
     case PlotPrivate::Drag::Pan: {
         const double dxPx = p.x() - d->pressPos.x();
         const double dyPx = p.y() - d->pressPos.y();
+        if (!d->panPushed && (dxPx != 0 || dyPx != 0)) {
+            d->pushHistory();
+            d->panPushed = true;
+        }
         if (d->xAxis && d->xAxis->interactive() && d->pressXMap.isValid()) {
             const double a = d->pressXMap.fromPixel(d->area.left() - dxPx);
             const double b = d->pressXMap.fromPixel(d->area.right() - dxPx);
             d->xAxis->setViewRange(a, b);
             if (d->xAxis->follow() && std::abs(dxPx) > 2)
                 d->xAxis->setFollow(false);
-            emit d->xAxis->viewChangedByUser();
+            if (dxPx != 0)
+                emit d->xAxis->viewChangedByUser();
         }
         if (d->yAxis && d->yAxis->interactive() && d->pressYMap.isValid()) {
             const double a = d->pressYMap.fromPixel(d->area.bottom() - dyPx);
             const double b = d->pressYMap.fromPixel(d->area.top() - dyPx);
             d->yAxis->setViewRange(a, b);
-            emit d->yAxis->viewChangedByUser();
+            if (dyPx != 0)
+                emit d->yAxis->viewChangedByUser();
         }
         break;
     }
     case PlotPrivate::Drag::Zoom:
         d->rubberRect = QRectF(d->pressPos, p).normalized().intersected(d->area);
+        if (d->zoomAxes == ZoomX)
+            d->rubberRect = QRectF(d->rubberRect.left(), d->area.top(), d->rubberRect.width(), d->area.height());
+        else if (d->zoomAxes == ZoomY)
+            d->rubberRect = QRectF(d->area.left(), d->rubberRect.top(), d->area.width(), d->rubberRect.height());
         requestUpdate();
         break;
     case PlotPrivate::Drag::None:
@@ -846,13 +976,17 @@ void Plot::mouseReleaseEvent(QMouseEvent *event)
     if (drag == PlotPrivate::Drag::Zoom) {
         const QRectF r = d->rubberRect;
         d->rubberRect = QRectF();
-        if (r.width() > 4 && d->xAxis && d->xAxis->interactive()) {
+        const bool zx = d->zoomAxes != ZoomY && r.width() > 4 && d->xAxis && d->xAxis->interactive();
+        const bool zy = d->zoomAxes != ZoomX && r.height() > 4 && d->yAxis && d->yAxis->interactive();
+        if (zx || zy)
+            d->pushHistory();
+        if (zx) {
             d->xAxis->setViewRange(pixelToX(r.left()), pixelToX(r.right()));
             if (d->xAxis->follow())
                 d->xAxis->setFollow(false);
             emit d->xAxis->viewChangedByUser();
         }
-        if (r.height() > 4 && d->yAxis && d->yAxis->interactive()) {
+        if (zy) {
             d->yAxis->setViewRange(pixelToY(r.bottom()), pixelToY(r.top()));
             emit d->yAxis->viewChangedByUser();
         }
@@ -867,6 +1001,9 @@ void Plot::mouseReleaseEvent(QMouseEvent *event)
         }
         emit clicked(pixelToX(p.x()), pixelToY(p.y()));
     }
+    if (!d->moved && d->area.contains(p) && event->button() == Qt::RightButton
+        && (drag == PlotPrivate::Drag::None || drag == PlotPrivate::Drag::Zoom))
+        emit contextMenuRequested(p);
     requestUpdate();
     event->accept();
 }
@@ -930,6 +1067,9 @@ void Plot::wheelEvent(QWheelEvent *event)
         panPx += -(angle.y() / 120.0) * 40.0;
         zoomSteps = 0;
     }
+    if (panPx != 0.0 || zoomSteps != 0.0)
+        d->pushHistory(true);
+    ++d->historyGuard;
     if (panPx != 0.0 && d->xAxis && d->xAxis->interactive() && d->area.width() > 0) {
         d->xAxis->pan(panPx / d->area.width());
         if (d->xAxis->follow())
@@ -939,6 +1079,7 @@ void Plot::wheelEvent(QWheelEvent *event)
         const double factor = std::pow(1.2, zoomSteps);
         zoomAt(p, shift && !both ? 1.0 : factor, (shift || both) ? factor : 1.0);
     }
+    --d->historyGuard;
     event->accept();
 }
 
@@ -949,7 +1090,10 @@ bool Plot::event(QEvent *event)
         if (d->interactive && g->gestureType() == Qt::ZoomNativeGesture) {
             const double factor = 1.0 + g->value();
             const bool shift = g->modifiers() & Qt::ShiftModifier;
+            d->pushHistory(true);
+            ++d->historyGuard;
             zoomAt(g->position(), shift ? 1.0 : factor, shift ? factor : 1.0);
+            --d->historyGuard;
             event->accept();
             return true;
         }
@@ -1114,10 +1258,9 @@ QString localPath(const QUrl &url)
 
 }  // namespace
 
-bool Plot::saveImage(const QUrl &file)
+bool Plot::grabImage(std::function<void(const QImage &)> done)
 {
-    const QString path = localPath(file);
-    if (path.isEmpty() || !window())
+    if (!window())
         return false;
     QSharedPointer<QQuickItemGrabResult> result;
     if (window()->isVisible())
@@ -1139,15 +1282,33 @@ bool Plot::saveImage(const QUrl &file)
                        qRound(scene.height() * dpr));
         QImage image = frame.copy(px);
         image.setDevicePixelRatio(dpr);
-        const bool ok = image.save(path);
-        QMetaObject::invokeMethod(this, [this, path, ok] { emit imageSaved(path, ok); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(this, [done = std::move(done), image] { done(image); }, Qt::QueuedConnection);
         return true;
     }
-    connect(result.data(), &QQuickItemGrabResult::ready, this, [this, result, path] {
-        const bool ok = result->saveToFile(path);
+    connect(result.data(), &QQuickItemGrabResult::ready, this, [result, done = std::move(done)] { done(result->image()); });
+    return true;
+}
+
+bool Plot::saveImage(const QUrl &file)
+{
+    const QString path = localPath(file);
+    if (path.isEmpty())
+        return false;
+    return grabImage([this, path](const QImage &image) {
+        const bool ok = !image.isNull() && image.save(path);
         emit imageSaved(path, ok);
     });
-    return true;
+}
+
+bool Plot::copyImage()
+{
+    return grabImage([this](const QImage &image) {
+        QClipboard *clipboard = QGuiApplication::clipboard();
+        const bool ok = !image.isNull() && clipboard;
+        if (ok)
+            clipboard->setImage(image);
+        emit imageCopied(ok);
+    });
 }
 
 QString Plot::toCsv(bool visibleRangeOnly) const

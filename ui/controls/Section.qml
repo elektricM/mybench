@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Templates as T
+import MyBench.Framework
 
 // Collapsible inspector card with a title (ELVISmx group names: "Channel 0 Settings",
 // "Timebase", "Trigger"...), an optional channel color, a summary shown when collapsed, and
@@ -21,11 +22,28 @@ Item {
     property color accentColor: "transparent"   // channel color (dot + tinted header)
     property bool collapsible: true
     property bool collapsed: false
+    // When set (InstrumentPanel does it for its inspector: "<instrument>/<title>"), the collapsed
+    // state the user chooses is kept in the session's view state and restored (app.md 11.1).
+    property string stateKey
     property int contentSpacing: Theme.spacingS + 2
     property int padding: Theme.spacingM
     default property alias content: body.data
     property alias headerTools: tools.data
     readonly property bool hasAccent: accentColor.a > 0
+
+    function restoreState() {
+        if (stateKey.length === 0)
+            return
+        const stored = SessionManager.viewValue("collapsed/" + stateKey)
+        if (stored !== undefined && stored !== null && Boolean(stored) !== collapsed)
+            collapsed = Boolean(stored)
+    }
+    onStateKeyChanged: restoreState()
+    Connections {
+        target: SessionManager
+        enabled: root.stateKey.length > 0
+        function onViewStateChanged() { root.restoreState() }
+    }
 
     Layout.fillWidth: true
     implicitWidth: Math.max(240, body.implicitWidth + 2 * padding)
@@ -53,7 +71,11 @@ Item {
         enabled: root.collapsible
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
-        onClicked: root.collapsed = !root.collapsed
+        onClicked: {
+            root.collapsed = !root.collapsed
+            if (root.stateKey.length > 0)
+                SessionManager.setViewValue("collapsed/" + root.stateKey, root.collapsed)
+        }
         Accessible.role: Accessible.Button
         Accessible.name: root.title
         Accessible.description: root.collapsed ? qsTr("collapsed") : qsTr("expanded")

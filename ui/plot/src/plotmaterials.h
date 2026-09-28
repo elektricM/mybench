@@ -38,10 +38,21 @@ public:
 
     float dashOn = 0.0f;    // px; 0 = solid
     float dashOff = 0.0f;
+    float dotLength = 0.0f; // px, dots after each dash (dash-dot styles)
+    float dots = 0.0f;      // number of dots after each dash (0, 1, 2)
     bool additive = false;  // additive blending (persistence glow)
 };
 
-// Dash pattern (on, off) in px for a style and width.
+// Dash pattern in px for a style and width: dash length, gap, and the dots between dashes.
+struct DashPattern {
+    float on = 0.0f;
+    float off = 0.0f;
+    float dotLength = 0.0f;
+    float dots = 0.0f;
+    bool operator==(const DashPattern &) const = default;
+};
+DashPattern dashPattern(int style, float width);
+// (on, off) of the simple styles (Solid, Dash, Dot); dash-dot styles give their dash and gap.
 void dashPattern(int style, float width, float *on, float *off);
 
 // Geometry accumulator for LineMaterial (indexed triangles, 4 vertices per segment).
@@ -65,7 +76,9 @@ struct LineGeometry {
 
 // ---- shapes -----------------------------------------------------------------------------------
 
-enum class ShapeKind { Box = 0, TriangleRight = 1, TriangleLeft = 2, TriangleDown = 3, TriangleUp = 4, Diamond = 5 };
+// Plus / X: `radius` is the half thickness of the arms.
+enum class ShapeKind { Box = 0, TriangleRight = 1, TriangleLeft = 2, TriangleDown = 3, TriangleUp = 4, Diamond = 5,
+                       Plus = 6, X = 7 };
 
 struct ShapeVertex {
     float x, y;

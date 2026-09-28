@@ -26,7 +26,10 @@
 #include <vector>
 
 QT_BEGIN_NAMESPACE
+class QImage;
 class QIODevice;
+class QPainter;
+class QRect;
 class QQmlEngine;
 class QJSEngine;
 QT_END_NAMESPACE
@@ -44,6 +47,10 @@ struct DataTable {
     QString instrumentId;                           // e.g. "scope" (suggested file names)
     QList<std::pair<QString, QString>> metadata;    // settings, written as "# Key: value"
     std::vector<DataColumn> columns;
+    // Free-form data for instrument-specific writers (registerWriter(writer, instrumentId)), e.g.
+    // { "t0": 0.0, "dt": 5e-6, "units": "dBVrms" } for a LabVIEW-style waveform text log.
+    // Ignored by the built-in CSV/TSV writers.
+    QVariantMap extra;
 
     bool isEmpty() const;
     size_t rowCount() const;   // length of the longest column
@@ -74,15 +81,30 @@ class DataExport : public QObject
     // Folder of the last export (persisted); file dialogs start there.
     Q_PROPERTY(QUrl lastFolder READ lastFolder NOTIFY lastFolderChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    // Print (ELVISmx Print dialog): direct printing is available (Qt Print Support), the printer
+    // names and the default one.
+    Q_PROPERTY(bool printingAvailable READ printingAvailable CONSTANT)
+    Q_PROPERTY(QStringList printers READ printers NOTIFY printersChanged)
+    Q_PROPERTY(QString defaultPrinter READ defaultPrinter NOTIFY printersChanged)
+    // For the Print options: { user: "martin", computer: "bench-mac" }.
+    Q_PROPERTY(QVariantMap identity READ identity CONSTANT)
 
 public:
     static DataExport* instance();
     static DataExport* create(QQmlEngine*, QJSEngine*);
 
     // Adds a format (e.g. a future sigrok .sr writer). Takes precedence for its extensions.
-    void registerWriter(std::unique_ptr<TableWriter> writer);
-    // Writer for the extension of `path` (CSV if the extension is unknown or missing).
-    const TableWriter* writerFor(const QString& path) const;
+    // With `instrumentId`, the writer is only offered for (and used by) that instrument's
+    // exports, and wins over the generic writers for its extensions: e.g. the ELVISmx text log
+    // layout of the Spectrum Analyzer as "*.txt" for "dsa" only (the generic tab-separated
+    // writer keeps "*.tsv" there). Register once, e.g. in the instrument's registration function.
+    void registerWriter(std::unique_ptr<TableWriter> writer, const QString& instrumentId = QString());
+    // Writer for the extension of `path` (CSV if the extension is unknown or missing), taking
+    // the writers of `instrumentId` into account.
+    const TableWriter* writerFor(const QString& path, const QString& instrumentId = QString()) const;
+    // File-dialog filters for an instrument's export: its own writers first, then the generic
+    // ones (without the extensions its own writers claim).
+    Q_INVOKABLE QStringList nameFiltersFor(const QString& instrumentId) const;
 
     // Writes `table` to `path` (format by extension) with the standard header. Remembers the
     // folder. Returns false and sets `error` (and lastError) on failure.
@@ -99,11 +121,30 @@ public:
     Q_INVOKABLE QUrl suggestedFileUrl(const QString& instrumentId,
                                       const QString& extension = QStringLiteral("csv")) const;
 
-    // Export PDF (ELVISmx Print): one landscape page with `title`, the standard header lines
-    // (date, device), `metadata` as "Key: value" lines and the image at `imagePath` (e.g. a
-    // grabToImage() of the panel saved with temporaryFilePath()). Returns false on failure.
+    // Print / export-image options (ELVISmx Print dialog), all optional:
+    //   inkSaver (bool): dark display -> white background, dark grid/text, traces kept in colour
+    //   userName, computerName, timeStamp (bool): identity line in the header
+    //   settingsTable (bool): `metadata` as a Setting / Value table (default true for PDF/print)
+    //   orientation ("landscape" default, "portrait"), copies (int, print), printer (name, print)
+    //
+    // Export PDF (ELVISmx Print): one page with `title`, the date/device lines, the identity line,
+    // the image at `imagePath` (e.g. a grabToImage() of the panel saved with temporaryFilePath())
+    // and the settings table. Returns false on failure (lastError).
     Q_INVOKABLE bool writePdf(const QUrl& file, const QString& imagePath, const QString& title,
-                              const QVariantMap& metadata = {});
+                              const QVariantMap& metadata = {}, const QVariantMap& options = {});
+    // Export image (PNG): the image at `imagePath`, ink-saved and/or with a header and settings
+    // table below when the options ask for them (otherwise a plain copy).
+    Q_INVOKABLE bool writeImage(const QUrl& file, const QString& imagePath, const QString& title,
+                                const QVariantMap& metadata = {}, const QVariantMap& options = {});
+    // Prints the same page as writePdf() on `options.printer` (default printer if empty),
+    // `options.copies` copies, without a dialog. False (lastError) if printing is unavailable.
+    Q_INVOKABLE bool print(const QString& imagePath, const QString& title, const QVariantMap& metadata = {},
+                           const QVariantMap& options = {});
+    // Ink saver transform: near-neutral pixels are inverted in lightness (black -> white, light
+    // text -> dark), coloured pixels keep their hue and are darkened enough to read on white.
+    static QImage inkSaver(const QImage& image);
+    // The identity line for `options` ("User: martin · Computer: bench · 2026-09-28 10:15").
+    static QString identityLine(const QVariantMap& options);
     // A path in the temporary directory for intermediate files (e.g. "png").
     Q_INVOKABLE QString temporaryFilePath(const QString& extension) const;
     // Local path of a file URL (QML FileDialog results).
@@ -115,20 +156,34 @@ public:
 
     QStringList nameFilters() const;
     QUrl lastFolder() const;
+    // Folder of the last export of this file type ("csv", "png", "pdf"), else lastFolder().
+    Q_INVOKABLE QUrl lastFolderFor(const QString& extension) const;
     QString lastError() const { return m_lastError; }
+    bool printingAvailable() const;
+    QStringList printers() const;
+    QString defaultPrinter() const;
+    QVariantMap identity() const;
 
 signals:
     void writersChanged();
     void lastFolderChanged();
     void lastErrorChanged();
+    void printersChanged();
     void exported(const QString& path);
 
 private:
     explicit DataExport(QObject* parent = nullptr);
     ~DataExport() override;
     void setLastError(const QString& error);
+    // Lays out a printed page in `area` (device pixels at `dpi`).
+    void paintPage(QPainter& painter, const QRect& area, double dpi, const QImage& image, const QString& title,
+                   const QVariantMap& metadata, const QVariantMap& options) const;
 
-    std::vector<std::unique_ptr<TableWriter>> m_writers;   // later entries win
+    struct WriterEntry {
+        std::unique_ptr<TableWriter> writer;
+        QString instrumentId;   // empty: every instrument
+    };
+    std::vector<WriterEntry> m_writers;   // later entries win
     QString m_lastError;
 };
 

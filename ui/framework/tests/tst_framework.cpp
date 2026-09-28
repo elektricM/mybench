@@ -241,7 +241,7 @@ private slots:
         beta->run();   // needs AI too: alpha is paused, beta waits for alpha's task to go away
         QCOMPARE(preempted.count(), 1);
         QTRY_COMPARE(alpha->state(), InstrumentController::Paused);
-        QCOMPARE(alpha->pauseReason(), u"Alpha paused — AI in use by Beta"_s);
+        QCOMPARE(alpha->pauseReason(), u"Alpha Scope paused — AI in use by Beta Analyzer"_s);   // full titles (app.md 5.2)
         QTRY_COMPARE(beta->state(), InstrumentController::Running);
         QVERIFY(!beta->hasError());
         QCOMPARE(ResourceArbiter::instance()->holder(ResourceArbiter::AnalogInput), beta);

@@ -41,8 +41,7 @@ struct TraceGeom {
     LineGeometry line;
     ColorGeometry fill;
     ShapeGeometry dots;
-    float dashOn = 0.0f;
-    float dashOff = 0.0f;
+    DashPattern dash;
     bool dirty = true;         // geometry changed since the last upload
     std::deque<Ghost> ghosts;  // persistence
 };
@@ -167,6 +166,27 @@ struct PlotPrivate {
     QPointer<PlotElement> selected;
     std::vector<HitArea> hits;
     QRectF rubberRect;
+    Plot::ZoomAxes zoomAxes = Plot::ZoomXY;
+    bool panPushed = false;  // the current pan drag has pushed its history entry
+
+    // ---- zoom history / autoscale locks ----
+    struct ViewState {
+        double x0, x1, y0, y1;
+        bool operator==(const ViewState &) const = default;
+    };
+    std::vector<ViewState> zoomHistory;
+    QElapsedTimer coalesceTimer;  // wheel/pinch bursts make one history entry
+    int historyGuard = 0;         // > 0: pushHistory() is a no-op (inside a wheel/pinch step)
+    bool xLock = false;
+    bool yLock = false;
+    ViewState viewState() const;
+    // Pushes the current ranges (before a user view change). `coalesce`: skip when the previous
+    // coalesced push was less than 600 ms ago (wheel/pinch bursts).
+    void pushHistory(bool coalesce = false);
+    void unlock(bool x, bool y);
+    void applyLocks();
+    void fitX();
+    void fitY();
 
     // ---- stats ----
     Plot::FrameStats stats;

@@ -5,14 +5,20 @@ import QtQuick.Layouts
 import QtQuick.Templates as T
 import MyBench.Framework
 
-// Dashboard card around an instrument's <Name>Tile.qml: icon, title, run state, a quick
-// Run/Stop button and Open. The tile content is loaded with `controller` as initial property.
+// Dashboard card around an instrument's <Name>Tile.qml: icon, title, run state, a favorite star
+// (Launcher.favorites; shown on hover and while starred), a quick Run/Stop button and Open. The
+// tile content is loaded with `controller` as initial property.
 //     TileFrame { instrumentId: "dmm"; onOpenRequested: shell.open("dmm") }
+// `closable` adds an × (closeRequested: the dashboard column unpins the tile).
 T.Control {
     id: root
 
     property string instrumentId
     property bool compact: false
+    property bool showFavorite: true
+    property bool closable: false
+    readonly property bool favorite: Launcher.favorites.indexOf(instrumentId) >= 0
+    readonly property bool tools: hovered || visualFocus || activeFocus
     readonly property var info: InstrumentRegistry.info(instrumentId)
     readonly property InstrumentController controller: InstrumentRegistry.controller(instrumentId)
     readonly property string stateLabel: !controller ? ""
@@ -25,6 +31,7 @@ T.Control {
                                        : controller.hasError ? Theme.danger : Theme.textMuted
 
     signal openRequested()
+    signal closeRequested()
 
     implicitWidth: 300
     implicitHeight: compact ? 148 : 188
@@ -111,7 +118,17 @@ T.Control {
                 }
             }
             IconButton {
-                visible: root.hovered || root.visualFocus || activeFocus
+                visible: root.showFavorite && (root.favorite || root.tools)
+                size: 26
+                iconSize: Theme.iconSizeS
+                iconName: root.favorite ? "star-filled" : "star"
+                iconColor: root.favorite ? Theme.warning : Theme.textMuted
+                toolTip: root.favorite ? qsTr("Remove from favorites") : qsTr("Add to favorites")
+                Accessible.name: toolTip
+                onClicked: Launcher.toggleFavorite(root.instrumentId)
+            }
+            IconButton {
+                visible: root.tools
                 size: 26
                 iconSize: Theme.iconSizeS
                 iconName: root.controller && root.controller.running ? "stop-filled" : "play"
@@ -121,12 +138,20 @@ T.Control {
                 onClicked: root.controller.toggle()
             }
             IconButton {
-                visible: root.hovered || root.visualFocus || activeFocus
+                visible: root.tools && !root.closable
                 size: 26
                 iconSize: Theme.iconSizeS
                 iconName: "chevron-right"
                 toolTip: qsTr("Open %1").arg(root.info.title ?? "")
                 onClicked: root.openRequested()
+            }
+            IconButton {
+                visible: root.closable && root.tools
+                size: 26
+                iconSize: Theme.iconSizeS
+                iconName: "close"
+                toolTip: qsTr("Remove %1 from the dashboard").arg(root.info.title ?? "")
+                onClicked: root.closeRequested()
             }
         }
 

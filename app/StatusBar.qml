@@ -7,7 +7,7 @@ import MyBench.Framework
 import MyBench.Controls
 
 // Bottom status bar: device, the focused instrument's state / sample rate / throughput, running
-// count, and the event log (error counter).
+// count, and the event log (unread warning/error counter).
 Rectangle {
     id: bar
 
@@ -103,7 +103,11 @@ Rectangle {
 
         T.AbstractButton {
             id: logButton
+            // Unread warnings + errors (app.md 2.6 "⚠ n"); red when one of them is an error.
+            readonly property color issueColor: EventLog.unreadErrorCount > 0 ? Theme.danger
+                                              : EventLog.unreadWarningCount > 0 ? Theme.warning : Theme.textMuted
             Layout.fillHeight: true
+            Accessible.name: ToolTip.text
             implicitWidth: logRow.implicitWidth + 16
             hoverEnabled: true
             onClicked: bar.logRequested()
@@ -117,21 +121,30 @@ Rectangle {
                     spacing: 5
                     Icon {
                         anchors.verticalCenter: parent.verticalCenter
-                        name: EventLog.unreadErrorCount > 0 ? "error" : "list"
+                        name: EventLog.unreadErrorCount > 0 ? "error" : EventLog.unreadWarningCount > 0 ? "warning" : "list"
                         size: 13
-                        color: EventLog.unreadErrorCount > 0 ? Theme.danger : Theme.textMuted
+                        color: logButton.issueColor
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: EventLog.unreadErrorCount > 0 ? qsTr("%n error(s)", "", EventLog.unreadErrorCount) : qsTr("Log")
-                        color: EventLog.unreadErrorCount > 0 ? Theme.danger : Theme.textMuted
+                        text: EventLog.unreadIssueCount > 0 ? String(EventLog.unreadIssueCount) : qsTr("Log")
+                        color: logButton.issueColor
                         font.pixelSize: Theme.fontSizeS
+                        font.weight: EventLog.unreadIssueCount > 0 ? Font.DemiBold : Font.Normal
+                        font.features: Theme.tabularFigures
                     }
                 }
             }
             ToolTip.visible: hovered
             ToolTip.delay: 500
-            ToolTip.text: qsTr("Event log")
+            ToolTip.text: {
+                const parts = []
+                if (EventLog.unreadErrorCount > 0)
+                    parts.push(qsTr("%n new error(s)", "", EventLog.unreadErrorCount))
+                if (EventLog.unreadWarningCount > 0)
+                    parts.push(qsTr("%n new warning(s)", "", EventLog.unreadWarningCount))
+                return parts.length > 0 ? qsTr("Event log: %1").arg(parts.join(", ")) : qsTr("Event log")
+            }
         }
 
         Text {

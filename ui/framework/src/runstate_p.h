@@ -29,6 +29,9 @@ struct RunState {
     std::stop_source stopSource;
     std::atomic<bool> continuous{true};
     std::atomic<qint64> samples{0};
+    // Results of this run are stale (restart(), discardPendingResults(), shutdown): undelivered
+    // post()/publish() callbacks are dropped.
+    std::atomic<bool> discarded{false};
 
     // Runs that must end (and release the hardware) before this one touches the device:
     // instruments it preempted and its own previous run.

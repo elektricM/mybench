@@ -2,6 +2,10 @@
 
 #include "mybench/plot/plot.h"
 
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+
 namespace mybench::plot {
 
 #define MYBENCH_SET(value, member, ...)                                                            \
@@ -97,7 +101,83 @@ void PlotTrace::setStyle(LineStyle s) { if (m_style == s) return; m_style = s; e
 void PlotTrace::setLineVisible(bool on) { if (m_lineVisible == on) return; m_lineVisible = on; emit styleChanged(); }
 void PlotTrace::setPointsVisible(bool on) { if (m_pointsVisible == on) return; m_pointsVisible = on; emit styleChanged(); }
 void PlotTrace::setPointSize(double s) { s = std::clamp(s, 1.0, 64.0); if (m_pointSize == s) return; m_pointSize = s; emit styleChanged(); }
-void PlotTrace::setStep(bool on) { if (m_step == on) return; m_step = on; emit styleChanged(); }
+void PlotTrace::setStep(bool on)
+{
+    if (on)
+        setInterpolationMode(Step);
+    else if (m_interpolation == Step)
+        setInterpolationMode(Linear);
+}
+void PlotTrace::setInterpolationMode(Interpolation i) { i = Interpolation(std::clamp(int(i), 0, int(CenterStepVertical))); if (m_interpolation == i) return; m_interpolation = i; emit styleChanged(); }
+void PlotTrace::setPointShape(PointShape sh) { sh = PointShape(std::clamp(int(sh), 0, int(X))); if (m_pointShape == sh) return; m_pointShape = sh; emit styleChanged(); }
+void PlotTrace::setFillColor(const QColor &c) { if (m_fillColor == c) return; m_fillColor = c; emit styleChanged(); }
+void PlotTrace::resetFillColor() { setFillColor(QColor()); }
+void PlotTrace::setFillGradient(bool on) { if (m_fillGradient == on) return; m_fillGradient = on; emit styleChanged(); }
+
+void PlotTrace::setUserStyle(TraceStyle *style)
+{
+    if (m_userStyle == style)
+        return;
+    if (m_userStyle)
+        disconnect(m_userStyle, nullptr, this, nullptr);
+    m_userStyle = style;
+    if (style)
+        connect(style, &TraceStyle::changed, this, &PlotTrace::styleChanged);
+    emit userStyleChanged();
+    emit styleChanged();
+}
+
+PlotTrace::Appearance PlotTrace::appearance() const
+{
+    Appearance a;
+    a.color = m_color;
+    a.fillColor = m_fillColor.isValid() ? m_fillColor : m_color;
+    a.width = m_width;
+    a.style = m_style;
+    a.lineVisible = m_lineVisible;
+    a.pointsVisible = m_pointsVisible;
+    a.pointShape = m_pointShape;
+    a.pointSize = m_pointSize;
+    a.interpolation = m_interpolation;
+    a.fill = m_fill;
+    a.fillBaseline = m_fillBaseline;
+    a.fillOpacity = m_fillOpacity;
+    a.fillGradient = m_fillGradient;
+    const TraceStyle *ts = m_userStyle.data();
+    if (!ts)
+        return a;
+    if (ts->lineColor().isValid())
+        a.color = ts->lineColor();
+    a.fillColor = ts->fillColor().isValid() ? ts->fillColor() : a.color;
+    a.width = ts->lineWidth() > 0 ? ts->lineWidth() : m_width;
+    static_assert(int(TraceStyle::DashDotDot) == int(PlotElement::DashDotDot));
+    a.style = PlotElement::LineStyle(ts->lineStyle());
+    a.pointsOnly = ts->interpolation() == TraceStyle::PointsOnly || !(ts->lineWidth() > 0);
+    a.lineVisible = !a.pointsOnly;
+    // PointStyle (NoPoints first) maps onto PointShape.
+    static constexpr PointShape shapes[] = {FilledCircle, Circle,        FilledCircle, Square, FilledSquare,
+                                            Diamond,      FilledDiamond, Cross,        Plus,   X};
+    a.pointsVisible = ts->pointStyle() != TraceStyle::NoPoints || a.pointsOnly;
+    a.pointShape = shapes[std::clamp(int(ts->pointStyle()), 0, int(std::size(shapes)) - 1)];
+    a.pointSize = std::max(5.0, (ts->lineWidth() > 0 ? ts->lineWidth() : 1.5) * 2.0 + 3.0);
+    switch (ts->interpolation()) {
+    case TraceStyle::Step: a.interpolation = Step; break;
+    case TraceStyle::StepVertical: a.interpolation = StepVertical; break;
+    case TraceStyle::CenterStep: a.interpolation = CenterStep; break;
+    case TraceStyle::CenterStepVertical: a.interpolation = CenterStepVertical; break;
+    default: a.interpolation = Linear; break;
+    }
+    a.fill = ts->fillTo() != TraceStyle::NoFill;
+    a.fillBaseline = ts->fillTo() == TraceStyle::Zero           ? toDisplayY(0.0)
+                   : ts->fillTo() == TraceStyle::PlusInfinity  ? qInf()
+                   : ts->fillTo() == TraceStyle::MinusInfinity ? -qInf()
+                                                                : m_fillBaseline;
+    if (a.fill) {
+        a.fillOpacity = 0.5;
+        a.fillGradient = false;
+    }
+    return a;
+}
 void PlotTrace::setFill(bool on) { if (m_fill == on) return; m_fill = on; emit styleChanged(); }
 void PlotTrace::setFillBaseline(double v) { if (m_fillBaseline == v || (std::isnan(v) && std::isnan(m_fillBaseline))) return; m_fillBaseline = v; emit styleChanged(); }
 void PlotTrace::setFillOpacity(double o) { o = std::clamp(o, 0.0, 1.0); if (m_fillOpacity == o) return; m_fillOpacity = o; emit styleChanged(); }

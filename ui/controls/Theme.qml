@@ -117,6 +117,29 @@ QtObject {
     readonly property int easing: Easing.OutCubic
 
     // --- Helpers -----------------------------------------------------------------------------
+    // Shortcut text for tooltips and key hints, from a portable sequence ("Ctrl+Shift+F"): on
+    // macOS the native symbols ("⇧⌘F", Ctrl = Command in Qt), elsewhere the sequence itself.
+    property bool macShortcuts: Qt.platform.os === "osx" || Qt.platform.os === "macos"
+    function keys(sequence: string): string {
+        if (!macShortcuts || sequence.length === 0)
+            return sequence
+        const parts = sequence.split("+")
+        let key = parts.pop()
+        if (key === "" && parts.length > 0 && parts[parts.length - 1] === "") {   // "Ctrl++"
+            parts.pop()
+            key = "+"
+        }
+        let mods = ""
+        if (parts.indexOf("Meta") >= 0)
+            mods += "⌃"
+        if (parts.indexOf("Alt") >= 0)
+            mods += "⌥"
+        if (parts.indexOf("Shift") >= 0)
+            mods += "⇧"
+        if (parts.indexOf("Ctrl") >= 0)
+            mods += "⌘"
+        return mods + key
+    }
     // Icon URL from a name in assets/icons (or a URL passed through).
     function icon(name: string): url {
         if (name.length === 0)

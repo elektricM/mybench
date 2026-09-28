@@ -17,7 +17,10 @@ namespace mydaq {
 
 namespace {
 
-constexpr int kRescanIntervalMs = 2000;
+// Hot-plug polling, 2x/s like ELVISmx (ui-inventory.md). Cheap: the USB provider's scan() only
+// returns the list its own background thread keeps (libusb enumeration without opening devices,
+// UsbProvider::Options::pollInterval), and the simulator's scan is a flag check.
+constexpr int kRescanIntervalMs = 500;
 
 }  // namespace
 

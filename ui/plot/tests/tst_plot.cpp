@@ -8,11 +8,14 @@
 #include <mybench/plot/plotaxis.h>
 #include <mybench/plot/scale.h>
 #include <mybench/plot/tracebuffer.h>
+#include <mybench/plot/tracestyle.h>
 #include <mybench/plot/waterfall.h>
 
+#include <QClipboard>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QNativeGestureEvent>
@@ -71,6 +74,41 @@ void wheel(QQuickWindow *w, QPointF pos, QPoint angle, Qt::KeyboardModifiers mod
     QWheelEvent e(pos, pos, QPoint(), angle, Qt::NoButton, mods, Qt::NoScrollPhase, false);
     QCoreApplication::sendEvent(w, &e);
 }
+
+// A 400 x 300 Plot (body given as QML) in an offscreen window; buffer "buf" if declared.
+struct PlotFixture {
+    std::unique_ptr<mybench::OffscreenWindow> offscreen;
+    QQmlEngine engine;
+    std::unique_ptr<QObject> root;
+    Plot *plot = nullptr;
+    TraceBuffer *buf = nullptr;
+
+    bool create(const QByteArray &body)
+    {
+        offscreen = std::make_unique<mybench::OffscreenWindow>(QSize(400, 300));
+        if (!offscreen->isValid())
+            return false;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport MyBench.Plot\nPlot {\nwidth: 400; height: 300\n" + body + "}\n", QUrl());
+        root.reset(component.create());
+        if (!root)
+            qFatal("%s", qPrintable(component.errorString()));
+        plot = qobject_cast<Plot *>(root.get());
+        buf = root->findChild<TraceBuffer *>("buf");
+        offscreen->setRootItem(plot, false);
+        offscreen->renderFrame();
+        return true;
+    }
+    QQuickWindow *window() const { return offscreen->window(); }
+    void render() { offscreen->renderFrame(); }
+    QImage grab() { return offscreen->grab().convertToFormat(QImage::Format_RGB32); }
+    void setData(const std::vector<double> &y, double x0, double dx)
+    {
+        buf->setUniform(x0, dx, std::span<const double>(y));
+        QCoreApplication::processEvents();
+    }
+    void release() { offscreen->setRootItem(nullptr); }
+};
 
 }  // namespace
 
@@ -889,6 +927,368 @@ private slots:
         }
         qInfo("200k-sample trace: %.2f ms/frame (update + polish + sync + GPU)", double(timer.elapsed()) / 20.0);
         offscreen.setRootItem(nullptr);
+    }
+
+    // ---- plot tools: rubber band modifiers, context menu click ------------------------------------
+    void rubberBandModifiersAndContextClick()
+    {
+        PlotFixture f;
+        if (!f.create("xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        Plot *plot = f.plot;
+        PlotAxis *x = plot->xAxis();
+        const QRectF area = plot->plotArea();
+        QQuickWindow *w = f.window();
+
+        // Ctrl+drag (⌘ on macOS) and Meta+drag (Ctrl key on macOS) zoom to the box; Shift stays.
+        for (Qt::KeyboardModifier mod : {Qt::ControlModifier, Qt::MetaModifier, Qt::ShiftModifier}) {
+            const double a = plot->pixelToX(area.left() + 40), b = plot->pixelToX(area.left() + 140);
+            drag(w, QPointF(area.left() + 40, area.top() + 50), QPointF(area.left() + 140, area.top() + 110),
+                 Qt::LeftButton, mod);
+            QVERIFY2(std::abs(x->min() - a) < 1e-9 && std::abs(x->max() - b) < 1e-9, qPrintable(QString::number(mod, 16)));
+            plot->resetView();
+            f.render();
+        }
+
+        // Right click (no movement): context menu request at the pointer, no zoom.
+        QSignalSpy menu(plot, &Plot::contextMenuRequested);
+        const QPointF c = area.center();
+        mouse(w, QEvent::MouseButtonPress, c, Qt::RightButton);
+        mouse(w, QEvent::MouseButtonRelease, c, Qt::RightButton);
+        QCOMPARE(menu.count(), 1);
+        QCOMPARE(menu.first().at(0).toPointF(), c);
+        QVERIFY(!x->zoomed());
+        // Right drag: rubber band zoom, no menu.
+        drag(w, QPointF(area.left() + 40, area.top() + 50), QPointF(area.left() + 140, area.top() + 110), Qt::RightButton);
+        QCOMPARE(menu.count(), 1);
+        QVERIFY(x->zoomed());
+        plot->resetView();
+
+        // zoomAxes: X only ignores the vertical extent of the box, Y only the horizontal one.
+        plot->setZoomAxes(Plot::ZoomX);
+        drag(w, QPointF(area.left() + 40, area.top() + 50), QPointF(area.left() + 140, area.top() + 110), Qt::LeftButton,
+             Qt::ControlModifier);
+        QVERIFY(x->zoomed() && !plot->yAxis()->zoomed());
+        plot->resetView();
+        plot->setZoomAxes(Plot::ZoomY);
+        drag(w, QPointF(area.left() + 40, area.top() + 50), QPointF(area.left() + 140, area.top() + 110), Qt::LeftButton,
+             Qt::ControlModifier);
+        QVERIFY(!x->zoomed() && plot->yAxis()->zoomed());
+        f.release();
+    }
+
+    // ---- plot tools: zoom history -----------------------------------------------------------------
+    void zoomHistory()
+    {
+        PlotFixture f;
+        if (!f.create("xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"
+                      "PlotTrace { buffer: TraceBuffer { objectName: \"buf\" } }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        Plot *plot = f.plot;
+        PlotAxis *x = plot->xAxis();
+        PlotAxis *y = plot->yAxis();
+        QQuickWindow *w = f.window();
+        const QRectF area = plot->plotArea();
+        const QPointF c = area.center();
+        QSignalSpy historyChanged(plot, &Plot::zoomHistoryChanged);
+        QVERIFY(!plot->canUndoZoom());
+        plot->undoZoom();  // no-op
+        QCOMPARE(x->min(), 0.0);
+
+        // A burst of wheel steps is one history entry.
+        wheel(w, c, QPoint(0, 120));
+        wheel(w, c, QPoint(0, 120));
+        QVERIFY(plot->canUndoZoom());
+        QVERIFY(historyChanged.count() >= 1);
+        plot->undoZoom();
+        QCOMPARE(x->min(), 0.0);
+        QCOMPARE(x->max(), 10.0);
+        QVERIFY(!plot->canUndoZoom());
+
+        // Rubber band, then pan, then undo twice.
+        drag(w, QPointF(area.left() + 40, area.top() + 50), QPointF(area.left() + 140, area.top() + 110), Qt::LeftButton,
+             Qt::ControlModifier);
+        const double zx0 = x->min(), zx1 = x->max(), zy0 = y->min(), zy1 = y->max();
+        f.render();
+        drag(w, QPointF(area.left() + 100, c.y()), QPointF(area.left() + 160, c.y() + 20));
+        QVERIFY(x->min() != zx0);
+        plot->undoZoom();
+        QCOMPARE(x->min(), zx0);
+        QCOMPARE(x->max(), zx1);
+        QCOMPARE(y->min(), zy0);
+        QCOMPARE(y->max(), zy1);
+        plot->undoZoom();
+        QCOMPARE(x->min(), 0.0);
+        QCOMPARE(y->max(), 1.0);
+        QVERIFY(!plot->canUndoZoom());
+
+        // Reset pushes the zoomed view (undo returns to it); autoscale pushes once.
+        plot->zoomAt(c, 2.0, 1.0);
+        const double zoomedMin = x->min();
+        plot->resetView();
+        QCOMPARE(x->min(), 0.0);
+        plot->undoZoom();
+        QCOMPARE(x->min(), zoomedMin);
+        plot->resetView();
+        f.setData(std::vector<double>{0.1, 0.5, 0.3}, 2.0, 1.0);
+        plot->autoscale();
+        QCOMPARE(x->min(), 2.0);
+        QCOMPARE(x->max(), 4.0);
+        plot->undoZoom();
+        QCOMPARE(x->min(), 0.0);
+        QCOMPARE(y->min(), -1.0);
+        plot->clearZoomHistory();
+        QVERIFY(!plot->canUndoZoom());
+        f.release();
+    }
+
+    // ---- plot tools: autoscale locks ---------------------------------------------------------------
+    void autoscaleLocks()
+    {
+        PlotFixture f;
+        if (!f.create("xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"
+                      "PlotTrace { buffer: TraceBuffer { objectName: \"buf\" } }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        Plot *plot = f.plot;
+        PlotAxis *x = plot->xAxis();
+        PlotAxis *y = plot->yAxis();
+        QSignalSpy lockSpy(plot, &Plot::autoscaleLockChanged);
+        f.setData(std::vector<double>{2, 3, 4, 5}, 0.0, 1.0);  // x 0..3, y 2..5
+
+        plot->setYAutoscaleLock(true);
+        QCOMPARE(lockSpy.count(), 1);
+        f.render();
+        QVERIFY2(y->min() < 2.0 && y->min() > 1.0 && y->max() > 5.0 && y->max() < 6.0,
+                 qPrintable(QString("%1 %2").arg(y->min()).arg(y->max())));
+        QCOMPARE(x->max(), 10.0);  // x not locked
+        // New data: y re-fits (no hysteresis), even to a smaller range.
+        f.setData(std::vector<double>{10, 10.5, 11}, 0.0, 1.0);
+        f.render();
+        QVERIFY2(y->min() > 9.0 && y->max() < 12.0, qPrintable(QString("%1 %2").arg(y->min()).arg(y->max())));
+        f.setData(std::vector<double>{10, 10.1, 10.2}, 0.0, 1.0);
+        f.render();
+        QVERIFY2(y->max() < 10.4, qPrintable(QString::number(y->max())));
+        // The one-shot autoscale buttons do not unlock.
+        plot->autoscaleY();
+        QVERIFY(plot->yAutoscaleLock());
+
+        plot->setXAutoscaleLock(true);
+        f.render();
+        QCOMPARE(x->min(), 0.0);
+        QCOMPARE(x->max(), 2.0);
+        f.setData(std::vector<double>{1, 2, 3, 4, 5}, 1.0, 0.5);
+        f.render();
+        QCOMPARE(x->min(), 1.0);
+        QCOMPARE(x->max(), 3.0);
+
+        // A purely horizontal pan keeps the y lock (scrolling through time while y follows the data).
+        plot->setXAutoscaleLock(false);
+        {
+            const QPointF c = plot->plotArea().center();
+            drag(f.window(), c, c + QPointF(40, 0));
+        }
+        QVERIFY(plot->yAutoscaleLock());
+        plot->setXAutoscaleLock(true);
+        f.render();
+        // A user zoom of one axis unlocks that axis only.
+        wheel(f.window(), plot->plotArea().center(), QPoint(0, 120), Qt::ShiftModifier);
+        QVERIFY(!plot->yAutoscaleLock());
+        QVERIFY(plot->xAutoscaleLock());
+        wheel(f.window(), plot->plotArea().center(), QPoint(0, 120));
+        QVERIFY(!plot->xAutoscaleLock());
+        // Reset unlocks both.
+        plot->setXAutoscaleLock(true);
+        plot->setYAutoscaleLock(true);
+        plot->resetView();
+        QVERIFY(!plot->xAutoscaleLock() && !plot->yAutoscaleLock());
+        f.release();
+    }
+
+    // ---- plot tools: copy image --------------------------------------------------------------------
+    void copyImageToClipboard()
+    {
+        PlotFixture f;
+        if (!f.create("xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        QGuiApplication::clipboard()->clear();
+        QSignalSpy copied(f.plot, &Plot::imageCopied);
+        QVERIFY(f.plot->copyImage());
+        for (int i = 0; i < 20 && copied.isEmpty(); ++i) {
+            f.render();
+            QCoreApplication::processEvents();
+        }
+        QCOMPARE(copied.count(), 1);
+        QVERIFY(copied.first().at(0).toBool());
+        const QImage image = QGuiApplication::clipboard()->image();
+        QCOMPARE(image.size(), QSize(400, 300));
+        f.release();
+    }
+
+    // ---- trace styles ------------------------------------------------------------------------------
+    void stepModes()
+    {
+        TraceBuffer sparse;
+        std::vector<double> sy{0, 10};
+        sparse.setUniform(0, 1, std::span<const double>(sy));
+        ScaleMap xm;
+        xm.min = 0;
+        xm.max = 1;
+        xm.pixelLength = 100;
+        ScaleMap ym;
+        ym.min = 0;
+        ym.max = 10;
+        ym.pixelStart = 100;
+        ym.pixelLength = -100;
+        std::vector<PixelPoint> out;
+        auto pts = [&](StepMode mode) {
+            buildPolyline(*sparse.snapshot(), xm, ym, {}, mode, 1.0, out);
+            QStringList s;
+            for (const PixelPoint &p : out)
+                s << QString("%1,%2").arg(p.x).arg(p.y);
+            return s.join(u' ');
+        };
+        QCOMPARE(pts(StepMode::None), QStringLiteral("0,100 100,0"));
+        QCOMPARE(pts(StepMode::Hold), QStringLiteral("0,100 100,100 100,0"));
+        QCOMPARE(pts(StepMode::Vertical), QStringLiteral("0,100 0,0 100,0"));
+        QCOMPARE(pts(StepMode::CenterHorizontal), QStringLiteral("0,100 50,100 50,0 100,0"));
+        QCOMPARE(pts(StepMode::CenterVertical), QStringLiteral("0,100 0,50 100,50 100,0"));
+    }
+
+    void traceStyleObject()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import MyBench.Plot\n"
+                          "TraceStyle { lineWidth: 2; pointStyle: TraceStyle.Diamond }\n",
+                          QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *style = qobject_cast<TraceStyle *>(root.get());
+        QVERIFY(style);
+        // The declared values are the defaults.
+        QVERIFY(style->isDefault());
+        QSignalSpy changed(style, &TraceStyle::changed);
+        style->setLineColor(QColor("#ff8800"));
+        style->setLineStyle(TraceStyle::DashDotDot);
+        style->setInterpolation(TraceStyle::CenterStep);
+        style->setFillTo(TraceStyle::PlusInfinity);
+        style->setLineWidth(0);
+        QCOMPARE(changed.count(), 5);
+        QVERIFY(!style->isDefault());
+
+        const QVariantMap json = style->toJson();
+        QCOMPARE(json.value("lineColor").toString(), QStringLiteral("#ff8800"));
+        QCOMPARE(json.value("fillColor").toString(), QString());
+        QCOMPARE(json.value("lineStyle").toString(), QStringLiteral("dashDotDot"));
+        QCOMPARE(json.value("pointStyle").toString(), QStringLiteral("diamond"));
+        QCOMPARE(json.value("interpolation").toString(), QStringLiteral("centerStep"));
+        QCOMPARE(json.value("fillTo").toString(), QStringLiteral("plusInfinity"));
+        QCOMPARE(json.value("lineWidth").toDouble(), 0.0);
+
+        style->reset();
+        QVERIFY(style->isDefault());
+        QCOMPARE(style->lineWidth(), 2.0);
+        QCOMPARE(style->pointStyle(), TraceStyle::Diamond);
+        QVERIFY(!style->lineColor().isValid());
+
+        style->fromJson(json);
+        QCOMPARE(style->toJson(), json);
+        // Unknown keys ignored, missing keys = defaults, bad values coerced.
+        style->fromJson(QVariantMap{{"lineWidth", 99}, {"lineStyle", "wavy"}, {"interpolation", "step"},
+                                    {"future", true}, {"lineColor", "not a color"}});
+        QCOMPARE(style->lineWidth(), 10.0);
+        QCOMPARE(style->lineStyle(), TraceStyle::Solid);
+        QCOMPARE(style->interpolation(), TraceStyle::Step);
+        QCOMPARE(style->pointStyle(), TraceStyle::Diamond);  // missing -> default
+        QVERIFY(!style->lineColor().isValid());
+
+        TraceStyle copy;
+        copy.copyFrom(style);
+        QCOMPARE(copy.toJson(), style->toJson());
+    }
+
+    // QML subclasses of PlotTrace (instruments/scope/ScopeTrace.qml) declare their own `traceStyle`
+    // and `interpolation` properties: the new PlotTrace properties must not clash with them.
+    void traceSubclassPropertyNames()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport MyBench.Plot\n"
+                          "PlotTrace { property var traceStyle: null; readonly property int interpolation: 2;"
+                          " readonly property int fillTo: 0; property color defaultColor; step: interpolation === 2 }\n",
+                          QUrl());
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        QCOMPARE(qobject_cast<PlotTrace *>(root.get())->interpolationMode(), PlotTrace::Step);
+    }
+
+    void traceStyleOnTrace()
+    {
+        PlotFixture f;
+        if (!f.create("colorScheme: Plot.Dark\n"
+                      "xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"
+                      "PlotTrace { objectName: \"t\"; color: \"#00ff00\"; buffer: TraceBuffer { objectName: \"buf\" }\n"
+                      "            userStyle: TraceStyle { objectName: \"s\" } }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        auto *trace = f.root->findChild<PlotTrace *>("t");
+        auto *style = f.root->findChild<TraceStyle *>("s");
+        QVERIFY(trace && style);
+        // An untouched style keeps the trace's own look (color, width, linear, no points).
+        PlotTrace::Appearance a = trace->appearance();
+        QCOMPARE(a.color, QColor("#00ff00"));
+        QVERIFY(a.lineVisible && !a.pointsVisible && !a.fill);
+        QCOMPARE(a.interpolation, PlotTrace::Linear);
+
+        QSignalSpy traceChanged(trace, &PlotElement::changed);
+        style->setLineColor(QColor("#ff0000"));
+        QVERIFY(traceChanged.count() > 0);
+        style->setLineStyle(TraceStyle::DashDot);
+        style->setPointStyle(TraceStyle::FilledSquare);
+        style->setInterpolation(TraceStyle::StepVertical);
+        style->setFillTo(TraceStyle::PlusInfinity);
+        a = trace->appearance();
+        QCOMPARE(a.color, QColor("#ff0000"));
+        QCOMPARE(a.fillColor, QColor("#ff0000"));
+        QCOMPARE(a.style, PlotElement::DashDot);
+        QVERIFY(a.pointsVisible);
+        QCOMPARE(a.pointShape, PlotTrace::FilledSquare);
+        QCOMPARE(a.interpolation, PlotTrace::StepVertical);
+        QVERIFY(a.fill);
+        QVERIFY(std::isinf(a.fillBaseline) && a.fillBaseline > 0);
+        QCOMPARE(a.fillOpacity, 0.5);
+        QVERIFY(!a.fillGradient);
+        QCOMPARE(f.plot->traceColor(trace), QColor("#ff0000"));
+        style->setFillTo(TraceStyle::Zero);
+        QCOMPARE(trace->appearance().fillBaseline, trace->toDisplayY(0.0));
+        style->setLineWidth(0);
+        QVERIFY(!trace->appearance().lineVisible);
+        style->setLineWidth(1.5);
+        style->setInterpolation(TraceStyle::PointsOnly);
+        style->setPointStyle(TraceStyle::NoPoints);
+        a = trace->appearance();
+        QVERIFY(!a.lineVisible && a.pointsVisible && a.pointsOnly);
+
+        // Render: fill to +∞ paints the area above a flat trace at y = -0.5 in the fill color.
+        style->reset();
+        style->setLineColor(QColor("#ff0000"));
+        style->setFillColor(QColor("#0000ff"));
+        style->setFillTo(TraceStyle::PlusInfinity);
+        f.setData(std::vector<double>(11, -0.5), 0.0, 1.0);
+        const QImage image = f.grab();
+        const QPointF above = f.plot->mapFromValue(QPointF(4.7, 0.45));
+        const QPointF below = f.plot->mapFromValue(QPointF(4.7, -0.85));
+        QVERIFY2(qBlue(image.pixel(above.toPoint())) > 80, qPrintable(QString::number(image.pixel(above.toPoint()), 16)));
+        QVERIFY2(qBlue(image.pixel(below.toPoint())) < 40, qPrintable(QString::number(image.pixel(below.toPoint()), 16)));
+        // Every point style / line style / interpolation renders.
+        for (int p = 0; p <= int(TraceStyle::X); ++p) {
+            style->setPointStyle(TraceStyle::PointStyle(p));
+            style->setLineStyle(TraceStyle::LineStyle(p % 5));
+            style->setInterpolation(TraceStyle::Interpolation(p % 6));
+            QVERIFY(!f.grab().isNull());
+        }
+        trace->setUserStyle(nullptr);
+        QCOMPARE(trace->appearance().color, QColor("#00ff00"));
+        f.release();
     }
 };
 

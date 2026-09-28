@@ -125,7 +125,7 @@ ApplicationWindow {
                 }
                 RowLayout {
                     spacing: 4
-                    IconButton { iconName: "search"; toolTip: qsTr("Command palette"); shortcutText: "⌘K" }
+                    IconButton { iconName: "search"; toolTip: qsTr("Command palette"); shortcutText: Theme.keys("Ctrl+K") }
                     IconButton { iconName: "split"; toolTip: qsTr("Split view") }
                     IconButton { iconName: "pin"; toolTip: qsTr("Pin"); checkable: true; checked: true }
                     IconButton { iconName: "help-circle"; toolTip: qsTr("Help") }

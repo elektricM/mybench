@@ -115,6 +115,7 @@ public:
     void frequencyOutputStop() override;
     bool frequencyOutputRunning() const override;
     void reset() override;
+    QStringList unsupportedFeatures() const override;
 
     // --- Simulation controls -----------------------------------------------------------------
 
@@ -155,6 +156,10 @@ public:
     bool dmmOpenCircuit() const;
     // Time per reading, default 100 ms (DC, resistance, diode, continuity) and 300 ms (AC).
     void setDmmReadTime(int dcMs, int acMs);
+
+    // Optional features to report as unsupported (mydaq::feature names), e.g. to preview the
+    // panels as they look on a backend with fewer features. Default: none (everything works).
+    void setUnsupportedFeatures(const QStringList& features);
 
 private:
     std::shared_ptr<sim::Core> d;

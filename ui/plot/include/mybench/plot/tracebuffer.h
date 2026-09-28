@@ -28,6 +28,7 @@
 // iterations produce one signal.
 #pragma once
 
+#include <QList>
 #include <QMutex>
 #include <QObject>
 #include <QPointF>
@@ -138,6 +139,8 @@ public:
     void setXY(std::span<const double> x, std::span<const double> y);
     void setXY(std::span<const float> x, std::span<const float> y);
     Q_INVOKABLE void clear();
+    // QML convenience for small previews: setUniform() from a list of numbers.
+    Q_INVOKABLE void setUniformValues(double x0, double dx, const QList<double> &y);
 
     // ---- record: thread-safe, amortized O(1) per sample -----------------------------------------
     // Clears and starts a uniform recording: sample k (from 0) is at x0 + k * dx.

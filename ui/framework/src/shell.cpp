@@ -9,6 +9,8 @@
 #include <mybench/offscreen.h>
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QFont>
 #include <QGuiApplication>
@@ -27,15 +29,23 @@ namespace mybench {
 
 namespace {
 
-// Settings of --fresh runs live in a temporary folder for the lifetime of the process.
+// Settings of --fresh runs live in a temporary folder for the lifetime of the process. For
+// screenshots of a prepared state, MYBENCH_SETTINGS_TEMPLATE may name an INI file copied into it.
 void useTemporarySettings()
 {
     static QTemporaryDir* const folder = new QTemporaryDir;   // leaked on purpose: used until exit
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, folder->path());
+    const QString seed = qEnvironmentVariable("MYBENCH_SETTINGS_TEMPLATE");
+    if (!seed.isEmpty()) {
+        const QString target = QSettings().fileName();
+        QDir().mkpath(QFileInfo(target).absolutePath());
+        if (!QFile::copy(seed, target))
+            qWarning("MYBENCH_SETTINGS_TEMPLATE: cannot copy %s", qPrintable(seed));
+    }
 }
 
-void startRequested(const QString& list, const QString& fallback)
+void startRequested(const QString& list, const QString& fallback, bool once = false)
 {
     InstrumentRegistry* registry = InstrumentRegistry::instance();
     QStringList ids;
@@ -47,7 +57,7 @@ void startRequested(const QString& list, const QString& fallback)
         ids = {fallback};
     for (const QString& id : std::as_const(ids)) {
         if (InstrumentController* controller = registry->controller(id.trimmed()))
-            controller->run();
+            once ? controller->runOnce() : controller->run();
     }
 }
 
@@ -56,6 +66,7 @@ const char* const kShellHelp =
     "  --panel <id>             open and focus this instrument (repeatable; alias --instrument)\n"
     "  --split <id>             show <id> in a second pane beside the panel\n"
     "  --run <ids|all>          start these instruments after launch (--run alone: the panel)\n"
+    "  --single=<ids|all>       one Single acquisition of these instruments after launch\n"
     "  --device <id>            use this device (sim:0, usb:036CD1C6); --simulated = --device sim:0\n"
     "                           (--simulated and --screenshot do not open USB devices unless --device usb:...)\n"
     "  --open <file.mybench>    open a session (also a positional file argument)\n"
@@ -63,6 +74,7 @@ const char* const kShellHelp =
     "  --dashboard              pin the dashboard column\n"
     "  --show-help              open the help drawer\n"
     "  --palette, --log         open the command palette / the event log\n"
+    "  --print-dialog           open the Print / export options of the focused panel\n"
     "  --tile                   dev executables: show the dashboard tiles instead of the panel\n"
     "  --fresh                  temporary empty settings (implied by --screenshot unless --keep-settings)\n"
     "  --no-animations          disable animations\n"
@@ -149,6 +161,9 @@ int runShell(int argc, char* argv[], const ShellConfig& config)
             if (info->flag(u"run"_s) && !split.isEmpty())
                 startRequested(split, {});
         }
+
+        if (info->flag(u"single"_s) || !info->value(u"single"_s).isEmpty())
+            startRequested(info->value(u"single"_s), info->instrument(), true);
 
         // Stop and join every worker before the device and the application go away.
         auto shutdown = [] { InstrumentRegistry::instance()->shutdown(); };

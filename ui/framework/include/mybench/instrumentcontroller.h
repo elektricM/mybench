@@ -36,8 +36,41 @@
 
 #include <functional>
 #include <memory>
+#include <stdexcept>
 
 namespace mybench {
+
+// Refusal because of the user's input (not a device problem): throw it from createWorker() (or
+// from the worker loop) with a sentence for the user, e.g.
+//     throw mybench::InvalidInput(tr("The stop frequency must be above the start frequency."));
+// The run is refused with a warning (toast + inputWarning, amber in the run bar), not an error:
+// no "The device rejected the settings" wording, hasError stays false.
+class InvalidInput : public std::runtime_error
+{
+public:
+    explicit InvalidInput(const QString& message)
+        : std::runtime_error(message.toStdString()), m_message(message) {}
+    QString message() const { return m_message; }
+
+private:
+    QString m_message;
+};
+
+// A command of the command palette (Ctrl+K) contributed by an instrument, see
+// InstrumentController::addCommand(). `run` is called on the UI thread with the argument typed
+// by the user (only when argumentLabel is set; otherwise an invalid QVariant). Without `run`,
+// the controller emits commandTriggered(id, argument) for the panel's QML to handle.
+struct InstrumentCommand {
+    QString id;              // "autoscale" (unique within the instrument)
+    QString title;           // "Autoscale" (the palette shows "<Instrument>: <title>")
+    QString keys;            // shortcut hint, e.g. "Ctrl+Shift+A" (display only)
+    QString keywords;        // extra search words
+    QString icon;            // Theme.icon() name
+    QString argumentLabel;   // non-empty: the palette asks for a value ("Voltage (V)") first
+    QString argumentUnit;    // SI unit of a numeric argument ("V"): the text is parsed with Units
+    std::function<void(const QVariant& argument)> run;
+    std::function<bool()> enabled;   // optional: hidden from the palette while false
+};
 
 class InstrumentController : public QObject, public QQmlParserStatus
 {
@@ -61,6 +94,11 @@ class InstrumentController : public QObject, public QQmlParserStatus
     Q_PROPERTY(RunMode runMode READ runMode NOTIFY runModeChanged)   // of the current/last run
     Q_PROPERTY(bool canRun READ canRun NOTIFY canRunChanged)      // idle and a device is connected
     Q_PROPERTY(bool supportsSingle READ supportsSingle CONSTANT)  // Single (Run Once) exists
+    // Single is currently allowed (setSingleEnabled(); the run bar greys the button out).
+    Q_PROPERTY(bool singleEnabled READ singleEnabled NOTIFY singleEnabledChanged)
+    // The instrument still drives an output while idle (DIO lines driven, AO held at a level):
+    // Stop / Stop all then return it to its safe state (see returnToSafeState()).
+    Q_PROPERTY(bool holdsOutputs READ holdsOutputs NOTIFY holdsOutputsChanged)
     Q_PROPERTY(QDateTime startedAt READ startedAt NOTIFY stateChanged)
 
     // Run-bar / status-bar indicators.
@@ -81,6 +119,16 @@ class InstrumentController : public QObject, public QQmlParserStatus
     Q_PROPERTY(QString errorText READ errorText NOTIFY errorChanged)
     Q_PROPERTY(bool hasError READ hasError NOTIFY errorChanged)
     Q_PROPERTY(QVariantList errorHistory READ errorHistory NOTIFY errorChanged)
+    // A run refused because of the user's input (InvalidInput / reportInvalidInput()): shown as
+    // a warning, cleared by the next successful start or clearInputWarning().
+    Q_PROPERTY(QString inputWarning READ inputWarning NOTIFY inputWarningChanged)
+
+    // Palette commands (addCommand()): [{ id, title, keys, keywords, icon, argumentLabel,
+    // argumentUnit, enabled }].
+    Q_PROPERTY(QVariantList commands READ commands NOTIFY commandsChanged)
+    // Name of a modified document the panel edits and has not saved (e.g. "Waveform ramp.wdt"),
+    // empty when none: the shell asks before quitting or closing the panel.
+    Q_PROPERTY(QString unsavedDocument READ unsavedDocument NOTIFY unsavedDocumentChanged)
 
     // Declared device resources (ResourceArbiter::Resources flags) and DIO line mask.
     Q_PROPERTY(int resources READ resourcesInt NOTIFY resourcesChanged)
@@ -111,6 +159,8 @@ public:
     RunMode runMode() const { return m_runMode; }
     bool canRun() const;
     bool supportsSingle() const { return m_supportsSingle; }
+    bool singleEnabled() const { return m_supportsSingle && m_singleEnabled; }
+    bool holdsOutputs() const { return m_holdsOutputs; }
     QDateTime startedAt() const { return m_startedAt; }
 
     QString statusText() const { return m_statusText; }
@@ -125,6 +175,12 @@ public:
     QString errorText() const { return m_errorText; }
     bool hasError() const { return !m_errorText.isEmpty(); }
     QVariantList errorHistory() const { return m_errorHistory; }
+    QString inputWarning() const { return m_inputWarning; }
+    QString unsavedDocument() const { return m_unsavedDocument; }
+    QVariantList commands() const;
+    // The generation of the current (or last) run: incremented at every start. A result tagged
+    // with it can be compared later (the framework already drops stale post()/publish()).
+    quint64 runGeneration() const;
 
     ResourceArbiter::Resources resources() const { return m_resources; }
     int resourcesInt() const { return int(m_resources); }
@@ -166,6 +222,23 @@ public slots:
     void runOnce();      // Single. While running continuously: finish after this acquisition.
     void stop();
     void toggle();       // run() when idle/paused, stop() when running
+    // Stop, and once idle put the outputs in their safe state (applySafeState()). Also what
+    // stop() does for an idle instrument that holdsOutputs.
+    void returnToSafeState();
+    // The shell closed the last tab/pane showing this instrument: emits panelClosed(), then
+    // returnToSafeState() (a closed panel never keeps running or driving outputs).
+    void closePanel();
+    // SessionManager, before a new session or a loaded one is applied: emits sessionReset(), then
+    // returnToSafeState().
+    void resetForSession();
+    // Applies settings given by name ({ "span": 20000, "window": "Hann" }) as if the user had
+    // set them: another panel opens this one preconfigured (InstrumentRegistry::openInstrument).
+    // Default: writes the matching settings properties (enums by key name); unknown keys are
+    // ignored with a warning. Override to accept other keys (call the base for the rest).
+    virtual void applyPreset(const QVariantMap& preset);
+    // Runs one of the palette commands (see addCommand()).
+    void invokeCommand(const QString& id, const QVariant& argument = QVariant());
+    void clearInputWarning();
     void resume();       // after a pause: run again in the mode of the paused run
     void clearError();
     void resetSettings();   // back to the defaults captured by initialize()
@@ -196,6 +269,16 @@ signals:
     void started();           // the worker is running
     void finished();          // the worker ended (stop, Single done, error) and resources are free
     void errorOccurred(const QString& message);
+    void singleEnabledChanged();
+    void holdsOutputsChanged();
+    void inputWarningChanged();
+    void commandsChanged();
+    void unsavedDocumentChanged();
+    void panelClosed();        // closePanel(): the instrument's last view was closed
+    void sessionReset();       // resetForSession(): a new/loaded session replaces this one
+    void restarting();         // restart(): a new run replaces the current one (clear results)
+    // A palette command without a C++ `run` (handled by the panel's QML).
+    void commandTriggered(const QString& id, const QVariant& argument);
 
 protected:
     // Builds the run, on the UI thread, when Run/Single is pressed. Validate the settings and
@@ -208,6 +291,14 @@ protected:
     // UI thread: the worker started / ended (after errors too) and every task is released.
     virtual void onStarted() {}
     virtual void onFinished() {}
+    // UI thread, after restart() stopped the current run and before createWorker() builds the
+    // new one: clear what the new settings make meaningless (plot buffers, statistics, trends).
+    // restarting() is emitted just before, for QML.
+    virtual void onRestart() {}
+    // UI thread, idle: put the outputs in their safe state (DIO lines to inputs, AO to 0 V) and
+    // call setHoldsOutputs(false). Called by returnToSafeState() (Stop of an idle instrument that
+    // holdsOutputs, panel close, new/loaded session). Default: nothing.
+    virtual void applySafeState() {}
     // Complex settings that are not plain properties.
     virtual void saveExtraSettings(QJsonObject& settings) const { Q_UNUSED(settings) }
     virtual void restoreExtraSettings(const QJsonObject& settings) { Q_UNUSED(settings) }
@@ -218,6 +309,22 @@ protected:
     // as the DIO line selection changes them).
     void setRequiredResources(ResourceArbiter::Resources resources, quint8 dioLines = 0);
     void setSupportsSingle(bool supported) { m_supportsSingle = supported; }   // constructor only
+    // Greys out Single (run bar, Shift+Space, palette) while false; runOnce() is then ignored.
+    void setSingleEnabled(bool enabled);
+    // Declares that outputs are still driven while idle (see holdsOutputs / applySafeState()).
+    void setHoldsOutputs(bool holds);
+    // User-input problem outside a run start (e.g. a setter refusing a value): warning toast +
+    // inputWarning, no error state. createWorker() throws InvalidInput instead.
+    void reportInvalidInput(const QString& message);
+    // Adds a command to the command palette (constructor, or later; emits commandsChanged).
+    void addCommand(InstrumentCommand command);
+    void removeCommand(const QString& id);
+    // Declares a modified, unsaved document ("" once saved or discarded), see unsavedDocument.
+    void setUnsavedDocument(const QString& name);
+    // Results already posted by the current run but not yet delivered are dropped (and every
+    // later post()/publish() of this run too). restart() does it automatically; call it when a
+    // setting change makes in-flight results wrong without restarting the run.
+    void discardPendingResults();
     void setStatusText(const QString& text);
     void setTimedOut(bool timedOut);
     void setSampleRate(double samplesPerSecond);
@@ -247,9 +354,11 @@ private:
     void shutdownImpl(bool destroying);
     void setState(State state);
     void setRunMode(RunMode mode);
-    void recordError(const QString& message, bool notify);
+    void recordError(const QString& message, bool notify, const QString& details = QString());
+    void setInputWarning(const QString& message, bool notify);
     void onWorkerStarted(quint64 generation);
-    void onWorkerFinished(quint64 generation, const QString& error, bool disconnected);
+    void onWorkerFinished(quint64 generation, const QString& error, bool disconnected, bool inputProblem,
+                          const QString& details);
     void updateThroughput();
     void saveToStore();
     void updateCanRun();
@@ -262,6 +371,12 @@ private:
     bool m_pausePending = false;
     bool m_restartPending = false;
     bool m_supportsSingle = true;
+    bool m_singleEnabled = true;
+    bool m_holdsOutputs = false;
+    bool m_safeStatePending = false;
+    QString m_inputWarning;
+    QString m_unsavedDocument;
+    std::vector<InstrumentCommand> m_commands;
     bool m_initialized = false;
     bool m_restoring = false;
     bool m_canRun = false;

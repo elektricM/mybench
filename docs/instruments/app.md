@@ -114,6 +114,7 @@ Help pages are compiled into the app as resources.
 - **Instrument tiles**: a responsive grid (2-4 columns) with every instrument's live tile.
 - **Recent sessions**: the last 10 session files (name, path, date), click opens; `Open...`, `New`.
 - **Getting started**: link to the `app` help page.
+- **Favorites**, **Tools**, **Files** and **Resources** (the former ELVISmx launcher pages): section 18.1.
 
 ## 3. Instruments and panels
 
@@ -194,6 +195,11 @@ is how they appear.
   `SIMULATED` badge (theme warning color) so simulated data are never mistaken for measurements.
 - **Switching device** while any panel runs asks "Switching the device stops all running
   instruments." (`Switch` / `Cancel`), then Stop all, then switches. Settings are kept.
+  **[MYBENCH: ELVISmx greys the Device combo while an instrument runs; MYBENCH keeps it enabled
+  and asks instead, so the selector never looks broken. Deliberate deviation.]**
+- **Optional features**: a backend may not implement every option (`Device::unsupportedFeatures()`,
+  `DeviceHub.unsupportedFeatures`); panels grey those options out with the tooltip "Not supported
+  by the <backend> backend yet" instead of failing at Run.
 - **Hot-plug**:
   - The selected device disconnects: running panels stop with a banner "Device disconnected"
     (section 9); the selector shows the device as `<name> (disconnected)` in red; MYBENCH never
@@ -488,12 +494,19 @@ next to the run bar (or banners when they block a start).
 
 ### 10.2 Export image / PDF (ELVISmx Print)
 
-- `Export image...` (`Ctrl/⌘+P` opens the export dialog): PNG of the panel's display area (or the
+- `Export image...`: PNG of the panel's display area (or the
   whole panel, option), rendered at 2x device pixel ratio via `grabToImage` / offscreen rendering.
 - `Export PDF...`: one A4/Letter landscape page with the panel image, the instrument's settings (the
   same key/value lines as the data export header) and date/device, written with `QPdfWriter`.
-- Direct printing is not provided (print the PDF). ELVISmx enables Print only after an acquisition;
-  MYBENCH allows export any time.
+- **Print options** (`PrintDialog`, before the file dialog / printer; ELVISmx Print dialog):
+  destination Image (PNG) / PDF / Printer, content Display / Whole panel, **Ink saver** (white
+  background, dark grid and text, traces kept in colour), **User name**, **Computer name**,
+  **Time stamp**, **Settings table** (the export metadata as a Setting/Value table under the
+  image), orientation (PDF, printer), printer and copies. Choices are remembered separately for
+  PNG (default: plain grab) and pages (default: time stamp + settings table).
+- `Print...` (`Ctrl/⌘+P`) prints directly on the chosen printer without a system dialog (Qt Print
+  Support; hidden in builds without it, `MYBENCH_WITH_PRINT=OFF`). ELVISmx enables Print only after
+  an acquisition; MYBENCH allows export any time.
 
 ## 11. Sessions
 
@@ -614,7 +627,7 @@ Readouts use the Units formatter (`dsp::formatEng`: SI prefixes f p n µ m k M G
 
 ## 17. About and help pages
 
-- **About** (from the Help menu / palette): `MYBENCH`, version, one-line description ("Open-source
+- **About** (from the help drawer's contents menu, Home > Resources, Preferences and the palette): `MYBENCH`, version, one-line description ("Open-source
   instruments for the NI myDAQ"), license with a `License...` button, a notice in our own words that
   MYBENCH is independent and not affiliated with or endorsed by NI (NI, myDAQ, ELVIS and LabVIEW are
   trademarks of their owner), credits, Qt version, whether the USB backend is built in
@@ -630,10 +643,27 @@ Readouts use the Units formatter (`dsp::formatEng`: SI prefixes f p n µ m k M G
 | Each instrument also startable from the Start menu | `--panel <id>`, dev executables `mybench-<id>` |
 | Help button in every instrument | help drawer |
 
-Not replicated: the `Add Item` tile (shortcuts to other programs, downloadable featured apps), the
-Favorites tab (star on tiles), the Labs tab, the My Files tab, the Resources tab (documents,
-tutorials, forum links, `Add Link`), and the ELVIS-only instruments. Recent sessions on Home cover
-part of "My Files".
+Favorites, `Add Item`, My Files and Resources live on Home (section 18.1). Not replicated: the Labs
+tab (courseware documents; pin them under Files instead), downloadable featured apps and the
+ELVIS-only instruments.
+
+### 18.1 Launcher (Home)
+
+The launcher pages of ELVISmx become cards of the Home page (`app/HomePage.qml`). Their persistent
+state is the `Launcher` singleton (`ui/framework`, `launcher.h`), stored per user in `QSettings`
+under `launcher/` (not in sessions: it describes the computer, not the experiment).
+
+| ELVISmx | MYBENCH |
+|---|---|
+| Favorites page, star on a hovered tile | star button on every Home tile (shown on hover, stays visible, amber, while starred); **Favorites** strip above INSTRUMENTS: one chip per starred instrument in starring order (icon, title, run-state dot, Run/Stop on hover), click opens. Empty: hint "Star an instrument...". Key `launcher/favorites` (instrument ids; ids of instruments not built are kept but not shown). |
+| `Add Item` > `Browse` (Instruments & Apps) | **Tools** card: user entries `{name, target, arguments}` (`launcher/tools` array, max 50). Target = program, document, folder or URL; `Add tool...` dialog with `Browse...`, a live "what happens" line (`Launcher.targetKind`: url / program / file / folder / missing) and arguments for programs. Click: URLs, documents, folders and macOS bundles open with `QDesktopServices::openUrl`; programs start with `QProcess::startDetached` (working directory = program folder). Missing targets are struck through; a failed launch shows a warning toast. `...` menu: Edit, Move up/down, Remove. |
+| `Find More Online` | ghost button of the Tools card: `AppInfo.homepage` (`MYBENCH_HOMEPAGE`). |
+| My Files | **Files** card: *Pinned* files (`Pin file...` / pin button, multi-select file dialog, max 50, `launcher/pinnedFiles`) and *Recent exports*: the last 10 files written by `DataExport` (`exported(path)` signal: CSV/TSV, PNG, PDF), newest first, with date, `launcher/recentExports`. Click opens with the system; hover buttons: show in folder (Finder `open -R`, Explorer `/select`, else the folder), unpin / pin / remove from list. **Recent sessions** card: the 10 sessions of SessionManager with date, remove button. |
+| Resources | **Resources** card: `Getting started with MYBENCH` (help drawer on `app`, also a header button of Home), one chip per instrument help page (`Help.topics`), documentation links (NI myDAQ User Guide, Specifications, Getting Started on ni.com; NI Community forum; the project site), `About MYBENCH`. Links open in the browser. |
+| Labs | not replicated. |
+
+`Launcher.showAbout()` opens the About dialog (section 17) from Home, the help drawer's contents
+menu and Preferences. Tests: `ui/framework/tests/tst_launcher.cpp`.
 
 ## 19. Checks against the simulator
 

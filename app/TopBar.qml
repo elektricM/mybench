@@ -111,11 +111,11 @@ Rectangle {
             text: qsTr("Stop all")
             iconName: "stop-filled"
             compact: true
-            tone: InstrumentRegistry.anyRunning ? "subtle" : "ghost"
+            tone: InstrumentRegistry.anyStoppable ? "subtle" : "ghost"
             color: Theme.danger
-            enabled: InstrumentRegistry.anyRunning
+            enabled: InstrumentRegistry.anyStoppable
             toolTip: qsTr("Stop every running instrument")
-            shortcutText: "⌘."
+            shortcutText: Theme.keys("Ctrl+.")
             onClicked: InstrumentRegistry.stopAll()
         }
 
@@ -166,13 +166,13 @@ Rectangle {
             checkable: true
             checked: bar.workspace.dashboardPinned
             toolTip: bar.workspace.dashboardPinned ? qsTr("Unpin dashboard") : qsTr("Pin dashboard")
-            shortcutText: "⇧⌘D"
+            shortcutText: Theme.keys("Ctrl+Shift+D")
             onClicked: bar.workspace.toggleDashboard()
         }
         IconButton {
             iconName: Theme.dark ? "sun" : "moon"
             toolTip: Theme.dark ? qsTr("Light theme") : qsTr("Dark theme")
-            shortcutText: "⇧⌘L"
+            shortcutText: Theme.keys("Ctrl+Shift+L")
             onClicked: bar.themeToggleRequested()
         }
         IconButton {

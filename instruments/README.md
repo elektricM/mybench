@@ -302,6 +302,193 @@ Content only (the shell draws the card, title, state dot, Run/Stop and Open arou
 mini plot (`BenchPlot` with `interactive: false; frameVisible: false`, margins 0, labels off).
 Updates at most ~10 Hz. Check both sizes with `mybench-<id> --tile --screenshot t.png`.
 
+## Framework hooks
+
+Shared hooks of the shell and framework (added for the acceptance audit, docs/audit.md). All are
+opt-in and backwards compatible: an instrument that uses none of them behaves as before.
+
+### Safe state: panel close, session reset, Stop of an idle output holder
+
+The shell calls `closePanel()` when the last tab/pane showing the instrument closes, and
+SessionManager calls `resetForSession()` before a new or loaded session is applied. Both emit a
+signal (`panelClosed()`, `sessionReset()`) and then `returnToSafeState()`: stop, and **once the
+worker has finished** call your `applySafeState()` (UI thread, idle). An idle instrument that
+still drives an output declares it with `setHoldsOutputs(true)`: the run bar then shows a
+"Release outputs" button, and Stop / Shift+F5 / Stop all call `applySafeState()` for it.
+
+```cpp
+class DioController : public InstrumentController {
+    ...
+protected:
+    void applySafeState() override { releaseOutputs(); }   // lines back to inputs, AO to 0 V...
+};
+// constructor: keep holdsOutputs in sync with what you drive
+connect(this, &DioController::drivenMaskChanged, this, [this] { setHoldsOutputs(m_drivenMask != 0); });
+```
+QML: `Connections { target: controller; function onPanelClosed() { ... } }` for view state.
+`RunBar { releaseText: qsTr("Output to 0 V") }` renames the button.
+
+### Stale worker results are dropped (run tagging)
+
+`ctx.post()` / `ctx.publish()` callbacks are tagged with their run. `restart()` discards the
+old run's undelivered callbacks automatically, so a reading taken with the old settings is never
+applied after a setting change. When a setting change makes in-flight results wrong *without*
+restarting, call `discardPendingResults()`. `runGeneration()` (incremented at every start) is
+available for your own tags. Stop does not discard: the last acquisition is still shown.
+
+### Clearing results on restart
+
+`restart()` calls the virtual `onRestart()` (and emits `restarting()`) after the old run ended
+and before `createWorker()` builds the new one: clear plot buffers, statistics and trends there.
+```cpp
+void onRestart() override { m_trend.clear(); m_stats.reset(); }
+```
+
+### Single enable
+
+`setSingleEnabled(bool)` greys out Single (run bar, Shift+Space, palette) and makes `runOnce()`
+a no-op, e.g. Single not available for a mode. `singleEnabled` is a QML property; `RunBar
+{ singleEnabled: ... }` can add view-side conditions.
+
+### User-input validation (warning, not a device error)
+
+Throw `mybench::InvalidInput` from `createWorker()` (or from the worker loop) for a problem with
+the user's settings. The run is refused with an amber warning (toast, run-bar status,
+`inputWarning` + a closable warning banner), `hasError` stays false and the message is never
+wrapped in "The device rejected the settings". Outside a start, `reportInvalidInput(message)`.
+```cpp
+if (m_stop <= m_start)
+    throw mybench::InvalidInput(tr("The stop frequency must be above the start frequency."));
+```
+
+### Device capabilities (grey out unsupported options)
+
+`mydaq::Device::unsupportedFeatures()` lists optional features a backend does not implement
+(names in `mydaq::feature`, core/include/mydaq/device.h: `counter.pulseWidth`,
+`counter.semiPeriod`, `counter.twoEdgeSeparation`, `counter.linearEncoder`,
+`counter.angularEncoder`, `counter.fallingEdge`, `counter.countDown`,
+`counter.externalDirection`, `counter.initialCount`, `counter.resetOnDio`, `counter.buffered`,
+`pulse.idleHigh`, `pulse.initialDelay`, `freqout`; add names there as needed). Default: all
+supported. `DeviceHub.unsupportedFeatures` (QML, kept while unplugged) and
+`DeviceHub.supports(f)` / `DeviceHub.unsupportedReason(f)`; C++: `DeviceHub::instance()->supports(f)`.
+The simulator can pretend (`DeviceHub.simulatorUnsupportedFeatures = [...]`) to preview/test.
+```qml
+readonly property bool pwOk: !DeviceHub.unsupportedFeatures.includes("counter.pulseWidth")
+ScopeCombo { ...; enabled: pwOk; ToolTip.text: DeviceHub.unsupportedReason("counter.pulseWidth") }
+```
+Controllers should also refuse such a setting in `createWorker()` with `InvalidInput`.
+
+### Opening another panel preconfigured
+
+`ShellActions.openInstrument(id, preset, beside)` (QML) or
+`InstrumentRegistry::instance()->openInstrument(id, preset, beside)` (C++): applies `preset` to
+the target controller (`applyPreset(QVariantMap)`: by default sets the named settings
+properties, enums by key name; override for other keys) and opens/focuses its panel, in a split
+pane beside the current one when `beside` is true.
+```qml
+ActionButton { text: qsTr("Open in Spectrum Analyzer")
+               onClicked: ShellActions.openInstrument("dsa", { frequencySpan: 20000, window: "Hann" }, true) }
+```
+
+### Command palette commands
+
+Register commands in the constructor; the palette (Ctrl+K) lists them as "<Title>: <command>"
+and focuses your panel before running them. `argumentLabel` makes the palette ask for a value
+first (`argumentUnit`: parsed with SI prefixes; invalid input gives an input warning). Without
+`run`, `commandTriggered(id, argument)` is emitted for the panel's QML.
+```cpp
+addCommand({.id = u"autoscale"_s, .title = tr("Autoscale"), .keywords = u"fit"_s, .icon = u"maximize"_s,
+            .run = [this](const QVariant&) { autoscale(); }});
+addCommand({.id = u"ao0"_s, .title = tr("Set AO 0 to … V"), .argumentLabel = tr("AO 0 level (V)"),
+            .argumentUnit = u"V"_s, .run = [this](const QVariant& v) { setDcLevel(0, v.toDouble()); },
+            .enabled = [this] { return !isRunning(); }});
+```
+```qml
+Connections { target: root.controller; function onCommandTriggered(id, arg) { if (id === "zoomFit") plot.autoscale() } }
+```
+
+### Instrument-specific export formats
+
+`DataExport::instance()->registerWriter(std::make_unique<MyTxtWriter>(), u"dsa"_s)` (e.g. in
+the registration function): the writer is offered first in that instrument's Export data dialog
+(`DataExport.nameFiltersFor(id)`) and wins for its extensions there (the generic tab-separated
+writer keeps `*.tsv`); other instruments are unaffected. Put writer-specific data in
+`DataTable::extra` (QVariantMap) from `exportTable()`.
+```cpp
+class DsaTxtWriter : public mybench::TableWriter {
+    QString name() const override { return tr("ELVISmx text log"); }
+    QStringList extensions() const override { return {u"txt"_s}; }
+    bool write(const DataTable& t, const QStringList& header, QIODevice& out, QString* error) const override;
+};
+```
+
+### Print / export image
+
+Export image…, Export PDF… and Print… (Ctrl+P) of every panel open the shared `PrintDialog`
+(ink saver, user / computer name, time stamp, settings table, content = display or whole panel,
+orientation, printer, copies). The settings table is `exportMetadata()`, i.e. the
+`DataTable::metadata` of your `exportTable()`: put every item your spec's Print lists there (e.g.
+Bode "Graph Mapping", Scope "C1/C2 linked plot"), also when there is no data yet if possible.
+C++/QML API: `DataExport.writeImage / writePdf / print(imagePath, title, metadata, options)`,
+`DataExport::inkSaver(QImage)`.
+
+### Unsaved documents
+
+`setUnsavedDocument(tr("Waveform %1").arg(name))` while a document edited in the panel has
+unsaved changes (`""` once saved or discarded): quitting asks first ("Quit without saving?").
+
+### Collapsed inspector sections are remembered
+
+`Section`s of an `InstrumentPanel` inspector keep the collapsed state the user chooses per
+instrument (`stateKey` = "<id>/<title>", stored in the session's view state). Set `stateKey`
+yourself for sections elsewhere, or keep titles stable. A section whose `collapsed` is bound
+(e.g. to `!ch1.enabled`) follows the user's last manual choice once the user toggled it, as before.
+
+### Plot tools (toolbar, context menu, trace styles)
+
+Every interactive non-bare `BenchPlot` gets, with no code: a hover toolbar at the top right of the
+plot area (pointer / zoom menu / pan tools, X and Y autoscale once + lock), a right-click menu
+(Autoscale X/Y, Lock X/Y autoscale, Undo zoom, Reset zoom, Copy image, Export image…, Export data…),
+`Ctrl/⌘+drag` rubber-band zoom and a zoom history. Export entries go to
+`ShellActions.export{Image,Data}Requested(<id>)` of the enclosing `InstrumentPanel` (so the panel's
+own export runs); set `instrumentId` to override, or listen to the `exportImageRequested()` /
+`exportDataRequested()` signals. Opt out with `tools: false` / `contextMenu: false`.
+
+Plot API (C++ `mybench::plot::Plot`, ui/plot/README.md): `undoZoom()`, `canUndoZoom`,
+`clearZoomHistory()`, `xAutoscaleLock` / `yAutoscaleLock` (re-fit on every data update until the user
+zooms that axis), `zoomAxes` (`Plot.ZoomXY/ZoomX/ZoomY`), `copyImage()` (→ `imageCopied(ok)`),
+`contextMenuRequested(point)`. `PlotTrace` gained `interpolationMode` (Linear, Step, StepVertical,
+CenterStep, CenterStepVertical), `pointShape`, `fillColor`, `fillGradient`, `fillBaseline: ±Infinity`,
+`style: PlotElement.DashDotDot` and `userStyle`.
+
+Trace styles: own one `TraceStyle` per trace (QML or C++, `mybench/plot/tracestyle.h`), attach it to
+the trace, list them in the panel's `traceStyles`: the panel's `⋯` menu and the plots' right-click
+menu get "Trace style…" (a `TraceStyleDialog`, live preview, Cancel reverts). Persist with
+`toJson()` / `fromJson()` in the controller's saved settings. Cursors on/off: set
+`cursorsAvailable: true` and bind `cursorsEnabled` / handle `cursorsToggled(on)`.
+
+```qml
+InstrumentPanel {
+    id: panel
+    traceStyles: [{ name: "CH 0", style: controller.ch0Style, color: Theme.ch0 }]
+    BenchPlot {
+        anchors.fill: parent
+        cursorsAvailable: true
+        cursorsEnabled: controller.cursorsOn
+        onCursorsToggled: on => controller.cursorsOn = on
+        PlotTrace { buffer: controller.ch0; color: Theme.ch0; userStyle: controller.ch0Style }
+    }
+}
+```
+```cpp
+// controller: Q_PROPERTY(mybench::plot::TraceStyle* ch0Style READ ch0Style CONSTANT)
+// saveExtraSettings: s["ch0Style"] = m_ch0Style.toJson();   restore: m_ch0Style.fromJson(s["ch0Style"].toMap());
+```
+
+`exportDataHandled: true` leaves Export data… of a BenchPlot to the host (signal
+`exportDataRequested()` only); `copyDataAvailable: true` adds Copy data →
+`copyDataRequested()` (the host supplies the data; there is no built-in TSV).
+
 ## Checklist
 
 - [ ] Every control, value list, default and behaviour of your spec; ELVISmx names and groups.

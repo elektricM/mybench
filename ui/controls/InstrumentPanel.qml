@@ -38,6 +38,9 @@ Rectangle {
     property int inspectorWidth: Theme.inspectorWidth
     property bool showErrorBanner: true
     property bool showExport: true             // Export ▾ menu in the display header
+    // [{ name, style: TraceStyle, color }]: adds "Trace style…" to the ⋯ menu (and to the right-click
+    // menu of the panel's BenchPlots) opening a TraceStyleDialog for these traces.
+    property var traceStyles: []
     readonly property string instrumentId: controller ? controller.instrumentId : ""
     readonly property bool focusMode: instrumentId.length > 0 && ShellActions.focusInstrument === instrumentId
     readonly property bool narrow: width < narrowWidth
@@ -53,7 +56,24 @@ Rectangle {
 
     color: Theme.surface
     onNarrowChanged: inspectorOverlayOpen = false
+    // Inspector sections remember their collapsed state per instrument (session view state).
+    function keySections() {
+        if (instrumentId.length === 0)
+            return
+        for (const section of inspectorItem.sections) {
+            if (section instanceof Section && section.stateKey.length === 0 && section.title.length > 0)
+                section.stateKey = instrumentId + "/" + section.title
+        }
+    }
+    onInstrumentIdChanged: keySections()
+    Component.onCompleted: keySections()
 
+    function openTraceStyleDialog(index = 0) {
+        traceStyleLoader.active = true
+        const dialog = traceStyleLoader.item as TraceStyleDialog
+        if (dialog)
+            dialog.openFor(index)
+    }
     function toggleInspector() {
         if (narrow)
             inspectorOverlayOpen = !inspectorOverlayOpen
@@ -68,27 +88,62 @@ Rectangle {
         dataDialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, "csv")
         dataDialog.open()
     }
+    // Export image… / Export PDF… / Print… (app.md 10.2): the Print options first (PrintDialog:
+    // ink saver, user/computer/time stamp, settings table, orientation, printer, copies), then
+    // the file (image, PDF) or the printer.
     function exportImage(pdf: bool) {
+        openPrintDialog(pdf ? "pdf" : "image")
+    }
+    function printPanel() {
+        openPrintDialog(DataExport.printingAvailable ? "printer" : "pdf")
+    }
+    function openPrintDialog(destination: string) {
+        printDialog.destination = destination
+        printDialog.open()
+    }
+    function continuePrint() {
+        const options = printDialog.options()
+        if (options.destination === "printer") {
+            writeImage("", options)
+            return
+        }
+        const pdf = options.destination === "pdf"
         imageDialog.pdf = pdf
+        imageDialog.exportOptions = options
         imageDialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, pdf ? "pdf" : "png")
         imageDialog.open()
     }
-    function writeImage(file: url, pdf: bool) {
+    // Grabs the display (or the whole panel, options.target) at 2x and writes it. `options`:
+    // PrintDialog.options(), or a bool for the old signature (true = PDF, default options).
+    function writeImage(file: url, options: var) {
+        const o = typeof options === "boolean" ? { destination: options ? "pdf" : "image" } : options
         const title = controller ? controller.title : ""
-        displayArea.grabToImage(result => {
-            if (!pdf) {
-                if (result.saveToFile(DataExport.localPath(file)))
-                    Notifications.notify(Notifications.Success, qsTr("Image exported"), DataExport.localPath(file))
-                else
-                    Notifications.notify(Notifications.Error, qsTr("Image not saved"), DataExport.localPath(file))
+        const metadata = controller ? controller.exportMetadata() : {}
+        const source = o.target === "panel" ? root : displayArea
+        source.grabToImage(result => {
+            const temporary = DataExport.temporaryFilePath("png")
+            if (!result.saveToFile(temporary)) {
+                Notifications.notify(Notifications.Error, qsTr("Image not saved"), temporary)
                 return
             }
-            const temporary = DataExport.temporaryFilePath("png")
-            if (result.saveToFile(temporary) && DataExport.writePdf(file, temporary, title, controller ? controller.exportMetadata() : {}))
-                Notifications.notify(Notifications.Success, qsTr("PDF exported"), DataExport.localPath(file))
-            else
-                Notifications.notify(Notifications.Error, qsTr("PDF not saved"), DataExport.lastError)
-        }, Qt.size(displayArea.width * 2, displayArea.height * 2))
+            const path = DataExport.localPath(file)
+            if (o.destination === "printer") {
+                if (DataExport.print(temporary, title, metadata, o))
+                    Notifications.notify(Notifications.Success, qsTr("Sent to the printer"), o.printer ?? "")
+                else
+                    Notifications.notify(Notifications.Error, qsTr("Not printed"), DataExport.lastError)
+            } else if (o.destination === "pdf") {
+                if (DataExport.writePdf(file, temporary, title, metadata, o))
+                    Notifications.notify(Notifications.Success, qsTr("PDF exported"), path)
+                else
+                    Notifications.notify(Notifications.Error, qsTr("PDF not saved"), DataExport.lastError)
+            } else {
+                if (DataExport.writeImage(file, temporary, title, metadata, o))
+                    Notifications.notify(Notifications.Success, qsTr("Image exported"), path)
+                else
+                    Notifications.notify(Notifications.Error, qsTr("Image not saved"), DataExport.lastError)
+            }
+        }, Qt.size(source.width * 2, source.height * 2))
     }
 
     Connections {
@@ -97,25 +152,37 @@ Rectangle {
         function onExportDataRequested(id: string) { if (id === root.instrumentId) root.exportData() }
         function onExportImageRequested(id: string) { if (id === root.instrumentId) root.exportImage(false) }
         function onExportPdfRequested(id: string) { if (id === root.instrumentId) root.exportImage(true) }
+        function onPrintRequested(id: string) { if (id === root.instrumentId) root.printPanel() }
     }
 
+    Loader {
+        id: traceStyleLoader
+        active: false
+        sourceComponent: TraceStyleDialog { entries: root.traceStyles }
+    }
     FileDialog {
         id: dataDialog
         title: qsTr("Export %1 data").arg(root.controller ? root.controller.title : "")
         fileMode: FileDialog.SaveFile
-        nameFilters: DataExport.nameFilters
-        currentFolder: DataExport.lastFolder
+        nameFilters: DataExport.nameFiltersFor(root.instrumentId)
+        currentFolder: (DataExport.lastFolder, DataExport.lastFolderFor("csv"))
         onAccepted: root.controller.exportData(selectedFile)
+    }
+    PrintDialog {
+        id: printDialog
+        instrumentTitle: root.controller ? root.controller.title : ""
+        onAccepted: root.continuePrint()
     }
     FileDialog {
         id: imageDialog
         property bool pdf: false
+        property var exportOptions: ({})
         title: pdf ? qsTr("Export PDF") : qsTr("Export image")
         fileMode: FileDialog.SaveFile
         nameFilters: pdf ? [qsTr("PDF (*.pdf)")] : [qsTr("PNG image (*.png)")]
         defaultSuffix: pdf ? "pdf" : "png"
-        currentFolder: DataExport.lastFolder
-        onAccepted: root.writeImage(selectedFile, pdf)
+        currentFolder: (DataExport.lastFolder, DataExport.lastFolderFor(pdf ? "pdf" : "png"))
+        onAccepted: root.writeImage(selectedFile, exportOptions)
     }
 
     Keys.onEscapePressed: event => {
@@ -172,6 +239,17 @@ Rectangle {
                     }
                 }
 
+                // A run refused because of the user's input (InvalidInput): a warning, not an error.
+                Banner {
+                    Layout.fillWidth: true
+                    visible: root.showErrorBanner && root.controller !== null && !root.controller.hasError
+                             && root.controller.inputWarning.length > 0 && !root.controller.running
+                    tone: "warning"
+                    text: root.controller ? root.controller.inputWarning : ""
+                    closable: true
+                    onClosed: root.controller.clearInputWarning()
+                }
+
                 Banner {
                     Layout.fillWidth: true
                     visible: root.showErrorBanner && root.controller !== null && root.controller.hasError
@@ -180,6 +258,14 @@ Rectangle {
                     text: root.controller ? root.controller.errorText : ""
                     closable: true
                     onClosed: root.controller.clearError()
+                    ActionButton {
+                        text: qsTr("Details")
+                        compact: true
+                        tone: "subtle"
+                        color: Theme.accent
+                        toolTip: qsTr("Show the event log with the technical details")
+                        onClicked: ShellActions.eventLogRequested()
+                    }
                 }
 
                 DisplayArea {
@@ -207,6 +293,13 @@ Rectangle {
                                 }
                                 MenuItem { text: qsTr("Export image…"); icon.source: Theme.icon("image"); onTriggered: root.exportImage(false) }
                                 MenuItem { text: qsTr("Export PDF…"); icon.source: Theme.icon("file"); onTriggered: root.exportImage(true) }
+                                MenuItem {
+                                    visible: DataExport.printingAvailable
+                                    height: visible ? implicitHeight : 0
+                                    text: qsTr("Print…")
+                                    icon.source: Theme.icon("printer")
+                                    onTriggered: root.printPanel()
+                                }
                             }
                         },
                         HelpButton {
@@ -229,6 +322,13 @@ Rectangle {
                                     onTriggered: root.controller.resetSettings()
                                 }
                                 MenuItem {
+                                    text: qsTr("Trace style…")
+                                    icon.source: Theme.icon("edit")
+                                    visible: root.traceStyles.length > 0
+                                    height: visible ? implicitHeight : 0
+                                    onTriggered: root.openTraceStyleDialog()
+                                }
+                                MenuItem {
                                     text: root.focusMode ? qsTr("Exit focus mode") : qsTr("Focus mode")
                                     icon.source: Theme.icon("maximize")
                                     onTriggered: ShellActions.toggleFocus(root.instrumentId)
@@ -241,7 +341,7 @@ Rectangle {
                             iconSize: Theme.iconSizeS
                             checked: root.focusMode
                             toolTip: root.focusMode ? qsTr("Exit focus mode") : qsTr("Focus mode: display only")
-                            shortcutText: "⇧⌘F"
+                            shortcutText: Theme.keys("Ctrl+Shift+F")
                             onClicked: ShellActions.toggleFocus(root.instrumentId)
                         },
                         IconButton {
@@ -252,7 +352,7 @@ Rectangle {
                             iconSize: Theme.iconSizeS
                             checked: !root.narrow && !root.inspectorVisible
                             toolTip: shown ? qsTr("Hide settings") : qsTr("Show settings")
-                            shortcutText: "⌘I"
+                            shortcutText: Theme.keys("Ctrl+I")
                             onClicked: root.toggleInspector()
                         }
                     ]

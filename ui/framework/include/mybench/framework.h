@@ -8,6 +8,7 @@
 #include <mybench/help.h>
 #include <mybench/instrumentcontroller.h>
 #include <mybench/instrumentregistry.h>
+#include <mybench/launcher.h>
 #include <mybench/notifications.h>
 #include <mybench/resourcearbiter.h>
 #include <mybench/sessionmanager.h>

@@ -88,6 +88,12 @@ Rectangle {
                                 onTriggered: root.show(modelData.id)
                             }
                         }
+                        MenuSeparator {}
+                        MenuItem {
+                            text: qsTr("About %1").arg(AppInfo.name)
+                            icon.source: Theme.icon("info")
+                            onTriggered: Launcher.showAbout()
+                        }
                     }
                 }
                 IconButton {

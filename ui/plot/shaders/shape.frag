@@ -43,9 +43,14 @@ void main()
         d = triangleRight(vec2(p.y, p.x), vec2(b.y, b.x));
     } else if (kind < 4.5) {                // 4: up
         d = triangleRight(vec2(-p.y, p.x), vec2(b.y, b.x));
-    } else {                                // 5: diamond
+    } else if (kind < 5.5) {                // 5: diamond
         vec2 q = abs(p) / b;
         d = (q.x + q.y - 1.0) * min(b.x, b.y) * 0.7071;
+    } else {                                // 6: plus, 7: x (arm half-thickness = style.x)
+        if (kind > 6.5)
+            p = vec2(p.x + p.y, p.y - p.x) * 0.7071;
+        float t = vStyle.x;
+        d = min(roundBox(p, vec2(b.x, t), 0.0), roundBox(p, vec2(t, b.y), 0.0));
     }
     float fill = clamp(0.5 - d / aa, 0.0, 1.0);
     float bw = vStyle.y;

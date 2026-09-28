@@ -5,7 +5,8 @@
 // 8 DIO lines individually (counter and FREQOUT signals use DIO lines too: declare them). Every
 // InstrumentController declares what it needs (InstrumentController::setRequiredResources()).
 // When an instrument starts and a resource is held by another one, the holder is *paused* with a
-// reason ("Scope paused — AI in use by Bode") and a Resume action, never an opaque error.
+// reason ("Oscilloscope paused — AI in use by Bode Analyzer", full titles) and a Resume action,
+// never an opaque error.
 //
 // All methods run on the UI thread. QML: the `ResourceArbiter` singleton (holders for the top-bar
 // chips); C++: ResourceArbiter::instance().
@@ -14,6 +15,7 @@
 #include <QList>
 #include <QObject>
 #include <QPointer>
+#include <QStringList>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
@@ -39,6 +41,9 @@ class ResourceArbiter : public QObject
     // (order AI, AO, DMM, CTR, FREQOUT, DIO)
     Q_PROPERTY(QVariantList holders READ holders NOTIFY holdersChanged)
     Q_PROPERTY(bool anyHeld READ anyHeld NOTIFY holdersChanged)
+    // Instruments whose panel is on screen (set by the shell). A paused instrument whose panel
+    // is visible shows its banner only; otherwise a toast with Resume is shown too (app.md 5.2).
+    Q_PROPERTY(QStringList visibleInstruments READ visibleInstruments WRITE setVisibleInstruments NOTIFY visibleInstrumentsChanged)
 
 public:
     enum Resource {
@@ -81,9 +86,12 @@ public:
 
     QVariantList holders() const;
     bool anyHeld() const;
+    QStringList visibleInstruments() const { return m_visible; }
+    void setVisibleInstruments(const QStringList& ids);
 
 signals:
     void holdersChanged();
+    void visibleInstrumentsChanged();
     // `paused` was paused because `by` started. `reason` is the user-facing text.
     void preempted(mybench::InstrumentController* paused, mybench::InstrumentController* by,
                    const QString& reason);
@@ -97,6 +105,7 @@ private:
     QPointer<InstrumentController> m_counter;
     QPointer<InstrumentController> m_freqOut;
     std::array<QPointer<InstrumentController>, 8> m_dio;   // per DIO line
+    QStringList m_visible;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(ResourceArbiter::Resources)

@@ -236,6 +236,31 @@ public:
 
 // ---------------------------------------------------------------------------------------------
 
+// Optional features: names for Device::unsupportedFeatures(), so panels can grey out options a
+// backend does not implement (yet) instead of failing at Run. Feature names are stable strings
+// "<area>.<feature>"; a backend lists only what it does NOT support.
+namespace feature {
+// Counter input measurements / options (CounterInputConfig).
+inline constexpr char CounterPulseWidth[] = "counter.pulseWidth";
+inline constexpr char CounterSemiPeriod[] = "counter.semiPeriod";
+inline constexpr char CounterTwoEdgeSeparation[] = "counter.twoEdgeSeparation";
+inline constexpr char CounterLinearEncoder[] = "counter.linearEncoder";
+inline constexpr char CounterAngularEncoder[] = "counter.angularEncoder";
+inline constexpr char CounterFallingEdge[] = "counter.fallingEdge";
+inline constexpr char CounterCountDown[] = "counter.countDown";
+inline constexpr char CounterExternalDirection[] = "counter.externalDirection";
+inline constexpr char CounterInitialCount[] = "counter.initialCount";
+inline constexpr char CounterResetOnDio[] = "counter.resetOnDio";
+inline constexpr char CounterBuffered[] = "counter.buffered";
+// Pulse train output options (PulseOutputConfig).
+inline constexpr char PulseIdleHigh[] = "pulse.idleHigh";
+inline constexpr char PulseInitialDelay[] = "pulse.initialDelay";
+// FREQOUT on DIO4.
+inline constexpr char FrequencyOutput[] = "freqout";
+// ±2 V range of AO0/AO1 (AoChannelConfig::range = 2).
+inline constexpr char AoRange2V[] = "ao.range2V";
+}  // namespace feature
+
 struct DeviceInfo {
     QString id;            // stable key, e.g. "usb:036CD1C6" or "sim:0"
     QString name;          // display name, e.g. "myDAQ (036CD1C6)" or "Simulated myDAQ"
@@ -288,6 +313,11 @@ public:
 
     // Stops all tasks (AI, AO, counter, FREQOUT), outputs to 0 V, DIO to inputs.
     virtual void reset() = 0;
+
+    // Optional features (mydaq::feature names) this backend does not implement: the panels grey
+    // them out. Default: everything is supported. supports() is the convenience check.
+    virtual QStringList unsupportedFeatures() const { return {}; }
+    bool supports(const QString& feature) const { return !unsupportedFeatures().contains(feature); }
 
 protected:
     static DeviceError notSupported() { return DeviceError(DeviceError::NotSupported, QStringLiteral("Not supported by this device backend")); }

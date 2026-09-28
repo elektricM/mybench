@@ -125,14 +125,16 @@ QList<InstrumentController*> ResourceArbiter::acquire(InstrumentController* cont
     auto claim = [&](QPointer<InstrumentController>& slot, const QString& what) {
         InstrumentController* holder = slot;
         if (holder && holder != controller && !paused.contains(holder)) {
-            const QString reason = tr("%1 paused — %2 in use by %3")
-                                       .arg(holder->shortTitle(), what, controller->shortTitle());
+            const QString reason = tr("%1 paused — %2 in use by %3").arg(holder->title(), what, controller->title());
             holder->pause(reason);
             paused.append(holder);
-            QPointer<InstrumentController> weak(holder);
-            Notifications::instance()->show(Notifications::Warning, reason, tr("Press Resume to take it back."),
-                                            tr("Resume"), [weak] { if (weak) weak->resume(); },
-                                            u"pause:"_s + holder->instrumentId());
+            // The banner in the holder's panel says it already when that panel is on screen.
+            if (!m_visible.contains(holder->instrumentId())) {
+                QPointer<InstrumentController> weak(holder);
+                Notifications::instance()->show(Notifications::Warning, reason, tr("Press Resume to take it back."),
+                                                tr("Resume"), [weak] { if (weak) weak->resume(); },
+                                                u"pause:"_s + holder->instrumentId());
+            }
             emit preempted(holder, controller, reason);
         }
         if (slot != controller) {
@@ -181,6 +183,14 @@ void ResourceArbiter::release(InstrumentController* controller)
         drop(line);
     if (changed)
         emit holdersChanged();
+}
+
+void ResourceArbiter::setVisibleInstruments(const QStringList& ids)
+{
+    if (ids == m_visible)
+        return;
+    m_visible = ids;
+    emit visibleInstrumentsChanged();
 }
 
 InstrumentController* ResourceArbiter::holder(Resource resource) const

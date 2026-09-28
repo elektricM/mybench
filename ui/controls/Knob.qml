@@ -12,8 +12,9 @@ import MyBench.Framework
 //
 // Discrete ("ring") knob: `values` (+ optional `labels`) and `currentIndex`, emits indexMoved().
 // Continuous knob: `from`/`to` (optionally `logarithmic`) and `value`, emits moved().
-// Drag vertically (Shift = fine), wheel, arrow keys, PageUp/PageDown, Home/End. Controlled
-// component: bind the value and apply the signal.
+// Drag vertically (Shift = fine), wheel, arrow keys, PageUp/PageDown, Home/End; double-click
+// resets to `defaultValue` when it is set. Controlled component: bind the value and apply the
+// signal.
 //     Knob { label: qsTr("Time/Div"); values: ctl.timeDivValues; currentIndex: ctl.timeDivIndex
 //            labels: ctl.timeDivLabels; onIndexMoved: i => ctl.timeDivIndex = i }
 T.Control {
@@ -29,6 +30,12 @@ T.Control {
     property real to: 1
     property bool logarithmic: false
     property real stepSize: 0          // keys/wheel; 0 = 1/100 of the travel (1/200 with Shift)
+    // Double-click resets to this (app.md 7.2): a value for a continuous knob (coerced to
+    // [from, to]), an entry of `values` for a ring knob (nearest one). Unset: double-click does
+    // nothing.
+    property var defaultValue: undefined
+    readonly property bool hasDefault: defaultValue !== undefined && defaultValue !== null
+                                       && isFinite(Number(defaultValue))
     // Presentation
     property string label              // caption above
     property string unit
@@ -94,6 +101,31 @@ T.Control {
         } else {
             setPosition(position + n * (fine ? 0.005 : 0.01))
         }
+    }
+
+    // Emits moved()/indexMoved() for the default value; false when there is none.
+    function resetToDefault(): bool {
+        if (!enabled || !hasDefault)
+            return false
+        const d = Number(defaultValue)
+        if (discrete) {
+            let best = -1
+            let bestDistance = Infinity
+            for (let i = 0; i < count; ++i) {
+                const distance = Math.abs(Number(values[i]) - d)
+                if (distance < bestDistance) {
+                    bestDistance = distance
+                    best = i
+                }
+            }
+            if (best >= 0 && best !== currentIndex)
+                indexMoved(best)
+        } else {
+            const v = Math.max(Math.min(from, to), Math.min(Math.max(from, to), d))
+            if (v !== value)
+                moved(v)
+        }
+        return true
     }
 
     implicitWidth: Math.max(diameter + 16, captionText.implicitWidth, valueLabel.implicitWidth)
@@ -262,6 +294,7 @@ T.Control {
                     const n = wheel.angleDelta.y > 0 ? 1 : wheel.angleDelta.y < 0 ? -1 : 0
                     control.step(n, (wheel.modifiers & Qt.ShiftModifier) !== 0)
                 }
+                onDoubleClicked: control.resetToDefault()
             }
         }
 

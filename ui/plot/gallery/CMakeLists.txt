@@ -25,6 +25,7 @@ qt_add_qml_module(mybench-plot-gallery
         XYPage.qml
         RecorderPage.qml
         LogicPage.qml
+        StylesPage.qml
 )
 target_link_libraries(mybench-plot-gallery PRIVATE
     mybench_plot mybench_plotplugin mybench_offscreen mydaq_core Qt6::Quick Qt6::QuickControls2)

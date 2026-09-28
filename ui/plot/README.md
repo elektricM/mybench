@@ -96,20 +96,30 @@ m_fall.appendRow(std::span<const double>(dbv));
 | `leftMargin`, `rightMargin`, `topMargin`, `bottomMargin` | -1 (auto) | |
 | `plotArea` : rect (read-only), `implicitLeftMargin` (read-only) | | align stacked plots: `leftMargin: Math.max(a.implicitLeftMargin, b.implicitLeftMargin)` |
 | `interactive`, `dragMode` : `Plot.Pan`/`Plot.Zoom`/`Plot.NoDrag` | true, Pan | |
+| `zoomAxes` : `Plot.ZoomXY`/`ZoomX`/`ZoomY` | ZoomXY | axes changed by the rubber band (X only: full-height band) |
+| `canUndoZoom` (read-only) | | zoom history not empty (`undoZoom()`) |
+| `xAutoscaleLock`, `yAutoscaleLock` | false | re-fit the axis to the data on every update (ELVISmx autoscale lock); a user zoom/pan of that axis, `resetView()` and `undoZoom()` turn it off |
 | `hoverReadout` | false | crosshair + tooltip with all traces' values |
 | `legendVisible`, `legendPosition` : `Plot.TopRight`/`TopLeft`/`BottomLeft`/`BottomRight` | false, TopRight | traces with a `name` |
 | `containsMouse`, `hoverValue` : point (read-only) | | |
 
 Methods: `mapToValue(point)`, `mapFromValue(point)`, `xToPixel(x)`, `yToPixel(y)`, `pixelToX(px)`,
 `pixelToY(py)` (item coordinates, log aware — position QML overlays with them), `autoscale()`,
-`autoscaleX()`, `autoscaleY()`, `resetView()`, `zoomAt(point, fx, fy)`, `format(value, unit, digits = 4)`
+`autoscaleX()`, `autoscaleY()`, `resetView()`, `zoomAt(point, fx, fy)`, `undoZoom()`, `clearZoomHistory()`, `format(value, unit, digits = 4)`
 ("1.250 ms"), `traceColor(trace)`, `paletteColor(i)`, `saveImage(url)` (→ `imageSaved(path, ok)`),
+`copyImage()` (clipboard, → `imageCopied(ok)`),
 `saveCsv(url, visibleRangeOnly = true)`, `toCsv(visibleRangeOnly)`, `addElement(e)`/`removeElement(e)`.
-Signals: `clicked(x, y)`, `doubleClicked(x, y)`, `viewReset()`, `imageSaved(path, ok)`, `plotAreaChanged()`.
+Signals: `clicked(x, y)`, `doubleClicked(x, y)`, `viewReset()`, `imageSaved(path, ok)`, `imageCopied(ok)`,
+`plotAreaChanged()`, `zoomHistoryChanged()`, `autoscaleLockChanged()`, `contextMenuRequested(point)` (right
+click without drag in the plot area, item coordinates).
+
+Zoom history: every user zoom/pan (wheel and pinch bursts count once), rubber band, `autoscale*()`,
+`zoomAt()` and `resetView()` push the previous ranges (32 levels); `undoZoom()` restores them.
 
 Interaction: wheel = zoom x at the pointer · Shift+wheel = zoom y · Ctrl/⌘+wheel = zoom both ·
 Alt+wheel / horizontal trackpad scroll = pan x · pinch = zoom x (Shift: y) · drag = pan
-(`dragMode: Plot.Zoom`, Shift+drag or right-drag = rubber-band zoom) · double-click = home ranges ·
+(`dragMode: Plot.Zoom`, Ctrl/⌘+drag, Shift+drag or right-drag = rubber-band zoom; right click without
+drag = `contextMenuRequested`) · double-click = home ranges ·
 drag cursors, lines, handles, regions · click a cursor/line then ←/→ (↑/↓) nudge 1 px (Shift 10 px) ·
 +/− zoom · Home/0 reset · Esc deselect. Per-axis `interactive: false` locks an axis (scope y).
 
@@ -141,16 +151,31 @@ Tick labels are engineering notation with a common prefix on linear axes ("0", "
 ### Elements (declare inside the Plot, or anywhere with `plot: thePlot`)
 
 All have `visible`, `z` (stacking within their kind), `plot`. Enums on `PlotElement`:
-`Solid, Dash, Dot, DashDot`; `Vertical, Horizontal`.
+`Solid, Dash, Dot, DashDot, DashDotDot`; `Vertical, Horizontal`.
 
 **PlotTrace** — `buffer` (TraceBuffer), `name`, `unit` (readouts; default y unit), `color`
 (unset = palette), `width` (1.5 px), `style`, `lineVisible`, `pointsVisible` + `pointSize`
-(drawn while samples are sparser than ~1 per 3 px), `step`, `fill` + `fillBaseline` (NaN = plot
-bottom) + `fillOpacity` (gradient fill, spectra), `xScale`/`xOffset`/`yScale`/`yOffset`
+(drawn while samples are sparser than ~1 per 3 px) + `pointShape` (`PlotTrace.FilledCircle`, `Circle`,
+`Square`, `FilledSquare`, `Diamond`, `FilledDiamond`, `Cross` (bold +), `Plus`, `X`), `step` (=
+`interpolationMode: PlotTrace.Step`), `interpolationMode` (`Linear`, `Step` (hold), `StepVertical`, `CenterStep`,
+`CenterStepVertical`), `fill` + `fillBaseline` (NaN or −Infinity = plot bottom, +Infinity = top) +
+`fillOpacity` + `fillGradient` (default true: fades towards the baseline, spectra) + `fillColor` (points
+and fill; unset = `color`), `userStyle` (a TraceStyle overriding the look, below), `xScale`/`xOffset`/`yScale`/`yOffset`
 (display = value·scale + offset: scope `yScale: 1 / voltsPerDiv; yOffset: positionDiv`),
 `persistence` (ms; afterglow of previous records, additive), `legendVisible`.
 Methods: `valueAt(x)`, `nearestSample(x)`, `toDisplayY(v)`, `fromDisplayY(d)`, `toDisplayX`,
 `fromDisplayX`. Signal `dataChanged()`.
+
+**TraceStyle** (not an element; attach with `PlotTrace.userStyle`) — the user-editable look
+(ui/controls TraceStyleDialog edits it): `lineColor`/`fillColor` (unset = the trace's color),
+`lineWidth` (0 = no line), `lineStyle` (`TraceStyle.Solid` … `DashDotDot`), `pointStyle` (`NoPoints`,
+`Circle`, `FilledCircle`, `Square`, `FilledSquare`, `Diamond`, `FilledDiamond`, `Cross`, `Plus`, `X`),
+`interpolation` (`PointsOnly`, `Linear`, `Step`, `StepVertical`, `CenterStep`, `CenterStepVertical`: the
+6 ELVISmx modes), `fillTo` (`NoFill`, `Zero`, `MinusInfinity`, `PlusInfinity`; flat 50 % alpha),
+`isDefault`, `reset()`, `setAsDefault()` (values declared in QML are the defaults), `copyFrom(style)`,
+`toJson()` / `fromJson(map)` (stable string keys; missing keys = defaults, unknown values coerced) for
+the controller's saved settings. "Points only" with a dense record draws a dotted line so the trace never
+disappears. `TraceBuffer.setUniformValues(x0, dx, [numbers])` fills small previews from QML.
 
 **PlotCursor** — `orientation` (Vertical: x = position), `position`, `color`, `label` ("C1"),
 `draggable`, `trace` (readout dot + value chip at the intersection; `value` = trace value in data

@@ -77,5 +77,11 @@ Dialog {
             checked: prefs.confirmQuit
             onToggled: checked => prefs.confirmQuit = checked
         }
+        ActionButton {
+            tone: "ghost"
+            iconName: "info"
+            text: qsTr("About %1…").arg(AppInfo.name)
+            onClicked: Launcher.showAbout()
+        }
     }
 }

@@ -5,7 +5,8 @@ import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
-// The application event log (errors, device events, notifications), newest first.
+// The application event log (errors, device events, notifications), newest first, with the
+// technical details of device errors.
 Popup {
     id: popup
 
@@ -70,6 +71,7 @@ Popup {
                 required property int level
                 required property string source
                 required property string message
+                required property string details
                 width: list.width
                 implicitHeight: row.implicitHeight + 12
                 RowLayout {
@@ -102,12 +104,26 @@ Popup {
                         font.weight: Font.DemiBold
                         elide: Text.ElideRight
                     }
-                    Text {
+                    Column {
                         Layout.fillWidth: true
-                        text: entry.message
-                        color: Theme.text
-                        font.pixelSize: Theme.fontSizeM
-                        wrapMode: Text.WordWrap
+                        spacing: 2
+                        Text {
+                            width: parent.width
+                            text: entry.message
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSizeM
+                            wrapMode: Text.WordWrap
+                        }
+                        // Technical details (error code name + backend text, app.md 9.3).
+                        Text {
+                            visible: entry.details.length > 0
+                            width: parent.width
+                            text: entry.details
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSizeS
+                            font.family: Theme.monoFamily
+                            wrapMode: Text.WrapAnywhere
+                        }
                     }
                 }
             }

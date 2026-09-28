@@ -4,7 +4,8 @@ import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
-// Home's device card: connection, product, serial, simulated tag, reset, simulator controls.
+// Home's device card: connection, product, serial, simulated tag, reset, simulator controls
+// (quick toggles + "Simulator settings…" dialog).
 Card {
     id: card
 
@@ -146,19 +147,21 @@ Card {
             Text { Layout.fillWidth: true; text: qsTr("DMM leads open"); color: Theme.textSecondary; font.pixelSize: Theme.fontSizeM }
             ToggleSwitch { checked: DeviceHub.simulatorDmmOpenCircuit; onToggled: DeviceHub.simulatorDmmOpenCircuit = checked }
         }
-        RowLayout {
-            Layout.fillWidth: true
-            Text { Layout.fillWidth: true; text: qsTr("RC corner (AO 0 → AI 1)"); color: Theme.textSecondary; font.pixelSize: Theme.fontSizeM }
-            SiField {
-                Layout.preferredWidth: 110
-                unit: "Hz"
-                from: 1
-                to: 100000
-                value: DeviceHub.simulatorRcCutoff
-                onValueModified: v => DeviceHub.simulatorRcCutoff = v
-            }
+        ActionButton {
+            text: qsTr("Simulator settings…")
+            iconName: "settings"
+            compact: true
+            tone: "ghost"
+            toolTip: qsTr("Test signals, noise, RC corner and DMM values of the simulated device")
+            onClicked: simulatorDialog.open()
         }
     }
+
+    SimulatorDialog {
+        id: simulatorDialog
+    }
+    // --simulator-settings (screenshots, docs): open the dialog at start.
+    Component.onCompleted: if (AppInfo.flag("simulator-settings") && DeviceHub.simulatorAvailable) simulatorDialog.open()
 
     ConfirmDialog {
         id: resetConfirm

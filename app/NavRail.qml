@@ -7,6 +7,7 @@ import MyBench.Framework
 import MyBench.Controls
 
 // Left navigation rail: Home, one button per instrument (with its run state), help at the bottom.
+// Click opens/focuses an instrument; Ctrl/⌘+click opens it in the other split pane.
 Rectangle {
     id: rail
 
@@ -142,7 +143,7 @@ Rectangle {
             text: qsTr("Home")
             iconName: "home"
             toolTip: qsTr("Home")
-            shortcutText: "⌘0"
+            shortcutText: Theme.keys("Ctrl+0")
             selected: rail.workspace.home
             onClicked: rail.workspace.showHome()
         }
@@ -171,11 +172,17 @@ Rectangle {
                 text: shortTitle
                 iconName: model.icon
                 toolTip: title
-                shortcutText: index < 9 ? "⌘" + (index + 1) : ""
+                shortcutText: index < 9 ? Theme.keys("Ctrl+" + (index + 1)) : ""
                 selected: rail.workspace.isVisible(instrumentId)
                 stateColor: running ? Theme.success : paused ? Theme.warning : hasError ? Theme.danger : "transparent"
                 pulse: running
                 onClicked: rail.workspace.open(instrumentId)
+                // Ctrl/⌘+click: in the other split pane, creating the split if needed (app.md 2.2).
+                TapHandler {
+                    acceptedModifiers: Qt.ControlModifier
+                    gesturePolicy: TapHandler.WithinBounds
+                    onTapped: rail.workspace.openInOtherPane(instrumentButton.instrumentId)
+                }
             }
         }
 
@@ -194,7 +201,7 @@ Rectangle {
             text: qsTr("Settings")
             iconName: "settings"
             toolTip: qsTr("Preferences")
-            shortcutText: "⌘,"
+            shortcutText: Theme.keys("Ctrl+,")
             onClicked: rail.preferencesRequested()
         }
     }

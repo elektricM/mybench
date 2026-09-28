@@ -45,6 +45,9 @@ class SessionManager : public QObject
     Q_PROPERTY(QVariantList recentSessions READ recentSessions NOTIFY recentSessionsChanged)
     // Layout of the shell (opaque to the framework). Persisted in QSettings when set.
     Q_PROPERTY(QVariantMap workspace READ workspace WRITE setWorkspace NOTIFY workspaceChanged)
+    // View state of the panels ("view" in the session): collapsed inspector sections
+    // ("collapsed/<instrument>/<section title>": true)... Persisted like the layout.
+    Q_PROPERTY(QVariantMap viewState READ viewState NOTIFY viewStateChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QString fileExtension READ fileExtension CONSTANT)   // "mybench"
     Q_PROPERTY(QStringList nameFilters READ nameFilters CONSTANT)
@@ -74,6 +77,13 @@ public:
     bool isModified() const { return m_modified; }
     QVariantList recentSessions() const;
     QVariantMap workspace() const { return m_workspace; }
+    QVariantMap viewState() const { return m_viewState; }
+    Q_INVOKABLE QVariant viewValue(const QString& key, const QVariant& fallback = QVariant()) const
+    {
+        return m_viewState.value(key, fallback);
+    }
+    // Sets one view-state value (marks the session modified; auto-saved).
+    Q_INVOKABLE void setViewValue(const QString& key, const QVariant& value);
     void setWorkspace(const QVariantMap& workspace);
     QString lastError() const { return m_lastError; }
     QString fileExtension() const { return QStringLiteral("mybench"); }
@@ -84,6 +94,7 @@ signals:
     void modifiedChanged();
     void recentSessionsChanged();
     void workspaceChanged();
+    void viewStateChanged();
     void lastErrorChanged();
     // After load()/newSession(): the shell rebuilds its layout from `workspace` (may be empty =
     // default layout).
@@ -103,6 +114,7 @@ private:
     bool m_modified = false;
     bool m_applying = false;
     QVariantMap m_workspace;
+    QVariantMap m_viewState;
     QString m_lastError;
     QTimer m_workspaceSaveTimer;
 };

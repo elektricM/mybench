@@ -1,6 +1,7 @@
 #include "mybench/appinfo.h"
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QJSEngine>
 
 using namespace Qt::StringLiterals;
@@ -30,6 +31,29 @@ QString AppInfo::name() const
 QString AppInfo::version() const
 {
     return QStringLiteral(MYBENCH_VERSION);
+}
+
+QString AppInfo::homepage() const
+{
+    return QStringLiteral(MYBENCH_HOMEPAGE);
+}
+
+QString AppInfo::qtVersion() const
+{
+    return QString::fromLatin1(qVersion());
+}
+
+bool AppInfo::usbBackend() const
+{
+    return MYBENCH_WITH_USB != 0;
+}
+
+QString AppInfo::licenseText() const
+{
+    QFile file(u":/mybench/LICENSE"_s);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    return QString::fromUtf8(file.readAll());
 }
 
 QString AppInfo::platform() const

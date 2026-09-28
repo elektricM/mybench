@@ -61,6 +61,7 @@ struct Core {
     ZohLowPass rcFilter{1000.0};                // AO 0 -> AI 1
     std::array<ZohLowPass, 2> audioCoupling{ZohLowPass(kAudioCouplingHz), ZohLowPass(kAudioCouplingHz)};
     double noiseRms = 0.5e-3;
+    QStringList unsupportedFeatures;   // simulated backend limits (default: none)
     double channelSkew = kDefaultSkew;   // reported by 2-channel AI tasks
     std::mt19937_64 rng{0x6d79444151ULL};
     std::normal_distribution<double> gaussian{0.0, 1.0};

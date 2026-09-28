@@ -8,6 +8,8 @@ import MyBench.Controls
 // The workspace content: Home, or the current tab's panel(s) side by side. Each instrument's
 // panel is created the first time it is shown and then kept (moved between the split slots and
 // a hidden stash), so switching tabs never loses view state.
+// The pane that gets the pointer or the keyboard focus becomes `workspace.focused`. A tab dragged
+// from the tab strip onto the left/right half shows its instrument in that pane.
 Item {
     id: view
 
@@ -64,6 +66,74 @@ Item {
     Item {
         id: stash
         visible: false
+    }
+
+    // Keyboard focus moving into a pane (Tab, a click on a control) focuses its instrument.
+    function paneOf(item: Item): string {
+        for (let i = item; i !== null; i = i.parent) {
+            if (i === leftSlot)
+                return leftSlot.instrumentId
+            if (i === rightSlot)
+                return view.splitShown ? rightSlot.instrumentId : ""
+        }
+        return ""
+    }
+    Connections {
+        target: view.Window.window
+        function onActiveFocusItemChanged() {
+            const item = view.Window.activeFocusItem
+            const id = item ? view.paneOf(item) : ""
+            if (id.length > 0 && id !== view.workspace.focused && view.focusId.length === 0)
+                view.workspace.focused = id
+        }
+    }
+
+    // Drop target for tabs dragged from the tab strip (TabStrip.qml).
+    DropArea {
+        id: paneDrop
+        anchors.fill: split
+        enabled: !view.showHome
+        keys: ["mybench-tab"]
+        property string instrumentId: ""
+        readonly property string side: containsDrag ? (drag.x < width / 2 ? "left" : "right") : ""
+        function instrumentOf(keys: list<string>): string {
+            for (const k of keys)
+                if (k.startsWith("instrument:"))
+                    return k.slice(11)
+            return ""
+        }
+        onEntered: drag => {
+            instrumentId = instrumentOf(drag.keys)
+            const tab = view.workspace.currentTab
+            // Nothing to do for the current tab's own single panel.
+            if (instrumentId.length === 0 || (tab !== null && tab.secondary.length === 0 && tab.primary === instrumentId))
+                drag.accepted = false
+        }
+        onExited: instrumentId = ""
+        onDropped: drop => {
+            const id = instrumentOf(drop.keys)
+            if (id.length > 0)
+                view.workspace.openInPane(id, drop.x < width / 2 ? "left" : "right")
+            instrumentId = ""
+        }
+
+        Rectangle {
+            visible: paneDrop.containsDrag
+            x: paneDrop.side === "left" ? 0 : parent.width / 2
+            width: parent.width / 2
+            height: parent.height
+            color: Theme.alpha(Theme.accent, 0.12)
+            border.width: 2
+            border.color: Theme.alpha(Theme.accent, 0.6)
+            radius: Theme.radiusM
+            Text {
+                anchors.centerIn: parent
+                text: qsTr("Show here")
+                color: Theme.accent
+                font.pixelSize: Theme.fontSizeL
+                font.weight: Font.DemiBold
+            }
+        }
     }
 
     component PaneSlot: Item {

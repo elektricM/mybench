@@ -16,10 +16,14 @@
 // Interaction (when `interactive`, per axis `PlotAxis.interactive`):
 //   wheel: zoom x at the pointer · Shift+wheel: zoom y · Ctrl/⌘+wheel: zoom x and y ·
 //   Alt+wheel or horizontal trackpad scroll: pan x · trackpad pinch: zoom x (Shift: y) ·
-//   drag: pan (dragMode Pan) or rubber-band zoom (dragMode Zoom, Shift+drag, right drag) ·
+//   drag: pan (dragMode Pan) or rubber-band zoom (dragMode Zoom, Ctrl/⌘+drag, Shift+drag, right
+//   drag; `zoomAxes` limits it to x or y) · right click (no drag): contextMenuRequested() ·
 //   double-click: reset to the home ranges · drag cursors / lines / handles / regions ·
 //   click a cursor or line, then arrow keys nudge it 1 px (Shift: 10 px) · +/−: zoom x ·
 //   Home or 0: reset · Esc: deselect.
+// Zoom history: every user zoom/pan/rubber band/autoscale/reset pushes the previous ranges;
+// undoZoom() goes back. xAutoscaleLock/yAutoscaleLock re-fit an axis to the data on every update
+// until the user zooms or pans that axis (or resets the view).
 #pragma once
 
 #include "mybench/plot/plotaxis.h"
@@ -33,6 +37,7 @@
 #include <QUrl>
 #include <QtQml/qqmlregistration.h>
 
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -76,6 +81,10 @@ class Plot : public QQuickItem
     Q_PROPERTY(bool hoverReadout READ hoverReadout WRITE setHoverReadout NOTIFY interactionChanged FINAL)
     Q_PROPERTY(bool legendVisible READ legendVisible WRITE setLegendVisible NOTIFY styleChanged FINAL)
     Q_PROPERTY(Corner legendPosition READ legendPosition WRITE setLegendPosition NOTIFY styleChanged FINAL)
+    Q_PROPERTY(ZoomAxes zoomAxes READ zoomAxes WRITE setZoomAxes NOTIFY interactionChanged FINAL)
+    Q_PROPERTY(bool canUndoZoom READ canUndoZoom NOTIFY zoomHistoryChanged FINAL)
+    Q_PROPERTY(bool xAutoscaleLock READ xAutoscaleLock WRITE setXAutoscaleLock NOTIFY autoscaleLockChanged FINAL)
+    Q_PROPERTY(bool yAutoscaleLock READ yAutoscaleLock WRITE setYAutoscaleLock NOTIFY autoscaleLockChanged FINAL)
     Q_PROPERTY(bool containsMouse READ containsMouse NOTIFY hoverChanged FINAL)
     Q_PROPERTY(QPointF hoverValue READ hoverValue NOTIFY hoverChanged FINAL)
 
@@ -90,6 +99,9 @@ public:
     Q_ENUM(DragMode)
     enum Corner { TopLeft, TopRight, BottomLeft, BottomRight };
     Q_ENUM(Corner)
+    // Axes changed by the rubber band (ZoomX: full-height band, x only).
+    enum ZoomAxes { ZoomXY, ZoomX, ZoomY };
+    Q_ENUM(ZoomAxes)
 
     explicit Plot(QQuickItem *parent = nullptr);
     ~Plot() override;
@@ -156,6 +168,16 @@ public:
     void setLegendVisible(bool on);
     Corner legendPosition() const;
     void setLegendPosition(Corner c);
+    ZoomAxes zoomAxes() const;
+    void setZoomAxes(ZoomAxes axes);
+    bool canUndoZoom() const;
+    // Continuous autoscale of one axis (ELVISmx autoscale lock): fits the axis to the data every
+    // time the data change (exactly, no hysteresis; y with the axis' autoScaleMargin). A user
+    // zoom/pan of that axis, resetView() and undoZoom() turn it off.
+    bool xAutoscaleLock() const;
+    void setXAutoscaleLock(bool on);
+    bool yAutoscaleLock() const;
+    void setYAutoscaleLock(bool on);
     bool containsMouse() const;
     QPointF hoverValue() const;
 
@@ -179,6 +201,9 @@ public:
     Q_INVOKABLE void resetView();
     // Zoom around an item point (factor > 1 zooms in; 1 leaves that axis).
     Q_INVOKABLE void zoomAt(QPointF point, double factorX, double factorY);
+    // Back to the ranges before the last user zoom/pan/rubber band/autoscale/reset (32 levels).
+    Q_INVOKABLE void undoZoom();
+    Q_INVOKABLE void clearZoomHistory();
 
     // ---- elements -----------------------------------------------------------------------------
     Q_INVOKABLE void addElement(mybench::plot::PlotElement *element);
@@ -192,6 +217,8 @@ public:
     // ---- export -------------------------------------------------------------------------------
     // PNG of the whole item (asynchronous; imageSaved() reports the result).
     Q_INVOKABLE bool saveImage(const QUrl &file);
+    // Image of the whole item to the clipboard (asynchronous; imageCopied() reports the result).
+    Q_INVOKABLE bool copyImage();
     // CSV of the visible traces (x range of the view, or everything).
     Q_INVOKABLE bool saveCsv(const QUrl &file, bool visibleRangeOnly = true) const;
     Q_INVOKABLE QString toCsv(bool visibleRangeOnly = true) const;
@@ -218,6 +245,11 @@ signals:
     void doubleClicked(double x, double y);
     void viewReset();
     void imageSaved(const QString &path, bool ok);
+    void imageCopied(bool ok);
+    void zoomHistoryChanged();
+    void autoscaleLockChanged();
+    // Right click without drag in the plot area (item coordinates): open a context menu there.
+    void contextMenuRequested(QPointF point);
 
 protected:
     void componentComplete() override;
@@ -243,6 +275,9 @@ private:
     friend struct PlotPrivate;
     void requestUpdate();
     void connectAxis(PlotAxis *axis);
+    // Grabs the item (asynchronously when the window is on screen) and calls `done` with the image
+    // (null on failure) on the GUI thread.
+    bool grabImage(std::function<void(const QImage &)> done);
     std::unique_ptr<PlotPrivate> d;
 };
 

@@ -51,3 +51,5 @@ endif()
 if(NOT MSVC)
     target_compile_options(mybench PRIVATE -Wall -Wextra)
 endif()
+
+add_subdirectory(tests)   # QuickTest of the shell QML (tst_shell)

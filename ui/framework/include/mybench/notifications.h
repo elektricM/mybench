@@ -4,6 +4,9 @@
 // Resume action), hot-plug, exports. Every notification is also written to the EventLog.
 // Info/success toasts expire after a few seconds, warnings and errors stay longer; hovering a
 // toast (hold()) keeps it. Identical notifications shown again while visible are merged (count).
+// At most kMaxVisible (3) toasts are stacked (app.md 9.1): older ones are dropped (they stay in
+// the EventLog). An error shown without an action gets a `Details` action that emits
+// detailsRequested() (the shell opens the event log).
 #pragma once
 
 #include <QAbstractListModel>
@@ -65,6 +68,7 @@ public:
     Q_INVOKABLE void clear();
 
     int count() const { return int(m_items.size()); }
+    static constexpr int kMaxVisible = 3;
 
     // QAbstractListModel
     int rowCount(const QModelIndex& parent = {}) const override;
@@ -74,6 +78,8 @@ public:
 signals:
     void countChanged();
     void actionTriggered(int toastId);
+    // The `Details` action of an error toast was clicked (`source` of that toast).
+    void detailsRequested(const QString& source);
 
 protected:
     void timerEvent(QTimerEvent* event) override;

@@ -296,6 +296,18 @@ void SimDevice::setNoiseRms(double volts)
     d->noiseRms = std::max(0.0, volts);
 }
 
+QStringList SimDevice::unsupportedFeatures() const
+{
+    std::lock_guard lock(d->mutex);
+    return d->unsupportedFeatures;
+}
+
+void SimDevice::setUnsupportedFeatures(const QStringList& features)
+{
+    std::lock_guard lock(d->mutex);
+    d->unsupportedFeatures = features;
+}
+
 double SimDevice::noiseRms() const
 {
     std::lock_guard lock(d->mutex);

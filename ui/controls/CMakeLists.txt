@@ -53,3 +53,7 @@ target_link_libraries(mybench_ui INTERFACE
 )
 
 add_subdirectory(gallery)
+
+if(BUILD_TESTING OR NOT DEFINED BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

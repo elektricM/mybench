@@ -7,9 +7,11 @@ import MyBench.Framework
 //
 // - Shows the value with an SI prefix and unit ("1.000 kHz"); accepts typed prefixes ("1.5k",
 //   "20m", "4,7 k", "1e3") — Enter or focus loss commits, Escape reverts.
-// - Per-digit tuning: Up/Down (or the wheel while focused) change the digit left of the cursor
-//   (highlighted), Left/Right pick the digit, PageUp/PageDown step ten times; the small arrows
-//   step by `stepSize` (or the selected digit).
+// - Per-digit tuning: Up/Down change the digit left of the cursor (highlighted), Left/Right pick
+//   the digit, PageUp/PageDown step ten times; the wheel over a digit (hovered, focus not needed)
+//   changes that digit; the small arrows step by `stepSize` (or the selected digit).
+// - `label` is the control's name (accessible name, app.md 7.4). Without a `toolTip`, the tooltip
+//   is "<label> (from <from> to <to>)" built from the range and unit (app.md 7.1).
 // - Out-of-range values are coerced to [from, to] (LabVIEW behaviour), with a short flash.
 // - Controlled component: bind `value` and apply valueModified(value):
 //       SiField { unit: "Hz"; from: 0.2; to: 20e3; value: ctl.frequency
@@ -24,11 +26,36 @@ T.TextField {
     property int digits: 4               // significant digits shown (engineering mode)
     property bool engineering: true      // false: fixed `decimals`, no prefix
     property int decimals: 2
+    // Engineering display without trailing zeros ("100 Hz", "1 kHz", "123.46 Hz").
+    property bool trimZeros: false   // also for engineering: false ("0", "-1.5", "0.25 V")
+    // >= 0: ELVISmx-style mantissa with this many decimals and an SI prefix letter, without the
+    // unit ("100.00", "1.50k", "10.00k"); the unit is shown outside the field.
+    property int prefixDecimals: -1
+    // Ascending list of allowed values (e.g. a 1-2-5 sequence): arrows, Up/Down and the wheel
+    // move to the next/previous entry instead of tuning a digit. Typed values are still accepted.
+    property var steps: []
     property real stepSize: 0            // arrows / keys without a selected digit; 0 = digit
     property real resolution: 0          // smallest tuning step (0 = none)
     property bool showArrows: true
     property color accentColor: Theme.accent
-    property string toolTip
+    property string toolTip              // "" = automatic: label and allowed range
+    property string label                // name of the value (accessible name), e.g. "Frequency"
+    // "from 200 mHz to 20 kHz" (empty when the range is unbounded).
+    readonly property string rangeText: {
+        const low = Math.abs(from) < 1e299
+        const high = Math.abs(to) < 1e299
+        const f = v => Units.format(v, unit, Math.max(3, digits), true)
+        if (low && high)
+            return qsTr("from %1 to %2").arg(f(from)).arg(f(to))
+        if (low)
+            return qsTr("at least %1").arg(f(from))
+        if (high)
+            return qsTr("at most %1").arg(f(to))
+        return ""
+    }
+    readonly property string effectiveToolTip: toolTip.length > 0 ? toolTip
+                                             : label.length > 0 ? (rangeText.length > 0 ? label + " (" + rangeText + ")" : label)
+                                             : rangeText.length > 0 ? rangeText.charAt(0).toUpperCase() + rangeText.slice(1) : ""
     readonly property bool valid: !dirty || !isNaN(parseText(text))
     readonly property string formattedText: formatValue(value)
 
@@ -41,7 +68,24 @@ T.TextField {
     function formatValue(v: real): string {
         if (!isFinite(v))
             return "---" + (unit.length > 0 ? " " + unit : "")
-        return engineering ? Units.format(v, unit, digits, false) : Units.fixed(v, unit, decimals)
+        if (engineering && prefixDecimals >= 0)
+            return prefixed(v)
+        if (engineering)
+            return Units.format(v, unit, digits, trimZeros)
+        const fixedText = Units.fixed(v, unit, decimals)
+        if (!trimZeros)
+            return fixedText
+        const trimmed = fixedText.replace(/^([-\u2212]?\d+)\.(\d*?)0+(?=\D|$)/, (m, whole, fraction) => fraction.length > 0 ? whole + "." + fraction : whole)
+        return trimmed.replace(/^[-\u2212]0(?=\D|$)/, "0")
+    }
+    function prefixed(v: real): string {
+        if (v === 0)
+            return (0).toFixed(prefixDecimals)
+        const letters = { "-12": "p", "-9": "n", "-6": "µ", "-3": "m", "0": "", "3": "k", "6": "M", "9": "G" }
+        let exponent = Math.max(-12, Math.min(9, Math.floor(Math.log10(Math.abs(v)) / 3) * 3))
+        if (Math.abs(Number((v / Math.pow(10, exponent)).toFixed(prefixDecimals))) >= 1000 && exponent < 9)
+            exponent += 3
+        return (v / Math.pow(10, exponent)).toFixed(prefixDecimals) + letters[String(exponent)]
     }
     function parseText(t: string): real {
         let v = Units.parse(t, unit)
@@ -139,11 +183,37 @@ T.TextField {
         }
         return best
     }
+    // Next entry of `steps` from the current value, `count` entries up (> 0) or down.
+    function stepListValue(count: int): real {
+        const list = control.steps
+        const eps = Math.abs(value) * 1e-9
+        let i
+        if (count > 0) {
+            i = list.findIndex(v => v > value + eps) - 1 + count
+            if (list.findIndex(v => v > value + eps) < 0)
+                return value
+        } else {
+            let below = -1
+            for (let k = 0; k < list.length; ++k)
+                if (list[k] < value - eps)
+                    below = k
+            if (below < 0)
+                return value
+            i = below + 1 + count
+        }
+        return list[Math.max(0, Math.min(list.length - 1, i))]
+    }
     function tune(steps: int, digitIndex: int) {
         if (readOnly || !enabled || steps === 0)
             return
         if (dirty)
             commit()
+        if (control.steps && control.steps.length > 0) {
+            const target = clampValue(stepListValue(steps))
+            if (target !== value)
+                valueModified(target)
+            return
+        }
         let weight = digitIndex >= 0 ? weightAt(text, digitIndex) : NaN
         if (isNaN(weight))
             weight = stepSize > 0 ? stepSize : weightAt(text, activeDigit())
@@ -181,12 +251,18 @@ T.TextField {
     hoverEnabled: true
     inputMethodHints: Qt.ImhFormattedNumbersOnly
     Accessible.role: Accessible.SpinBox
-    Accessible.name: toolTip
+    Accessible.name: label.length > 0 ? label : effectiveToolTip.length > 0 ? effectiveToolTip
+                                                                           : unit.length > 0 ? qsTr("Value in %1").arg(unit) : qsTr("Value")
+    Accessible.description: effectiveToolTip
 
     Component.onCompleted: refresh()
     onValueChanged: refresh()
     onUnitChanged: refresh()
     onDigitsChanged: refresh()
+    onTrimZerosChanged: refresh()
+    onPrefixDecimalsChanged: refresh()
+    onEngineeringChanged: refresh()
+    onDecimalsChanged: refresh()
     onTextEdited: dirty = true
     onEditingFinished: commit()
     onActiveFocusChanged: {
@@ -217,7 +293,7 @@ T.TextField {
     }
 
     WheelHandler {
-        enabled: control.activeFocus && !control.readOnly
+        enabled: (control.hovered || control.activeFocus) && control.enabled && !control.readOnly
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
             control.wheelAccumulator += event.angleDelta.y
@@ -310,7 +386,7 @@ T.TextField {
         }
     }
 
-    ToolTip.visible: hovered && !activeFocus && (toolTip.length > 0 || !valid)
+    ToolTip.visible: hovered && !activeFocus && (effectiveToolTip.length > 0 || !valid)
     ToolTip.delay: 600
-    ToolTip.text: !valid ? qsTr("Enter a number, e.g. 1.5k or 20m") : toolTip
+    ToolTip.text: !valid ? qsTr("Enter a number, e.g. 1.5k or 20m") : effectiveToolTip
 }

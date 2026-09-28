@@ -21,6 +21,7 @@ qt_add_qml_module(mybench_plot
         include/mybench/plot/plotelements.h
         include/mybench/plot/scale.h
         include/mybench/plot/tracebuffer.h
+        include/mybench/plot/tracestyle.h
         include/mybench/plot/waterfall.h
         src/decimation.cpp
         src/logicbuffer.cpp
@@ -33,6 +34,7 @@ qt_add_qml_module(mybench_plot
         src/plotrender.cpp
         src/scale.cpp
         src/tracebuffer.cpp
+        src/tracestyle.cpp
         src/waterfall.cpp
 )
 

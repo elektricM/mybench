@@ -456,23 +456,28 @@ void PlotPrivate::buildTraces()
             continue;
         }
         const TraceSnapshot s = t->buffer()->snapshot();
+        const PlotTrace::Appearance ap = t->appearance();
         const QColor color = traceColor(t);
+        const QColor fillC = ap.fillColor.isValid() ? ap.fillColor : color;
         quint64 key = hashCombine(0, s->version);
         key = hashCombine(key, quint64(quintptr(t->buffer())));
         key = hashMap(key, xMap);
         key = hashMap(key, yMap);
-        key = hashDouble(key, t->width());
+        key = hashDouble(key, ap.width);
         key = hashDouble(key, t->xScale());
         key = hashDouble(key, t->xOffset());
         key = hashDouble(key, t->yScale());
         key = hashDouble(key, t->yOffset());
-        key = hashDouble(key, t->fillBaseline());
-        key = hashDouble(key, t->fillOpacity());
-        key = hashDouble(key, t->pointSize());
+        key = hashDouble(key, ap.fillBaseline);
+        key = hashDouble(key, ap.fillOpacity);
+        key = hashDouble(key, ap.pointSize);
         key = hashDouble(key, dpr);
         key = hashCombine(key, quint64(color.rgba()) | (quint64(areaC.rgba()) << 32));
-        key = hashCombine(key, quint64(t->style()) | (t->step() << 4) | (t->fill() << 5) | (t->pointsVisible() << 6)
-                                   | (t->lineVisible() << 7));
+        key = hashCombine(key, quint64(fillC.rgba()));
+        key = hashCombine(key, quint64(ap.style) | (quint64(ap.interpolation) << 4) | (quint64(ap.fill) << 8)
+                                   | (quint64(ap.pointsVisible) << 9) | (quint64(ap.lineVisible) << 10)
+                                   | (quint64(ap.pointsOnly) << 11) | (quint64(ap.fillGradient) << 12)
+                                   | (quint64(ap.pointShape) << 16));
         const int persistence = t->persistence();
         // Persistence: keep the previous record's geometry as a fading ghost.
         if (persistence > 0 && s->version != g.dataVersion && !g.line.empty()) {
@@ -500,24 +505,34 @@ void PlotPrivate::buildTraces()
         g.dirty = true;
 
         TraceTransform tf{t->xScale(), t->xOffset(), t->yScale(), t->yOffset()};
-        g.info = buildPolyline(*s, xMap, yMap, tf, t->step(), 1.0, g.points);
+        static constexpr StepMode stepModes[] = {StepMode::None, StepMode::Hold, StepMode::Vertical,
+                                                 StepMode::CenterHorizontal, StepMode::CenterVertical};
+        g.info = buildPolyline(*s, xMap, yMap, tf, stepModes[int(ap.interpolation)], 1.0, g.points);
 
+        // Points are drawn while samples are sparse (>= 3 px apart); a "points only" trace with a
+        // dense record falls back to a dotted line so it never disappears.
+        const bool sparse = !g.info.decimated && double(g.points.size()) <= area.width() / 3.0;
+        const bool dottedFallback = ap.pointsOnly && !sparse;
         const quint32 packed = packColor(color);
         g.line.clear();
-        if (t->lineVisible())
-            g.line.polyline(g.points.data(), g.points.size(), float(t->width() * 0.5), packed);
-        dashPattern(int(t->style()), float(t->width()), &g.dashOn, &g.dashOff);
+        if (ap.lineVisible || dottedFallback)
+            g.line.polyline(g.points.data(), g.points.size(), float(ap.width * 0.5), packed);
+        g.dash = dashPattern(dottedFallback ? int(PlotElement::Dot) : int(ap.style), float(ap.width));
 
         g.fill.clear();
-        if (t->fill() && g.points.size() > 1) {
+        if (ap.fill && g.points.size() > 1) {
             double base = area.bottom();
-            if (!std::isnan(t->fillBaseline())) {
-                const double b = yMap.toPixel(t->fillBaseline());
+            if (std::isinf(ap.fillBaseline)) {
+                const double edge = yMap.toPixel(ap.fillBaseline > 0 ? yMap.max : yMap.min);
+                if (std::isfinite(edge))
+                    base = std::clamp(edge, area.top(), area.bottom());
+            } else if (!std::isnan(ap.fillBaseline)) {
+                const double b = yMap.toPixel(ap.fillBaseline);
                 if (std::isfinite(b))
                     base = std::clamp(b, area.top() - 1, area.bottom() + 1);
             }
-            const QColor topC = withAlpha(color, t->fillOpacity());
-            const QColor bottomC = withAlpha(color, t->fillOpacity() * 0.12);
+            const QColor topC = withAlpha(fillC, ap.fillOpacity);
+            const QColor bottomC = withAlpha(fillC, ap.fillOpacity * (ap.fillGradient ? 0.12 : 1.0));
             g.fill.vertices.reserve(g.points.size() * 4);
             for (size_t i = 1; i < g.points.size(); ++i) {
                 const PixelPoint &p0 = g.points[i - 1], &p1 = g.points[i];
@@ -540,12 +555,31 @@ void PlotPrivate::buildTraces()
         }
 
         g.dots.clear();
-        if (t->pointsVisible() && !g.info.decimated && double(g.points.size()) <= area.width() / 3.0) {
-            const double r = t->pointSize() * 0.5;
-            for (const PixelPoint &p : g.points) {
+        if (ap.pointsVisible && sparse) {
+            const double r = ap.pointSize * 0.5;
+            const quint32 dotC = packColor(fillC);
+            const float stroke = float(std::clamp(ap.width * 0.6, 1.0, 2.0));
+            // Staircases add corner vertices: mark the samples only.
+            std::vector<PixelPoint> samplePoints;
+            if (ap.interpolation != PlotTrace::Linear)
+                buildPolyline(*s, xMap, yMap, tf, StepMode::None, 1.0, samplePoints);
+            const std::vector<PixelPoint> &markAt = ap.interpolation != PlotTrace::Linear ? samplePoints : g.points;
+            // Hollow shapes: transparent fill with a border; Plus/X: thin arms; Cross: bold arms.
+            for (const PixelPoint &p : markAt) {
                 if (p.isGap() || p.x < area.left() - r || p.x > area.right() + r)
                     continue;
-                g.dots.shape(QRectF(p.x - r, p.y - r, 2 * r, 2 * r), ShapeKind::Box, float(r), packed);
+                const QRectF box(p.x - r, p.y - r, 2 * r, 2 * r);
+                switch (ap.pointShape) {
+                case PlotTrace::FilledCircle: g.dots.shape(box, ShapeKind::Box, float(r), dotC); break;
+                case PlotTrace::Circle: g.dots.shape(box, ShapeKind::Box, float(r), 0, stroke, dotC); break;
+                case PlotTrace::Square: g.dots.shape(box.adjusted(0.5, 0.5, -0.5, -0.5), ShapeKind::Box, 0.0f, 0, stroke, dotC); break;
+                case PlotTrace::FilledSquare: g.dots.shape(box.adjusted(0.5, 0.5, -0.5, -0.5), ShapeKind::Box, 0.0f, dotC); break;
+                case PlotTrace::Diamond: g.dots.shape(box.adjusted(-1, -1, 1, 1), ShapeKind::Diamond, 0.0f, 0, stroke, dotC); break;
+                case PlotTrace::FilledDiamond: g.dots.shape(box.adjusted(-1, -1, 1, 1), ShapeKind::Diamond, 0.0f, dotC); break;
+                case PlotTrace::Cross: g.dots.shape(box.adjusted(-0.5, -0.5, 0.5, 0.5), ShapeKind::Plus, float(r * 0.34 + 0.25), dotC); break;
+                case PlotTrace::Plus: g.dots.shape(box.adjusted(-0.5, -0.5, 0.5, 0.5), ShapeKind::Plus, stroke * 0.5f, dotC); break;
+                case PlotTrace::X: g.dots.shape(box.adjusted(-0.5, -0.5, 0.5, 0.5), ShapeKind::X, stroke * 0.5f, dotC); break;
+                }
             }
         }
     }
@@ -1294,14 +1328,21 @@ public:
     std::vector<std::unique_ptr<WaterfallState>> waterfalls;
 };
 
-void setDash(QSGGeometryNode *node, float on, float off)
+void setDash(QSGGeometryNode *node, const DashPattern &p)
 {
     auto *m = static_cast<LineMaterial *>(node->material());
-    if (m->dashOn == on && m->dashOff == off)
+    if (m->dashOn == p.on && m->dashOff == p.off && m->dotLength == p.dotLength && m->dots == p.dots)
         return;
-    m->dashOn = on;
-    m->dashOff = off;
+    m->dashOn = p.on;
+    m->dashOff = p.off;
+    m->dotLength = p.dotLength;
+    m->dots = p.dots;
     node->markDirty(QSGNode::DirtyMaterial);
+}
+
+void setDash(QSGGeometryNode *node, float on, float off)
+{
+    setDash(node, DashPattern{on, off, 0.0f, 0.0f});
 }
 
 void rebuildText(QSGNode *parent, const std::vector<TextItem> &items, QQuickWindow *window)
@@ -1451,7 +1492,7 @@ QSGNode *Plot::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         vertices += qsizetype(g.line.vertices.size());
         if (g.dirty) {
             upload(n.line, g.line);
-            setDash(n.line, g.dashOn, g.dashOff);
+            setDash(n.line, g.dash);
             upload(n.fill, g.fill);
             upload(n.dots, g.dots);
         }
@@ -1474,8 +1515,10 @@ QSGNode *Plot::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
                 on = new QSGOpacityNode;
                 auto *material = new LineMaterial;
                 material->additive = true;
-                material->dashOn = g.dashOn;
-                material->dashOff = g.dashOff;
+                material->dashOn = g.dash.on;
+                material->dashOff = g.dash.off;
+                material->dotLength = g.dash.dotLength;
+                material->dots = g.dash.dots;
                 QSGGeometryNode *ln = createLineNode(material);
                 upload(ln, *gh.geometry);
                 on->appendChildNode(ln);

@@ -73,6 +73,8 @@ class InstrumentRegistry : public QAbstractListModel
     Q_PROPERTY(QStringList ids READ ids NOTIFY countChanged)
     Q_PROPERTY(int runningCount READ runningCount NOTIFY runningChanged)
     Q_PROPERTY(bool anyRunning READ anyRunning NOTIFY runningChanged)
+    // Something for Stop all to do: an instrument runs, is paused, or idles holding outputs.
+    Q_PROPERTY(bool anyStoppable READ anyStoppable NOTIFY runningChanged)
 
 public:
     enum Role {
@@ -112,8 +114,21 @@ public:
     Q_INVOKABLE QVariantMap info(const QString& id) const;
     Q_INVOKABLE int indexOf(const QString& id) const;
 
-    // Stops every running instrument.
+    // Stops every running instrument (and returns idle ones that hold outputs to their safe
+    // state, see InstrumentController::holdsOutputs).
     Q_INVOKABLE void stopAll();
+    // Opens (or focuses) the panel of `id`, after applying `preset` to its controller
+    // (InstrumentController::applyPreset): e.g. the Scope's FFT opening the Spectrum Analyzer
+    // with its span. `beside`: in a split pane next to the current panel. The shell handles
+    // openRequested(). Returns false for an unknown id.
+    Q_INVOKABLE bool openInstrument(const QString& id, const QVariantMap& preset = {}, bool beside = false);
+    // The shell closed the last view of `id`: InstrumentController::closePanel() if the
+    // controller exists (never creates one).
+    Q_INVOKABLE void notifyPanelClosed(const QString& id);
+    // "<Title>: <document>" of every controller with an unsaved document (quit prompt).
+    Q_INVOKABLE QStringList unsavedDocuments() const;
+    // Every existing controller: InstrumentController::resetForSession() (SessionManager).
+    void resetAllForSession();
     // Stops every controller and joins its worker (at exit, before the device goes away).
     void shutdown();
 
@@ -121,6 +136,7 @@ public:
     QStringList ids() const;
     int runningCount() const;
     bool anyRunning() const { return runningCount() > 0; }
+    bool anyStoppable() const;
 
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role) const override;
@@ -130,6 +146,8 @@ signals:
     void countChanged();
     void runningChanged();
     void controllerCreated(mybench::InstrumentController* controller);
+    // openInstrument(): the shell shows the panel of `id` (beside the current one if asked).
+    void openRequested(const QString& id, bool beside);
 
 private:
     explicit InstrumentRegistry(QObject* parent = nullptr);

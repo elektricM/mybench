@@ -5,6 +5,7 @@
 #include "mybench/instrumentregistry.h"
 #include "mybench/notifications.h"
 #include "mybench/settingsjson.h"
+#include "mybench/units.h"
 #include "runstate_p.h"
 
 #include <QDesktopServices>
@@ -13,6 +14,8 @@
 #include <QMetaMethod>
 #include <QSettings>
 
+#include <algorithm>
+#include <cmath>
 #include <exception>
 
 using namespace Qt::StringLiterals;
@@ -132,6 +135,8 @@ void InstrumentController::runOnce()
         startRun(Continuous);
         return;
     }
+    if (!m_singleEnabled)
+        return;
     startRun(Once);
 }
 
@@ -167,9 +172,153 @@ void InstrumentController::stop()
         setState(Idle);
         break;
     case Idle:
+        if (m_holdsOutputs)
+            applySafeState();
+        break;
     case Stopping:
         break;
     }
+}
+
+void InstrumentController::returnToSafeState()
+{
+    if (isRunning()) {
+        // Applied by onWorkerFinished() once the worker has released the device.
+        m_safeStatePending = true;
+        stop();
+        return;
+    }
+    if (m_state == Paused) {
+        m_pauseReason.clear();
+        Notifications::instance()->dismissSource(u"pause:"_s + m_id);
+        setState(Idle);
+    }
+    m_safeStatePending = false;
+    applySafeState();
+}
+
+void InstrumentController::closePanel()
+{
+    emit panelClosed();
+    returnToSafeState();
+}
+
+void InstrumentController::resetForSession()
+{
+    emit sessionReset();
+    returnToSafeState();
+}
+
+void InstrumentController::applyPreset(const QVariantMap& preset)
+{
+    if (!m_initialized)
+        initialize();
+    const QMetaObject* meta = metaObject();
+    for (auto it = preset.cbegin(); it != preset.cend(); ++it) {
+        const int index = meta->indexOfProperty(it.key().toUtf8().constData());
+        const QMetaProperty property = index >= 0 ? meta->property(index) : QMetaProperty();
+        if (index < InstrumentController::staticMetaObject.propertyCount() || !property.isWritable()) {
+            qWarning("MYBENCH: %s: preset key '%s' is not a setting", qPrintable(m_id), qPrintable(it.key()));
+            continue;
+        }
+        if (!json::writeProperty(this, property, QJsonValue::fromVariant(it.value())))
+            qWarning("MYBENCH: %s: preset value for '%s' rejected", qPrintable(m_id), qPrintable(it.key()));
+    }
+}
+
+void InstrumentController::setSingleEnabled(bool enabled)
+{
+    if (m_singleEnabled == enabled)
+        return;
+    m_singleEnabled = enabled;
+    emit singleEnabledChanged();
+}
+
+void InstrumentController::setHoldsOutputs(bool holds)
+{
+    if (m_holdsOutputs == holds)
+        return;
+    m_holdsOutputs = holds;
+    emit holdsOutputsChanged();
+}
+
+void InstrumentController::setUnsavedDocument(const QString& name)
+{
+    if (m_unsavedDocument == name)
+        return;
+    m_unsavedDocument = name;
+    emit unsavedDocumentChanged();
+}
+
+void InstrumentController::discardPendingResults()
+{
+    if (d->run)
+        d->run->discarded.store(true, std::memory_order_release);
+}
+
+quint64 InstrumentController::runGeneration() const
+{
+    return d->generation;
+}
+
+// --- Palette commands ----------------------------------------------------------------------
+
+void InstrumentController::addCommand(InstrumentCommand command)
+{
+    removeCommand(command.id);
+    m_commands.push_back(std::move(command));
+    emit commandsChanged();
+}
+
+void InstrumentController::removeCommand(const QString& id)
+{
+    const auto it = std::find_if(m_commands.begin(), m_commands.end(), [&](const InstrumentCommand& c) { return c.id == id; });
+    if (it == m_commands.end())
+        return;
+    m_commands.erase(it);
+    emit commandsChanged();
+}
+
+QVariantList InstrumentController::commands() const
+{
+    QVariantList list;
+    for (const InstrumentCommand& c : m_commands) {
+        list.append(QVariantMap{
+            {u"id"_s, c.id},
+            {u"title"_s, c.title},
+            {u"keys"_s, c.keys},
+            {u"keywords"_s, c.keywords},
+            {u"icon"_s, c.icon},
+            {u"argumentLabel"_s, c.argumentLabel},
+            {u"argumentUnit"_s, c.argumentUnit},
+            {u"enabled"_s, !c.enabled || c.enabled()},
+        });
+    }
+    return list;
+}
+
+void InstrumentController::invokeCommand(const QString& id, const QVariant& argument)
+{
+    const auto it = std::find_if(m_commands.begin(), m_commands.end(), [&](const InstrumentCommand& c) { return c.id == id; });
+    if (it == m_commands.end()) {
+        qWarning("MYBENCH: %s has no command '%s'", qPrintable(m_id), qPrintable(id));
+        return;
+    }
+    if (it->enabled && !it->enabled())
+        return;
+    QVariant value = argument;
+    if (!it->argumentUnit.isEmpty() && argument.typeId() == QMetaType::QString) {
+        const double number = Units::parse(argument.toString(), it->argumentUnit);
+        if (std::isnan(number)) {
+            reportInvalidInput(tr("“%1” is not a valid value for %2.").arg(argument.toString(), it->argumentLabel));
+            return;
+        }
+        value = number;
+    }
+    if (it->run)
+        it->run(value);
+    else
+        emit commandTriggered(id, value);
 }
 
 void InstrumentController::pause(const QString& reason)
@@ -218,6 +367,7 @@ void InstrumentController::restart()
 {
     if (m_state != Starting && m_state != Running)
         return;
+    discardPendingResults();   // in-flight results belong to the old settings
     stop();
     m_restartPending = true;
 }
@@ -243,9 +393,9 @@ void InstrumentController::startRun(RunMode mode)
     }
 
     const bool wasPaused = m_state == Paused;
-    auto refuse = [&](const QString& message) {
+    auto refuse = [&](const QString& message, const QString& details = {}) {
         if (!message.isEmpty())
-            recordError(message, true);
+            recordError(message, true, details);
         if (wasPaused) {
             m_pauseReason.clear();
             setState(Idle);
@@ -256,6 +406,7 @@ void InstrumentController::startRun(RunMode mode)
     m_interruptedByDisconnect = false;
     Notifications::instance()->dismissSource(u"pause:"_s + m_id);
     clearError();
+    clearInputWarning();
 
     const mydaq::DevicePtr device = DeviceHub::instance()->device();
     if (!device || !device->isConnected()) {
@@ -267,8 +418,15 @@ void InstrumentController::startRun(RunMode mode)
     m_startingMode = mode;
     try {
         function = createWorker();
+    } catch (const InvalidInput& problem) {
+        if (wasPaused) {
+            m_pauseReason.clear();
+            setState(Idle);
+        }
+        setInputWarning(problem.message(), true);
+        return;
     } catch (const mydaq::DeviceError& error) {
-        refuse(describeError(error));
+        refuse(describeError(error), EventLog::errorDetails(error.code(), error.message()));
         return;
     } catch (const std::exception& error) {
         refuse(QString::fromUtf8(error.what()));
@@ -296,6 +454,7 @@ void InstrumentController::startRun(RunMode mode)
         state->predecessors.push_back(retired);
 
     d->run = state;
+    m_safeStatePending = false;
     m_abortMessage.clear();
     m_startedAt = QDateTime::currentDateTime();
     setRunMode(mode);
@@ -330,6 +489,9 @@ void InstrumentController::threadMain(std::shared_ptr<detail::RunState> state, W
         try {
             WorkerContext context(state);
             function(context);
+        } catch (const InvalidInput& problem) {
+            errorCode = -3;
+            errorMessage = problem.message();
         } catch (const mydaq::DeviceError& error) {
             errorCode = error.code();
             errorMessage = error.message();
@@ -359,9 +521,10 @@ void InstrumentController::threadMain(std::shared_ptr<detail::RunState> state, W
             text = tr("The device was disconnected.");
         else if (errorCode >= 0)
             text = owner->describeError(mydaq::DeviceError(mydaq::DeviceError::Code(errorCode), errorMessage));
-        else if (errorCode == -1)
+        else if (errorCode == -1 || errorCode == -3)
             text = errorMessage;
-        owner->onWorkerFinished(generation, text, disconnected);
+        const QString details = errorCode >= 0 ? EventLog::errorDetails(errorCode, errorMessage) : QString();
+        owner->onWorkerFinished(generation, text, disconnected, errorCode == -3, details);
     }, Qt::QueuedConnection);
 }
 
@@ -378,7 +541,8 @@ void InstrumentController::onWorkerStarted(quint64 generation)
     }
 }
 
-void InstrumentController::onWorkerFinished(quint64 generation, const QString& error, bool disconnected)
+void InstrumentController::onWorkerFinished(quint64 generation, const QString& error, bool disconnected, bool inputProblem,
+                                            const QString& details)
 {
     std::shared_ptr<detail::RunState> state;
     const bool current = d->run && d->run->generation == generation;
@@ -416,10 +580,17 @@ void InstrumentController::onWorkerFinished(quint64 generation, const QString& e
     if (!message.isEmpty()) {
         m_pausePending = false;
         m_restartPending = false;
-        recordError(message, true);
+        if (inputProblem)
+            setInputWarning(message, true);
+        else
+            recordError(message, true, error.isEmpty() ? QString() : details);
     }
 
-    const bool paused = m_pausePending;
+    const bool safeState = m_safeStatePending;
+    m_safeStatePending = false;
+    if (safeState)
+        m_restartPending = false;
+    const bool paused = m_pausePending && !safeState;
     m_pausePending = false;
     if (!paused)
         m_pauseReason.clear();
@@ -427,8 +598,14 @@ void InstrumentController::onWorkerFinished(quint64 generation, const QString& e
     onFinished();
     emit finished();
 
+    if (safeState) {
+        applySafeState();
+        return;
+    }
     if (m_restartPending) {
         m_restartPending = false;
+        emit restarting();
+        onRestart();
         startRun(m_runMode);
     }
 }
@@ -446,6 +623,7 @@ void InstrumentController::shutdownImpl(bool destroying)
     }
     if (d->run) {
         d->run->stopSource.request_stop();
+        d->run->discarded.store(true, std::memory_order_release);
         d->retired.push_back(std::move(d->run));
         d->run.reset();
     }
@@ -606,7 +784,7 @@ QString InstrumentController::describeError(const mydaq::DeviceError& error) con
     return sentence(message.isEmpty() ? tr("Unknown device error") : message);
 }
 
-void InstrumentController::recordError(const QString& message, bool notify)
+void InstrumentController::recordError(const QString& message, bool notify, const QString& details)
 {
     m_errorText = message;
     QVariantMap entry;
@@ -617,7 +795,7 @@ void InstrumentController::recordError(const QString& message, bool notify)
         m_errorHistory.removeLast();
     emit errorChanged();
     emit errorOccurred(message);
-    EventLog::log(EventLog::Error, m_id, message);
+    EventLog::log(EventLog::Error, m_id, message, details);
     if (notify)
         Notifications::instance()->show(Notifications::Error, title(), message, {}, {}, m_id);
 }
@@ -631,6 +809,31 @@ void InstrumentController::reportWarning(const QString& message)
 {
     EventLog::log(EventLog::Warning, m_id, message);
     Notifications::instance()->show(Notifications::Warning, title(), message, {}, {}, m_id);
+}
+
+void InstrumentController::setInputWarning(const QString& message, bool notify)
+{
+    const QString text = sentence(message);
+    EventLog::log(EventLog::Warning, m_id, text);
+    if (notify)
+        Notifications::instance()->show(Notifications::Warning, title(), text, {}, {}, m_id);
+    if (m_inputWarning == text)
+        return;
+    m_inputWarning = text;
+    emit inputWarningChanged();
+}
+
+void InstrumentController::reportInvalidInput(const QString& message)
+{
+    setInputWarning(message, true);
+}
+
+void InstrumentController::clearInputWarning()
+{
+    if (m_inputWarning.isEmpty())
+        return;
+    m_inputWarning.clear();
+    emit inputWarningChanged();
 }
 
 void InstrumentController::clearError()

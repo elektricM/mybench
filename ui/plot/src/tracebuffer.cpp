@@ -389,6 +389,11 @@ void TraceBuffer::setXY(std::span<const float> x, std::span<const float> y)
     replace(std::move(s));
 }
 
+void TraceBuffer::setUniformValues(double x0, double dx, const QList<double> &y)
+{
+    setUniform(x0, dx, std::span<const double>(y.constData(), size_t(y.size())));
+}
+
 void TraceBuffer::clear()
 {
     auto s = std::make_unique<State>();

@@ -6,7 +6,9 @@ import MyBench.Framework
 import MyBench.Controls
 
 // Command palette (Ctrl/⌘K): fuzzy search over every command of the app.
-// `commands()` returns [{ title, subtitle, icon, keys, keywords, run: function }].
+// `commands()` returns [{ title, subtitle, icon, keys, keywords, run: function }]. A command with
+// `argumentLabel` ("Voltage (V)") asks for a value first: the field switches to that prompt and
+// Enter calls run(text).
 Popup {
     id: palette
 
@@ -14,6 +16,8 @@ Popup {
     property var all: []
     property var results: []
     property int current: 0
+    // The command waiting for its argument (argument mode), or null.
+    property var pending: null
 
     function score(command: var, query: string): real {
         if (query.length === 0)
@@ -50,7 +54,19 @@ Popup {
         current = 0
     }
     function runCurrent() {
+        if (pending) {
+            const command = pending
+            const text = field.text
+            close()
+            Qt.callLater(() => command.run(text))
+            return
+        }
         const command = results[current]
+        if (command && (command.argumentLabel ?? "").length > 0) {
+            pending = command
+            field.text = ""
+            return
+        }
         close()
         if (command)
             Qt.callLater(command.run)
@@ -67,6 +83,7 @@ Popup {
 
     onAboutToShow: {
         all = commands()
+        pending = null
         field.text = ""
         refresh("")
     }
@@ -83,18 +100,25 @@ Popup {
             implicitHeight: 52
             spacing: Theme.spacingM
             Icon {
-                name: "search"
+                name: palette.pending ? (palette.pending.icon ?? "chevron-right") : "search"
                 size: 18
-                color: Theme.textMuted
+                color: palette.pending ? Theme.accent : Theme.textMuted
+            }
+            Text {
+                visible: palette.pending !== null
+                text: palette.pending ? palette.pending.title + " ›" : ""
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeL + 1
             }
             TextField {
                 id: field
                 Layout.fillWidth: true
-                placeholderText: qsTr("Type a command or an instrument…")
+                objectName: "paletteField"
+                placeholderText: palette.pending ? palette.pending.argumentLabel : qsTr("Type a command or an instrument…")
                 font.pixelSize: Theme.fontSizeL + 1
                 background: Item {}
                 leftPadding: 0
-                onTextEdited: palette.refresh(text)
+                onTextEdited: if (!palette.pending) palette.refresh(text)
                 Keys.onDownPressed: palette.current = Math.min(palette.current + 1, palette.results.length - 1)
                 Keys.onUpPressed: palette.current = Math.max(palette.current - 1, 0)
                 Keys.onReturnPressed: palette.runCurrent()
@@ -108,7 +132,8 @@ Popup {
         ListView {
             id: list
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(contentHeight, 8 * 44) + 12
+            visible: palette.pending === null
+            Layout.preferredHeight: visible ? Math.min(contentHeight, 8 * 44) + 12 : 0
             Layout.topMargin: 6
             Layout.bottomMargin: 6
             clip: true
@@ -183,7 +208,7 @@ Popup {
             implicitHeight: 32
             spacing: Theme.spacingM
             Text { text: qsTr("↑↓ navigate"); color: Theme.textMuted; font.pixelSize: Theme.fontSizeS }
-            Text { text: qsTr("↵ run"); color: Theme.textMuted; font.pixelSize: Theme.fontSizeS }
+            Text { text: palette.pending ? qsTr("↵ apply") : qsTr("↵ run"); color: Theme.textMuted; font.pixelSize: Theme.fontSizeS }
             Item { Layout.fillWidth: true }
             Text { text: qsTr("%n command(s)", "", palette.results.length); color: Theme.textMuted; font.pixelSize: Theme.fontSizeS }
         }

@@ -50,7 +50,7 @@ public:
     bool updateUniformData(RenderState &state, QSGMaterial *newMaterial, QSGMaterial *) override
     {
         QByteArray *buf = state.uniformData();
-        Q_ASSERT(buf->size() >= 80);
+        Q_ASSERT(buf->size() >= 88);
         if (state.isMatrixDirty()) {
             const QMatrix4x4 m = state.combinedMatrix();
             std::memcpy(buf->data(), m.constData(), 64);
@@ -60,8 +60,8 @@ public:
             std::memcpy(buf->data() + 64, &opacity, 4);
         }
         const auto *material = static_cast<LineMaterial *>(newMaterial);
-        const float values[3] = {1.0f / std::max(0.25f, state.devicePixelRatio()), material->dashOn,
-                                 material->dashOff};
+        const float values[5] = {1.0f / std::max(0.25f, state.devicePixelRatio()), material->dashOn,
+                                 material->dashOff, material->dotLength, material->dots};
         std::memcpy(buf->data() + 68, values, sizeof(values));
         return true;
     }
@@ -130,32 +130,46 @@ int LineMaterial::compare(const QSGMaterial *other) const
         return dashOn < o->dashOn ? -1 : 1;
     if (dashOff != o->dashOff)
         return dashOff < o->dashOff ? -1 : 1;
+    if (dotLength != o->dotLength)
+        return dotLength < o->dotLength ? -1 : 1;
+    if (dots != o->dots)
+        return dots < o->dots ? -1 : 1;
     if (additive != o->additive)
         return additive ? 1 : -1;
     return 0;
 }
 
-void dashPattern(int style, float width, float *on, float *off)
+DashPattern dashPattern(int style, float width)
 {
     const float w = std::max(1.0f, width);
+    DashPattern p;
     switch (style) {
     case 1:  // Dash
-        *on = 5.0f * w;
-        *off = 3.5f * w;
+        p.on = 5.0f * w;
+        p.off = 3.5f * w;
         break;
     case 2:  // Dot
-        *on = 1.0f * w;
-        *off = 2.5f * w;
+        p.on = 1.0f * w;
+        p.off = 2.5f * w;
         break;
-    case 3:  // DashDot (approximated as a long dash with a short gap)
-        *on = 8.0f * w;
-        *off = 2.5f * w;
+    case 3:  // DashDot
+    case 4:  // DashDotDot
+        p.on = 6.0f * w;
+        p.off = 2.5f * w;
+        p.dotLength = 1.0f * w;
+        p.dots = style == 3 ? 1.0f : 2.0f;
         break;
     default:
-        *on = 0.0f;
-        *off = 0.0f;
         break;
     }
+    return p;
+}
+
+void dashPattern(int style, float width, float *on, float *off)
+{
+    const DashPattern p = dashPattern(style, width);
+    *on = p.on;
+    *off = p.off;
 }
 
 namespace {

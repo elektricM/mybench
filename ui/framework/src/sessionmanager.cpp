@@ -29,6 +29,7 @@ const QString kFormat = u"mybench-session"_s;
 constexpr int kVersion = 1;
 constexpr int kMaxRecent = 10;
 const QString kWorkspaceKey = u"workspace/layout"_s;
+const QString kViewKey = u"workspace/view"_s;
 const QString kRecentKey = u"session/recent"_s;
 const QString kCurrentKey = u"session/current"_s;
 
@@ -48,6 +49,9 @@ SessionManager::SessionManager(QObject* parent) : QObject(parent)
         if (document.isObject())
             m_workspace = document.object().toVariantMap();
     }
+    const QJsonDocument view = QJsonDocument::fromJson(settings.value(kViewKey).toByteArray());
+    if (view.isObject())
+        m_viewState = view.object().toVariantMap();
     const QString current = settings.value(kCurrentKey).toString();
     if (!current.isEmpty() && QFileInfo::exists(current))
         m_currentFile = QUrl::fromLocalFile(current);
@@ -57,6 +61,8 @@ SessionManager::SessionManager(QObject* parent) : QObject(parent)
     connect(&m_workspaceSaveTimer, &QTimer::timeout, this, [this] {
         QSettings().setValue(kWorkspaceKey, QJsonDocument(QJsonObject::fromVariantMap(m_workspace))
                                                 .toJson(QJsonDocument::Compact));
+        QSettings().setValue(kViewKey, QJsonDocument(QJsonObject::fromVariantMap(m_viewState))
+                                           .toJson(QJsonDocument::Compact));
     });
     watchControllers();
 }
@@ -100,6 +106,7 @@ QJsonObject SessionManager::toJson() const
     session.insert(u"device"_s, QJsonObject{{u"id"_s, DeviceHub::instance()->currentId()},
                                             {u"name"_s, DeviceHub::instance()->name()}});
     session.insert(u"layout"_s, QJsonObject::fromVariantMap(m_workspace));
+    session.insert(u"view"_s, QJsonObject::fromVariantMap(m_viewState));
     QJsonObject instruments;
     InstrumentRegistry* registry = InstrumentRegistry::instance();
     for (const InstrumentDescriptor& descriptor : registry->descriptors()) {
@@ -125,7 +132,7 @@ bool SessionManager::fromJson(const QJsonObject& session)
     }
     m_applying = true;
     InstrumentRegistry* registry = InstrumentRegistry::instance();
-    registry->stopAll();
+    registry->resetAllForSession();   // stop, outputs to their safe state (DIO to inputs...)
     const QJsonObject instruments = session.value(u"instruments"_s).toObject();
     QList<InstrumentController*> wereRunning;
     for (const InstrumentDescriptor& descriptor : registry->descriptors()) {
@@ -158,8 +165,10 @@ bool SessionManager::fromJson(const QJsonObject& session)
 
     m_workspace = (session.contains(u"layout"_s) ? session.value(u"layout"_s) : session.value(u"workspace"_s))
                       .toObject().toVariantMap();
+    m_viewState = session.value(u"view"_s).toObject().toVariantMap();
     m_workspaceSaveTimer.start();
     emit workspaceChanged();
+    emit viewStateChanged();
     emit workspaceRestored(m_workspace);
     m_applying = false;
     setModified(false);
@@ -246,10 +255,12 @@ void SessionManager::newSession()
 {
     m_applying = true;
     InstrumentRegistry* registry = InstrumentRegistry::instance();
-    registry->stopAll();
+    registry->resetAllForSession();   // stop, outputs to their safe state (DIO to inputs...)
     for (InstrumentController* controller : registry->controllers())
         controller->resetSettings();
     m_workspace.clear();
+    m_viewState.clear();
+    emit viewStateChanged();
     m_workspaceSaveTimer.start();
     emit workspaceChanged();
     emit workspaceRestored(m_workspace);
@@ -324,6 +335,20 @@ void SessionManager::setWorkspace(const QVariantMap& workspace)
         return;
     m_workspace = workspace;
     emit workspaceChanged();
+    if (!m_applying)
+        setModified(true);
+    m_workspaceSaveTimer.start();
+}
+
+void SessionManager::setViewValue(const QString& key, const QVariant& value)
+{
+    if (m_viewState.value(key) == value)
+        return;
+    if (value.isValid())
+        m_viewState.insert(key, value);
+    else
+        m_viewState.remove(key);
+    emit viewStateChanged();
     if (!m_applying)
         setModified(true);
     m_workspaceSaveTimer.start();

@@ -1,15 +1,12 @@
 import QtQuick
-import MyBench.Framework
 
-// Keycap hint ("⌘K", "Space"). Use "Ctrl+" in `keys`; it shows as ⌘ on macOS.
+// Keycap hint ("⌘K", "Space"). Use "Ctrl+" in `keys`; it shows as ⌘ on macOS (Theme.keys()).
 //     KeyHint { keys: "Ctrl+K" }
 Rectangle {
     id: root
 
     property string keys
-    readonly property string label: AppInfo.platform === "macos"
-                                    ? keys.replace("Ctrl+", "⌘").replace("Shift+", "⇧").replace("Alt+", "⌥")
-                                    : keys
+    readonly property string label: Theme.keys(keys)
 
     implicitWidth: text.implicitWidth + 10
     implicitHeight: 18

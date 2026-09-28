@@ -389,10 +389,21 @@ private slots:
         timer.start();
         co->start();
         QVERIFY(!co->waitUntilDone(5));
-        QVERIFY(highFraction(dev, 3, 20) > 0.99);   // still in the initial delay
+        // Still in the 30 ms initial delay: only samples taken before 25 ms after start() count
+        // (under load the polling thread may be descheduled past the end of the delay).
+        int64_t samples = 0, highSamples = 0;
+        while (timer.elapsed() < 25) {
+            const bool level = (dev.dioRead() >> 3) & 1;
+            if (timer.elapsed() < 25) {
+                highSamples += level;
+                ++samples;
+            }
+        }
+        QVERIFY(samples == 0 || highSamples == samples);
         QCOMPARE(errorOf([&] { co->update(500.0, 0.5); }), int(DeviceError::NotSupported));
         QVERIFY(co->waitUntilDone(1000));
-        QVERIFY2(timer.elapsed() >= 48 && timer.elapsed() < 200, qPrintable(QString::number(timer.elapsed())));
+        // 30 ms delay + 20 pulses at 1 kHz; the upper bound only guards against a hang (load).
+        QVERIFY2(timer.elapsed() >= 48 && timer.elapsed() < 1000, qPrintable(QString::number(timer.elapsed())));
         QVERIFY(!co->isRunning());
         QVERIFY(dev.dioRead() & 0x08);   // back to idle high
     }

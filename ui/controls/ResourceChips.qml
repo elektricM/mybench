@@ -6,7 +6,7 @@ import MyBench.Framework
 
 // "[AI] Scope  [AO] Gen  [DMM]  [CTR · DIO 1]" — who holds which part of the device
 // (ResourceArbiter), one chip per instrument. Clicking a chip emits instrumentClicked(id) (the
-// shell focuses that panel).
+// shell focuses that panel); right-click offers "Stop <panel>".
 Row {
     id: root
 
@@ -28,6 +28,13 @@ Row {
                                 resources: g.labels.join(" · "), names: g.names.join(", ") }))
     }
     signal instrumentClicked(string instrumentId)
+
+    // Stops the instrument of a chip (context menu); like the run bar's Stop.
+    function stopInstrument(instrumentId: string) {
+        const controller = InstrumentRegistry.controller(instrumentId)
+        if (controller)
+            controller.stop()
+    }
 
     spacing: 6
 
@@ -51,6 +58,24 @@ Row {
             hoverEnabled: true
             focusPolicy: Qt.NoFocus
             onClicked: root.instrumentClicked(modelData.instrumentId)
+            Accessible.name: qsTr("%1: %2").arg(modelData.title).arg(modelData.names)
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: chipMenu.popup()
+            }
+            Menu {
+                id: chipMenu
+                MenuItem {
+                    text: qsTr("Stop %1").arg(chip.modelData.title)
+                    icon.source: Theme.icon("stop-filled")
+                    onTriggered: root.stopInstrument(chip.modelData.instrumentId)
+                }
+                MenuItem {
+                    text: qsTr("Show %1").arg(chip.modelData.title)
+                    onTriggered: root.instrumentClicked(chip.modelData.instrumentId)
+                }
+            }
 
             background: Rectangle {
                 radius: Theme.radiusM

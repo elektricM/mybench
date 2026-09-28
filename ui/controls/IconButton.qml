@@ -9,7 +9,7 @@ T.AbstractButton {
 
     property string iconName
     property string toolTip
-    property string shortcutText         // shown in the tooltip, e.g. "⌘K"
+    property string shortcutText         // shown in the tooltip: Theme.keys("Ctrl+K") ("⌘K" on macOS)
     property color iconColor: !enabled ? Theme.textDisabled
                               : checked ? accentColor
                               : (hovered || down) ? Theme.text : Theme.textSecondary

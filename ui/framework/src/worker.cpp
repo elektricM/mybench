@@ -48,7 +48,15 @@ void WorkerContext::post(std::function<void()> fn) const
 {
     if (!fn)
         return;
-    QMetaObject::invokeMethod(d->owner, std::move(fn), Qt::QueuedConnection);
+    // Tagged with the run: dropped when the run was discarded (restart, discardPendingResults)
+    // or is gone (controller shut down) by the time the UI thread gets to it.
+    std::weak_ptr<detail::RunState> weak = d;
+    QMetaObject::invokeMethod(d->owner, [weak, fn = std::move(fn)] {
+        const std::shared_ptr<detail::RunState> state = weak.lock();
+        if (!state || state->discarded.load(std::memory_order_acquire))
+            return;
+        fn();
+    }, Qt::QueuedConnection);
 }
 
 void WorkerContext::publish(std::function<void()> fn, int slot) const
@@ -74,6 +82,7 @@ void WorkerContext::publish(std::function<void()> fn, int slot) const
         const std::shared_ptr<detail::RunState> state = weak.lock();
         if (!state)
             return;
+        const bool discarded = state->discarded.load(std::memory_order_acquire);
         std::function<void()> latest;
         {
             std::lock_guard lock(state->publishMutex);
@@ -83,7 +92,8 @@ void WorkerContext::publish(std::function<void()> fn, int slot) const
             latest = std::move(it->second);
             state->pending.erase(it);
         }
-        latest();
+        if (!discarded)
+            latest();
     }, Qt::QueuedConnection);
 }
 

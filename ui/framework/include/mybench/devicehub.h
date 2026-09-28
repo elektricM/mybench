@@ -14,6 +14,8 @@
 #include <QAbstractListModel>
 #include <QObject>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
 
 #include <memory>
@@ -94,6 +96,11 @@ class DeviceHub : public QObject
     Q_PROPERTY(double maxAiRate READ maxAiRate NOTIFY currentChanged)   // S/s per channel, 0 if unknown
     Q_PROPERTY(double maxAoRate READ maxAoRate NOTIFY currentChanged)
     Q_PROPERTY(QString backend READ backend NOTIFY currentChanged)      // "USB", "Simulator"
+    // Optional features the selected device's backend does not implement (mydaq::feature names,
+    // e.g. "counter.pulseWidth"); kept while the device is unplugged. Bind to it in QML so the
+    // binding re-evaluates on a device change:
+    //     enabled: !DeviceHub.unsupportedFeatures.includes("counter.pulseWidth")
+    Q_PROPERTY(QStringList unsupportedFeatures READ unsupportedFeatures NOTIFY capabilitiesChanged)
 
     // Simulator controls (SimDevice "sim:0"; only when the simulator is built in).
     Q_PROPERTY(bool simulatorAvailable READ simulatorAvailable CONSTANT)
@@ -101,6 +108,14 @@ class DeviceHub : public QObject
     Q_PROPERTY(double simulatorNoiseRms READ simulatorNoiseRms WRITE setSimulatorNoiseRms NOTIFY simulatorChanged)
     Q_PROPERTY(double simulatorRcCutoff READ simulatorRcCutoff WRITE setSimulatorRcCutoff NOTIFY simulatorChanged)
     Q_PROPERTY(bool simulatorDmmOpenCircuit READ simulatorDmmOpenCircuit WRITE setSimulatorDmmOpenCircuit NOTIFY simulatorChanged)
+    // Test signal of each undriven input, index = mydaq::AiChannel (AI 0, AI 1, Audio L, Audio R):
+    // { waveform (mydaq::dsp::Waveform: 0 Sine, 1 Square, 2 Triangle, 3 Sawtooth, 4 DC, 5 Noise),
+    //   frequency (Hz), amplitude (V peak), offset (V), dutyCycle (0..1) }.
+    Q_PROPERTY(QVariantList simulatorTestSignals READ simulatorTestSignals NOTIFY simulatorChanged)
+    // DMM input per mydaq::DmmFunction (DC V, AC V, DC A, AC A, Ω, diode, continuity), base units.
+    Q_PROPERTY(QVariantList simulatorDmmValues READ simulatorDmmValues NOTIFY simulatorChanged)
+    // Features the simulator pretends not to support (preview of a limited backend, tests).
+    Q_PROPERTY(QStringList simulatorUnsupportedFeatures READ simulatorUnsupportedFeatures WRITE setSimulatorUnsupportedFeatures NOTIFY simulatorChanged)
 
 public:
     enum ConnectionState {
@@ -133,6 +148,11 @@ public:
     double maxAiRate() const;
     double maxAoRate() const;
     QString backend() const;
+    QStringList unsupportedFeatures() const { return m_unsupported; }
+    // Not a binding dependency by itself: in QML, prefer unsupportedFeatures.includes(...).
+    Q_INVOKABLE bool supports(const QString& feature) const { return !m_unsupported.contains(feature); }
+    // Tooltip for a greyed-out option: "Not supported by the USB backend yet".
+    Q_INVOKABLE QString unsupportedReason(const QString& feature) const;
 
     bool simulatorAvailable() const { return m_simulator != nullptr; }
     bool simulatorPlugged() const;
@@ -143,6 +163,13 @@ public:
     void setSimulatorRcCutoff(double hertz);
     bool simulatorDmmOpenCircuit() const;
     void setSimulatorDmmOpenCircuit(bool open);
+    QVariantList simulatorTestSignals() const;
+    // Changes the given keys of one input's test signal (others kept); values are clamped.
+    Q_INVOKABLE void setSimulatorTestSignal(int channel, const QVariantMap& changes);
+    QVariantList simulatorDmmValues() const;
+    Q_INVOKABLE void setSimulatorDmmValue(int function, double value);
+    QStringList simulatorUnsupportedFeatures() const;
+    void setSimulatorUnsupportedFeatures(const QStringList& features);
 
 public slots:
     // Selects a device by id (stops running instruments first; persisted).
@@ -160,11 +187,13 @@ signals:
     void deviceArrived(const QString& deviceId, const QString& name);
     void deviceLost(const QString& deviceId, const QString& name);
     void resetFinished(bool ok, const QString& error);
+    void capabilitiesChanged();
 
 private:
     explicit DeviceHub(QObject* parent = nullptr);
     void refresh();
     void setCurrent(const QString& deviceId, bool persist);
+    void updateCapabilities();
 
     DeviceListModel* m_model;
     std::shared_ptr<mydaq::SimDevice> m_simulator;
@@ -172,6 +201,8 @@ private:
     mydaq::DeviceInfo m_currentInfo;
     QStringList m_presentIds;
     bool m_resetting = false;
+    QStringList m_unsupported;
+    QString m_unsupportedFor;            // device id m_unsupported was read from
     mutable std::mutex m_mutex;          // guards m_device
     mydaq::DevicePtr m_device;           // selected and present
 };

@@ -22,12 +22,13 @@ ApplicationWindow {
                                                                 ? InstrumentRegistry.controller(workspace.focused) : null
     property bool quitConfirmed: false
 
-    width: 1440
-    height: 900
+    // Default: 1440 x 900, at most 90 % of a smaller screen (app.md 2.1); then the stored size.
+    width: Math.min(1440, Math.round(Screen.desktopAvailableWidth * 0.9))
+    height: Math.min(900, Math.round(Screen.desktopAvailableHeight * 0.9))
     minimumWidth: 1024
     minimumHeight: 640
     visible: true
-    title: AppInfo.name + (SessionManager.currentFile.toString().length > 0 ? " — " + SessionManager.currentName : "")
+    title: sessionGuard.windowTitle
     flags: unifiedTitleBar ? (Qt.Window | Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint) : Qt.Window
     color: Theme.window
 
@@ -39,6 +40,25 @@ ApplicationWindow {
     }
     function saveLayout() {
         SessionManager.workspace = workspace.toMap()
+    }
+    HelpFollower { workspace: workspace }
+    // Pause toasts only for panels that are not on screen (app.md 9.1).
+    Binding {
+        target: ResourceArbiter
+        property: "visibleInstruments"
+        value: window.focusMode ? [ShellActions.focusInstrument]
+             : workspace.currentTab ? [workspace.currentTab.primary, workspace.currentTab.secondary].filter(s => s.length > 0) : []
+    }
+    // Details on an error toast / banner opens the event log.
+    Connections {
+        target: ShellActions
+        function onEventLogRequested() { logPopup.open() }
+    }
+    // Help drawer width (app.md 2.5: 420 px, 320-720, remembered).
+    Settings {
+        id: helpPrefs
+        category: "help"
+        property int width: 420
     }
 
     Settings {
@@ -53,18 +73,54 @@ ApplicationWindow {
     }
     // Window geometry (a UI preference, not part of sessions).
     Settings {
+        id: windowPrefs
         category: "window"
         property alias x: window.x
         property alias y: window.y
         property alias width: window.width
         property alias height: window.height
+        property bool maximized: false
+    }
+    onVisibilityChanged: {
+        if (visibility === Window.Maximized || visibility === Window.Windowed)
+            windowPrefs.maximized = visibility === Window.Maximized
     }
 
+    // Save-first guard for Open / Open recent / Quit (app.md 11.2) and the window title.
+    SessionGuard {
+        id: sessionGuard
+        onSaveFirstRequested: saveFirstDialog.open()
+    }
+    ShellKeys { id: shellKeys }
+    function openSession() {
+        sessionGuard.run(() => openDialog.open())
+    }
+    function openRecent(file: url) {
+        sessionGuard.run(() => SessionManager.load(file))
+    }
+
+    // Quit: save a modified named session first, then confirm while instruments run.
     onClosing: close => {
-        if (!quitConfirmed && behaviour.confirmQuit && InstrumentRegistry.anyRunning && !AppInfo.screenshot) {
-            close.accepted = false
-            quitConfirm.open()
+        if (quitConfirmed || AppInfo.screenshot)
+            return
+        const mustConfirm = behaviour.confirmQuit && InstrumentRegistry.anyRunning
+        const documents = InstrumentRegistry.unsavedDocuments()
+        if (!sessionGuard.needsPrompt && !mustConfirm && documents.length === 0)
+            return
+        close.accepted = false
+        if (documents.length > 0 && !unsavedDocumentsConfirm.accepted) {
+            unsavedDocumentsConfirm.documents = documents
+            unsavedDocumentsConfirm.open()
+            return
         }
+        sessionGuard.run(() => {
+            if (behaviour.confirmQuit && InstrumentRegistry.anyRunning) {
+                quitConfirm.open()
+            } else {
+                window.quitConfirmed = true
+                Qt.callLater(window.close)
+            }
+        })
     }
     Binding {
         target: Theme
@@ -93,11 +149,22 @@ ApplicationWindow {
             workspace.showHelp(id)
         }
     }
+    // An instrument opens another panel (ShellActions.openInstrument / InstrumentRegistry).
+    Connections {
+        target: InstrumentRegistry
+        function onOpenRequested(id: string, beside: bool) {
+            if (beside && !workspace.home && !workspace.isVisible(id))
+                workspace.openBeside(id)
+            else
+                workspace.open(id)
+        }
+    }
 
     Component.onCompleted: {
         workspace.fromMap(SessionManager.workspace)
-        if (AppInfo.instrument.length > 0)
-            workspace.open(AppInfo.instrument)
+        // --panel is repeatable: every panel gets a tab, the last one is focused.
+        for (const id of AppInfo.panels)
+            workspace.open(id)
         if (AppInfo.value("split").length > 0)
             workspace.openBeside(AppInfo.value("split"))
         if (AppInfo.value("page") === "home")
@@ -110,6 +177,11 @@ ApplicationWindow {
             palette.open()
         if (AppInfo.flag("log"))
             logPopup.open()
+        // --print-dialog: the focused panel's Print options (screenshots, reviews).
+        if (AppInfo.flag("print-dialog") && window.focusedController)
+            Qt.callLater(() => ShellActions.printRequested(window.focusedController.instrumentId))
+        if (windowPrefs.maximized && !AppInfo.screenshot)
+            window.showMaximized()
         saveLayout()
     }
 
@@ -141,8 +213,8 @@ ApplicationWindow {
                 onMoveWindowRequested: window.startSystemMove()
                 onThemeToggleRequested: window.toggleTheme()
                 onNewSessionRequested: window.newSession()
-                onOpenSessionRequested: openDialog.open()
-                onOpenRecentRequested: file => SessionManager.load(file)
+                onOpenSessionRequested: window.openSession()
+                onOpenRecentRequested: file => window.openRecent(file)
                 onSaveSessionRequested: window.saveSession()
                 onSaveSessionAsRequested: window.saveSessionAs()
                 onDeviceInfoRequested: deviceInfo.open()
@@ -168,8 +240,8 @@ ApplicationWindow {
                         Layout.fillHeight: true
                         workspace: workspace
                         onNewSessionRequested: window.newSession()
-                        onOpenSessionRequested: openDialog.open()
-                        onOpenRecentRequested: file => SessionManager.load(file)
+                        onOpenSessionRequested: window.openSession()
+                        onOpenRecentRequested: file => window.openRecent(file)
                         onDeviceInfoRequested: deviceInfo.open()
                     }
                 }
@@ -178,15 +250,43 @@ ApplicationWindow {
                     id: helpView
                     visible: workspace.helpOpen && !window.focusMode
                     Layout.fillHeight: true
-                    Layout.preferredWidth: 400
+                    Layout.preferredWidth: helpPrefs.width
                     topic: workspace.helpTopic
                     onCloseRequested: workspace.toggleHelp()
+
+                    // Resize handle on the left edge.
+                    MouseArea {
+                        objectName: "helpResizeHandle"
+                        x: -3
+                        width: 7
+                        height: parent.height
+                        z: 10
+                        cursorShape: Qt.SplitHCursor
+                        hoverEnabled: true
+                        property real startX: 0
+                        property int startWidth: 0
+                        onPressed: mouse => {
+                            startX = mapToItem(null, mouse.x, 0).x
+                            startWidth = helpPrefs.width
+                        }
+                        onPositionChanged: mouse => {
+                            if (pressed)
+                                helpPrefs.width = Math.max(320, Math.min(720, startWidth - (mapToItem(null, mouse.x, 0).x - startX)))
+                        }
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: parent.pressed || parent.containsMouse ? 3 : 0
+                            height: parent.height
+                            color: parent.pressed ? Theme.accent : Theme.alpha(Theme.accent, 0.6)
+                        }
+                    }
                 }
 
                 DashboardColumn {
+                    id: dashboardColumn
                     visible: workspace.dashboardPinned && !window.focusMode
                     Layout.fillHeight: true
-                    Layout.preferredWidth: 300
+                    Layout.preferredWidth: implicitWidth
                     workspace: workspace
                 }
             }
@@ -204,7 +304,7 @@ ApplicationWindow {
     ToastArea {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.rightMargin: Theme.spacingL + (workspace.dashboardPinned ? 300 : 0)
+        anchors.rightMargin: Theme.spacingL + (dashboardColumn.visible ? dashboardColumn.width : 0)
         anchors.bottomMargin: Theme.statusBarHeight + Theme.spacingL
     }
 
@@ -276,6 +376,20 @@ ApplicationWindow {
             window.close()
         }
     }
+    // Panels editing a document that is not saved (InstrumentController.unsavedDocument).
+    ConfirmDialog {
+        id: unsavedDocumentsConfirm
+        property var documents: []
+        property bool accepted: false
+        title: qsTr("Quit without saving?")
+        text: qsTr("These documents have unsaved changes:\n%1").arg(documents.map(d => "• " + d).join("\n"))
+        acceptText: qsTr("Quit without saving")
+        destructive: true
+        onAccepted: {
+            accepted = true
+            Qt.callLater(window.close)
+        }
+    }
     ConfirmDialog {
         id: revertConfirm
         title: qsTr("Revert all instruments to defaults?")
@@ -323,6 +437,51 @@ ApplicationWindow {
         onAccepted: SessionManager.save(selectedFile)
     }
     Dialog {
+        id: saveFirstDialog
+        anchors.centerIn: Overlay.overlay
+        width: 440
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        title: qsTr("Save changes to “%1”?").arg(SessionManager.currentName)
+        onRejected: sessionGuard.cancel()
+        Text {
+            width: parent.width
+            text: qsTr("The session has unsaved changes. They are lost if you don't save them.")
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSizeBody
+            wrapMode: Text.WordWrap
+        }
+        footer: RowLayout {
+            spacing: Theme.spacingS
+            ActionButton {
+                Layout.leftMargin: Theme.spacingL
+                Layout.bottomMargin: Theme.spacingL
+                text: qsTr("Don't save")
+                tone: "ghost"
+                onClicked: {
+                    saveFirstDialog.close()
+                    sessionGuard.discard()
+                }
+            }
+            Item { Layout.fillWidth: true }
+            ActionButton {
+                Layout.bottomMargin: Theme.spacingL
+                text: qsTr("Cancel")
+                onClicked: saveFirstDialog.reject()
+            }
+            ActionButton {
+                Layout.bottomMargin: Theme.spacingL
+                Layout.rightMargin: Theme.spacingL
+                text: qsTr("Save")
+                tone: "accent"
+                onClicked: {
+                    saveFirstDialog.close()
+                    sessionGuard.save()
+                }
+            }
+        }
+    }
+    Dialog {
         id: newSessionDialog
         anchors.centerIn: Overlay.overlay
         width: 420
@@ -367,7 +526,8 @@ ApplicationWindow {
     Shortcut { sequences: ["Ctrl+K"]; onActivated: palette.opened ? palette.close() : palette.open() }
     Shortcut {
         sequences: ["Space"]
-        enabled: window.focusedController !== null && !palette.opened
+        // Not while a focused button/toggle/combo/slider uses Space itself (app.md 6.2).
+        enabled: window.focusedController !== null && !palette.opened && shellKeys.spaceAllowed(window.activeFocusItem)
         onActivated: window.focusedController.toggle()
     }
     Shortcut { sequences: ["F5"]; enabled: window.focusedController !== null; onActivated: window.focusedController.run() }
@@ -389,13 +549,13 @@ ApplicationWindow {
     Shortcut { sequences: ["Ctrl+Shift+D"]; onActivated: workspace.toggleDashboard() }
     Shortcut {
         sequences: ["Shift+Space"]
-        enabled: window.focusedController !== null && !palette.opened
+        enabled: window.focusedController !== null && window.focusedController.singleEnabled && !palette.opened
         onActivated: window.focusedController.runOnce()
     }
     Shortcut { sequences: ["Ctrl+\\"]; onActivated: window.toggleSplit() }
     Shortcut { sequences: ["Ctrl+I"]; enabled: window.focusedController !== null; onActivated: ShellActions.inspectorToggleRequested(window.focusedController.instrumentId) }
     Shortcut { sequences: ["Ctrl+L"]; enabled: window.focusedController !== null; onActivated: ShellActions.exportDataRequested(window.focusedController.instrumentId) }
-    Shortcut { sequences: ["Ctrl+P"]; enabled: window.focusedController !== null; onActivated: ShellActions.exportPdfRequested(window.focusedController.instrumentId) }
+    Shortcut { sequences: ["Ctrl+P"]; enabled: window.focusedController !== null; onActivated: ShellActions.printRequested(window.focusedController.instrumentId) }
     Shortcut {
         sequences: ["Ctrl+Shift+F"]
         enabled: window.focusedController !== null
@@ -409,7 +569,7 @@ ApplicationWindow {
     Shortcut { sequences: ["Ctrl+Shift+L"]; onActivated: window.toggleTheme() }
     Shortcut { sequences: [StandardKey.Save]; onActivated: window.saveSession() }
     Shortcut { sequences: ["Ctrl+Shift+S"]; onActivated: window.saveSessionAs() }
-    Shortcut { sequences: [StandardKey.Open]; onActivated: openDialog.open() }
+    Shortcut { sequences: [StandardKey.Open]; onActivated: window.openSession() }
 
     // --- Commands (palette) -------------------------------------------------------------------
     function buildCommands(): var {
@@ -438,6 +598,21 @@ ApplicationWindow {
             if (c)
                 list.push({ title: qsTr("Reset %1 settings to defaults").arg(info.title), icon: "reset",
                             run: () => c.resetSettings() })
+            // Instrument commands (InstrumentController.addCommand): "Oscilloscope: Autoscale".
+            for (const command of (c ? c.commands : [])) {
+                if (!command.enabled)
+                    continue
+                const commandId = command.id
+                list.push({ title: qsTr("%1: %2").arg(info.title).arg(command.title), icon: command.icon || info.icon,
+                            keys: command.keys, keywords: info.shortTitle + " " + command.keywords,
+                            argumentLabel: command.argumentLabel,
+                            run: argument => {
+                                // The panel is created (synchronously) on first open; call
+                                // later so its QML handlers (commandTriggered) are connected.
+                                workspace.open(id)
+                                Qt.callLater(() => c.invokeCommand(commandId, argument))
+                            } })
+            }
         }
         list.push({ title: qsTr("Stop all instruments"), icon: "stop-filled", keys: "Ctrl+.", run: () => InstrumentRegistry.stopAll() })
         list.push({ title: Theme.dark ? qsTr("Switch to light theme") : qsTr("Switch to dark theme"),
@@ -455,9 +630,12 @@ ApplicationWindow {
                         run: () => ShellActions.exportDataRequested(focusedId) })
             list.push({ title: qsTr("%1: Export image…").arg(t), icon: "image", keywords: "png screenshot",
                         run: () => ShellActions.exportImageRequested(focusedId) })
-            list.push({ title: qsTr("%1: Export PDF…").arg(t), icon: "file", keys: "Ctrl+P", keywords: "print",
+            list.push({ title: qsTr("%1: Export PDF…").arg(t), icon: "file", keywords: "print",
                         run: () => ShellActions.exportPdfRequested(focusedId) })
-            list.push({ title: qsTr("%1: Single").arg(t), icon: "step", keys: "Shift+Space", run: () => window.focusedController.runOnce() })
+            list.push({ title: qsTr("%1: Print…").arg(t), icon: "printer", keys: "Ctrl+P", keywords: "ink saver paper",
+                        run: () => ShellActions.printRequested(focusedId) })
+            if (window.focusedController.supportsSingle && window.focusedController.singleEnabled)
+                list.push({ title: qsTr("%1: Single").arg(t), icon: "step", keys: "Shift+Space", run: () => window.focusedController.runOnce() })
             list.push({ title: window.focusMode ? qsTr("Exit focus mode") : qsTr("%1: Focus mode").arg(t), icon: "maximize",
                         keys: "Ctrl+Shift+F", keywords: "toggle view display only",
                         run: () => ShellActions.toggleFocus(focusedId) })
@@ -474,7 +652,7 @@ ApplicationWindow {
             list.push({ title: qsTr("Help: %1").arg(topic.title), subtitle: qsTr("Help page"), icon: "book", keywords: "manual",
                         run: () => workspace.showHelp(topic.id) })
         list.push({ title: qsTr("New session"), icon: "file-plus", run: () => window.newSession() })
-        list.push({ title: qsTr("Open session…"), icon: "folder-open", keys: "Ctrl+O", run: () => openDialog.open() })
+        list.push({ title: qsTr("Open session…"), icon: "folder-open", keys: "Ctrl+O", run: () => window.openSession() })
         list.push({ title: qsTr("Save session"), icon: "save", keys: "Ctrl+S", run: () => window.saveSession() })
         list.push({ title: qsTr("Save session as…"), icon: "save", keys: "Ctrl+Shift+S", run: () => window.saveSessionAs() })
         list.push({ title: qsTr("Reset device"), subtitle: qsTr("Outputs to 0 V, digital lines to inputs"), icon: "reset",

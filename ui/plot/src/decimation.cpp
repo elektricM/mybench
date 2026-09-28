@@ -57,7 +57,7 @@ struct Builder {
 }  // namespace
 
 PolylineInfo buildPolyline(const TraceData &data, const ScaleMap &xMap, const ScaleMap &yMap,
-                           const TraceTransform &transformIn, bool step, double bucketPx,
+                           const TraceTransform &transformIn, StepMode step, double bucketPx,
                            std::vector<PixelPoint> &out)
 {
     out.clear();
@@ -115,15 +115,39 @@ PolylineInfo buildPolyline(const TraceData &data, const ScaleMap &xMap, const Sc
 
     if (count <= 2 * buckets) {
         info.samplesVisited = count;
-        out.reserve(step ? count * 2 : count);
+        const bool stepped = step != StepMode::None;
+        const bool center = step == StepMode::CenterHorizontal || step == StepMode::CenterVertical;
+        out.reserve(stepped ? count * (center ? 3 : 2) : count);
         for (size_t i = i0; i < i1; ++i) {
-            if (step && !out.empty() && !out.back().isGap()) {
+            if (stepped && !out.empty() && !out.back().isGap()) {
                 const size_t before = out.size();
                 const PixelPoint prev = out.back();
                 b.point(i);
                 if (out.size() > before && !out.back().isGap()) {
                     const PixelPoint cur = out.back();
-                    out.back() = {cur.x, prev.y};
+                    out.pop_back();
+                    switch (step) {
+                    case StepMode::Hold:
+                        out.push_back({cur.x, prev.y});
+                        break;
+                    case StepMode::Vertical:
+                        out.push_back({prev.x, cur.y});
+                        break;
+                    case StepMode::CenterHorizontal: {
+                        const float mx = 0.5f * (prev.x + cur.x);
+                        out.push_back({mx, prev.y});
+                        out.push_back({mx, cur.y});
+                        break;
+                    }
+                    case StepMode::CenterVertical: {
+                        const float my = 0.5f * (prev.y + cur.y);
+                        out.push_back({prev.x, my});
+                        out.push_back({cur.x, my});
+                        break;
+                    }
+                    case StepMode::None:
+                        break;
+                    }
                     out.push_back(cur);
                 }
             } else {
