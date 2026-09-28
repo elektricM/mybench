@@ -521,6 +521,15 @@ chip computes RMS itself).
 
 - **Resistance 20 kΩ … 20 MΩ**: MODE 16–19 follow the pattern but their captures were lost (first
   attempt used excitation values DAQmx rejects; re-run pending, item P1 in section 14).
+- **Stage-3 result (2026-09-28 22:20, `dmmtry.ps1`, one variant per process)**: every DAQmx route
+  to diode / continuity is refused *before any device traffic*: `DAQmxSetChanAttribute(0x3051)` on a
+  resistance channel (named or physical channel string) and on a voltage channel → -200233; reading
+  0x3051 back → -200233; generic 0x1874/0x1875 excitation on a voltage channel → -200233;
+  `DAQmxCreateAIVoltageChanWithExcit` → -200431 (the dmm channel only offers Current, CurrentRMS,
+  Resistance, Temp…, Voltage, VoltageRMS); `DAQmxSetAIExcitSrc` on a voltage channel **kills the
+  32-bit PowerShell process** (no output after the call). So diode/continuity can only be captured
+  from ELVISmx's own DMM (GUI fallback, P3); driver-notes 8 predicts `set_mode(20, 0)` and
+  `set_mode(21, 0)`.
 - **Diode and continuity**: ELVISmx selects them with device-specific DAQmx channel attributes
   (docs/instruments/algorithms/dmm.md: continuity = resistance channel + attribute 0x3051 = TRUE;
   diode = voltage channel ±2 V + internal excitation 1 mA; hardware autorange = 0x2FF8). Our first
@@ -702,6 +711,15 @@ All through the lock; captures with `tools/devlock.sh vm usb -- tools/capture.sh
 | P8 | abort / timeout paths (vendor control request 0xFC?) | `selftest`, `ai0-finite-timeout`, `dmm-dcv-timeout`, `ai0-cont-resetduring` (in s3-pending) |
 | P9 | AO underflow and AI overflow events natively | native: stop writing during `ao_timed(finite=False)`; stop reading during `ai_timed(n=0)`; record the 0x82 events |
 | P10 | minimal init (which of the 23 init calls are needed) | native: drop one group at a time and run `mydaq_native.py all --no-init` variants — only with observed commands, no new opcodes |
+
+Added for stage 3 (coordinator, acceptance audit — every Counter/Timer panel mode needs a capture):
+pulse width, semi-period, two-edge separation, linear and angular encoders; count edges falling
+edge, count down, external direction (PFI2), initial count, count reset (PFI1); count-edge sources
+20 MHz / 100 kHz timebase; buffered (sample-clocked) counter input; idle-high pulse train, initial
+delay, live pulse-train update (frequency/duty change while running); AO ±2 V range on ao0/ao1;
+AI + AO concurrently (both on stream 4); abort/timeout. Signals come from the internal FREQOUT loop
+(`/myDAQ1/FrequencyOutput` as counter terminal) or DIO lines; tests needing a jumper (AO0→AI0,
+DIO4→DIO1) are listed as such.
 
 Not to be done: power-supply overcurrent tests (never provoke supply faults), any flash write
 (0x0507 `write`), unobserved MODE/route values.

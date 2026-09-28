@@ -449,12 +449,17 @@ int mydaq_ctr_task_read_count(mydaq_ctr_task *t, uint32_t *count, int timeout_ms
     md_put_u8(&b, t->cfg.kind == MYDAQ_CTR_COUNT_EDGES ? 1u : t->cfg.kind == MYDAQ_CTR_PERIOD ? 2u : 3u);
     md_put_u8(&b, 0);   /* application code as the last argument */
     md_cmd_lock(t->dev);
-    rc = md_cmd(t->dev, MD_CH_OBJECT, 0x1d, &b, (unsigned)timeout_ms + MD_TIMEOUT_CMD, 0, &r);
+    rc = md_cmd(t->dev, MD_CH_OBJECT, 0x1d, &b, (unsigned)timeout_ms + MD_TIMEOUT_CMD,
+                MD_CMD_ANY_STATUS, &r);
     md_cmd_unlock(t->dev);
-    if (rc == MYDAQ_ERR_DEVICE && mydaq_last_device_status(t->dev) == -200474)
-        return MYDAQ_ERR_TIMEOUT;
     if (rc != MYDAQ_OK)
         return rc;
+    if (r.kind == MD_KIND_DATA && r.status == -200474)
+        return MYDAQ_ERR_TIMEOUT;   /* no value within the timeout (expected without a signal) */
+    if (r.kind == MD_KIND_DATA && r.status != 0) {
+        MD_ERR(t->dev->ctx, "counter read: device status %ld", (long)r.status);
+        return MYDAQ_ERR_DEVICE;
+    }
     if (r.payload_len < 8 || md_get_u32(r.payload) != 6)
         return MYDAQ_ERR_PROTOCOL;
     p = r.payload + 4;

@@ -12,8 +12,24 @@ option(LIBMYDAQ_BUILD_TESTS "Build the libmydaq unit tests (mock transport) and 
 option(LIBMYDAQ_BUILD_CLI "Build the mydaq-cli tool" ON)
 
 if(NOT TARGET PkgConfig::LIBUSB)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(LIBUSB IMPORTED_TARGET libusb-1.0)
+    endif()
+    if(NOT LIBUSB_FOUND)
+        # No pkg-config (typical on Windows: vcpkg or the libusb binary release): find the header
+        # and library directly (CMAKE_PREFIX_PATH / LIBUSB_ROOT), same target name as pkg-config.
+        find_path(LIBUSB_INCLUDE_DIR libusb.h PATH_SUFFIXES libusb-1.0 include/libusb-1.0 include)
+        find_library(LIBUSB_LIBRARY NAMES usb-1.0 libusb-1.0 PATH_SUFFIXES lib VS2022/MS64/dll MS64/dll)
+        if(NOT LIBUSB_INCLUDE_DIR OR NOT LIBUSB_LIBRARY)
+            message(FATAL_ERROR "libusb-1.0 not found (set CMAKE_PREFIX_PATH or LIBUSB_ROOT)")
+        endif()
+        add_library(PkgConfig::LIBUSB INTERFACE IMPORTED)
+        set_target_properties(PkgConfig::LIBUSB PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${LIBUSB_INCLUDE_DIR}"
+            INTERFACE_LINK_LIBRARIES "${LIBUSB_LIBRARY}")
+        message(STATUS "libusb-1.0: ${LIBUSB_LIBRARY}")
+    endif()
 endif()
 find_package(Threads REQUIRED)
 

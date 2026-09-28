@@ -317,6 +317,9 @@ static int cmd_ao_gen(mydaq_device *dev, const args *a)
            mydaq_ao_task_rate(t), mydaq_error_name(rc));
     mydaq_ao_task_destroy(t);
     free(v);
+    for (ch = 0; ch < cfg.num_channels; ++ch)   /* outputs keep their last value: back to 0 V */
+        if (cfg.channels[ch] == MYDAQ_AO0 || cfg.channels[ch] == MYDAQ_AO1)
+            mydaq_ao_write(dev, cfg.channels[ch], 0.0);
     return rc == MYDAQ_OK ? 0 : 1;
 }
 
