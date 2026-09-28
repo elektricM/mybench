@@ -19,6 +19,7 @@ Item {
     readonly property bool linearGain: controller.mapping === BodeController.Linear
     readonly property string gainUnit: linearGain ? "" : "dB"
     readonly property bool measurementLocked: controller.running
+    readonly property bool cursorValid: controller.cursorsOn && controller.cursorIndex >= 0
     readonly property real leftMargin: Math.max(gainPlot.implicitLeftMargin, phasePlot.implicitLeftMargin)
 
     // "2 decimals" ELVISmx readout format; -Inf / Inf spelled out.
@@ -93,6 +94,7 @@ Item {
                 xAxis: frequencyAxis
                 xLabelsVisible: false
                 leftMargin: root.leftMargin
+                rightMargin: 22
                 hoverReadout: true
                 placeholderText: root.hasPoints || root.controller.running ? ""
                                  : root.controller.settingsValid
@@ -109,6 +111,8 @@ Item {
                     unit: root.gainUnit
                     autoScale: root.controller.autoscale && root.hasPoints
                     autoScaleMargin: 0.05
+                    minimumSpan: root.linearGain ? 0.01 : 1
+                    labelFormat: root.linearGain ? PlotAxis.Engineering : PlotAxis.Fixed
                     tickSpacing: 44
                 }
 
@@ -198,6 +202,7 @@ Item {
                     position: root.controller.cursorFrequency
                     trace: gainTrace
                     snap: true
+                    readoutVisible: false
                     label: "C"
                     color: Theme.cursor1
                     onMoved: position => root.controller.setCursorFrequency(position)
@@ -212,14 +217,18 @@ Item {
                 Layout.preferredHeight: 2.6
                 xAxis: frequencyAxis
                 leftMargin: root.leftMargin
+                rightMargin: 22
                 hoverReadout: true
                 yAxis {
                     min: -180
                     max: 180
+                    divisions: root.controller.autoscale && root.hasPoints ? 0 : 4
                     title: qsTr("Phase")
                     unit: "°"
                     autoScale: root.controller.autoscale && root.hasPoints
                     autoScaleMargin: 0.05
+                    minimumSpan: 5
+                    labelFormat: PlotAxis.Fixed
                     tickSpacing: 40
                 }
 
@@ -289,7 +298,7 @@ Item {
                         size: 11
                         color: Theme.math
                         labelPosition: PlotMarker.Right
-                        label: Units.fixed(phaseTrace.valueAt(modelData), "°", 1)
+                        label: phaseTrace.valueAt(modelData).toFixed(1) + "°"
                     }
                 }
                 PlotCursor {
@@ -297,6 +306,7 @@ Item {
                     position: root.controller.cursorFrequency
                     trace: phaseTrace
                     snap: true
+                    readoutVisible: false
                     label: "C"
                     color: Theme.cursor1
                     onMoved: position => root.controller.setCursorFrequency(position)
@@ -323,10 +333,10 @@ Item {
                     Readout {
                         alignment: Qt.AlignLeft
                         implicitWidth: 120
-                        label: root.controller.cursorsOn ? qsTr("C · Frequency (Hz)") : qsTr("Frequency (Hz)")
+                        label: root.cursorValid ? qsTr("C · Frequency (Hz)") : qsTr("Frequency (Hz)")
                         valueText: root.fixed2(root.controller.readoutFrequency)
                         fontSize: 20
-                        color: root.controller.cursorsOn ? Theme.cursor1 : Theme.text
+                        color: root.cursorValid ? Theme.cursor1 : Theme.text
                         stale: !root.controller.readoutValid
                     }
                     Readout {
@@ -423,8 +433,7 @@ Item {
         inspector: [
             Section {
                 title: qsTr("Measurement Settings")
-                summary: Units.format(root.controller.startFrequency, "Hz", 3) + " – "
-                         + Units.format(root.controller.stopFrequency, "Hz", 3) + " · " + root.controller.plannedPoints + " pts"
+                summary: qsTr("%1 pts").arg(root.controller.plannedPoints)
                 FieldRow {
                     Field {
                         label: qsTr("Stimulus Channel")
@@ -552,7 +561,7 @@ Item {
                 }
                 Field {
                     label: qsTr("Frequency axis")
-                    trailing: qsTr("MYBENCH")
+                    hint: qsTr("MYBENCH extension: logarithmic (ELVISmx) or linear frequency axis")
                     SegmentedControl {
                         Layout.fillWidth: true
                         model: [qsTr("Logarithmic"), qsTr("Linear")]
@@ -561,14 +570,17 @@ Item {
                     }
                 }
                 ToggleSwitch {
-                    text: qsTr("Unwrap phase (remove 360° jumps)")
+                    text: qsTr("Unwrap phase")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: qsTr("Removes the 360° jumps between consecutive points (ELVISmx shows the phase wrapped to ±180°)")
                     checked: root.controller.unwrapPhase
                     onToggled: root.controller.unwrapPhase = checked
                 }
             },
             Section {
                 title: qsTr("Cursor Settings")
-                summary: root.controller.cursorsOn ? Units.format(root.controller.cursorFrequency, "Hz", 4) : qsTr("Off")
+                summary: !root.controller.cursorsOn ? qsTr("Off") : root.cursorValid ? Units.format(root.controller.cursorFrequency, "Hz", 4) : qsTr("On")
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingS
@@ -638,7 +650,7 @@ Item {
                 }
                 Field {
                     label: qsTr("Averages per point")
-                    trailing: qsTr("MYBENCH")
+                    hint: qsTr("MYBENCH extension: records averaged at each frequency (complex average)")
                     SpinBox {
                         Layout.fillWidth: true
                         from: 1

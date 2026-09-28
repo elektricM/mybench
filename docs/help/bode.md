@@ -21,76 +21,109 @@ The display shows the reminder `Connections: AI 0 - AO 0   AI 1 - Signal`.
 1. Wire the circuit as above.
 2. Set **Start Frequency** and **Stop Frequency** around the frequencies of interest.
 3. Choose **Steps** (points per decade) and the **Peak Amplitude** of the test signal.
-4. Press **Run**. Points appear one by one; the run bar shows the progress.
+4. Press **Run** (or Space). Points appear one by one; the run bar shows the progress and an
+   estimate of the remaining time. A sweep always runs once from Start to Stop.
 
 ## Controls
 
 ### Measurement Settings
 
 - **Stimulus Channel** / **Response Channel** – fixed to AI 0 and AI 1 on the myDAQ.
-- **Start Frequency**, **Stop Frequency** – the sweep range (Start must not be above Stop).
-- **Steps (per decade)** – number of points in each factor-of-ten of frequency. With 5 steps from
-  100 Hz to 10 kHz you get 11 points (100, 158, 251, 398, 631, 1000 Hz, ...). If Stop does not fall
-  exactly on a step, the sweep ends at the last step below it.
-- **Peak Amplitude** – peak voltage of the test sine (default 2 V). Use a large amplitude for passive
-  circuits (better signal-to-noise); use a small one for amplifiers with high gain so their output
-  does not saturate.
+- **Start Frequency**, **Stop Frequency** – the sweep range, 1 Hz to 20 kHz. Start must not be above
+  Stop (the field turns red and Run is refused).
+- **Steps (per decade)** – number of points in each factor-of-ten of frequency (1 to 1000). With 5
+  steps from 100 Hz to 10 kHz you get 11 points (100, 158, 251, 398, 631, 1000 Hz, ...). If Stop does
+  not fall exactly on a step, the sweep ends at the last step below it. The card shows how many
+  points the settings give and roughly how long the sweep takes.
+- **Peak Amplitude** – peak voltage of the test sine, 0 to 5 V (default 2 V). Use a large amplitude
+  for passive circuits (better signal-to-noise) and a small one for amplifiers with a high gain so
+  their output does not saturate.
 - **Op-Amp Signal Polarity** – *Inverted* flips the sign of the response so an inverting amplifier
   shows about 0° instead of ±180°. It only changes the calculation, not the measurement, so you can
-  switch it after a sweep.
+  switch it during or after a sweep.
+
+The measurement settings are locked while a sweep runs.
 
 ### Graph Settings
 
-- **Mapping** – *Logarithmic* shows gain in dB (20·log10 of the ratio); *Linear* shows the plain ratio.
-  The phase plot is not affected.
-- **Autoscale** – fits the vertical axes to the data. Turn it off to keep your own zoom.
+- **Mapping** – the gain axis: *Logarithmic* shows the gain in dB (20·log10 of the ratio), *Linear*
+  the plain ratio. The phase plot is not affected.
+- **Autoscale** – fits both vertical axes to the data after every point. Turn it off to keep your
+  own zoom (mouse wheel, Shift+wheel, drag; double-click returns to the full view).
+- **Frequency axis** – logarithmic (default) or linear.
+- **Unwrap phase** – removes the 360° jumps between neighbouring points. Off by default: the phase
+  is shown between -180° and +180°.
 
 ### Cursor Settings
 
-- **Cursors On** – shows a cursor on both plots at the same frequency point; the readouts then show
-  that point's values.
-- **Position Left / Right** – moves the cursor one measured point at a time. You can also drag it.
+- **Cursors On** – shows one cursor on both plots at the same measured point (it starts on the
+  middle point); the readouts then show that point's values.
+- **Position** ‹ › – moves the cursor one point to the left or right. You can also drag it; it snaps
+  to the measured points.
+- **Re-measure point at cursor** – measures only that frequency again and replaces the point (handy
+  after adjusting a component).
 
 ### Readouts
 
-- **Frequency (Hz)**, **Phase (deg)**, **Gain**, **Gain (dB)** – the latest measured point during a
-  sweep, or the point under the cursor.
+**Frequency (Hz)**, **Phase (deg)**, **Gain**, **Gain (dB)** – the most recent point during a sweep,
+or the point under the cursor. Before the first point they read `0.00` and `-Inf`. Hovering over a
+plot shows the values under the mouse.
 
-### Run bar
+### Sweep
 
-- **Run** starts a sweep; **Stop** ends it early (the points measured so far are kept). A sweep always
-  runs once from Start to Stop.
+- **Mode**
+  - *Standard* works like ELVISmx: at every frequency the analyzer first records both inputs for
+    1.6 s on the ±10 V range to choose the best range for each (±2 V for small signals). This also
+    gives the circuit time to settle. A default sweep takes about 20 s.
+  - *Fast* is a MYBENCH extension: no 1.6 s pre-measurement. The circuit settles for three periods,
+    the ranges adapt from the previous point, and a record that clips is measured again on the
+    larger range. Much quicker at mid and high frequencies.
+- **Averages per point** – measures each frequency several times and averages the results (less
+  noise, longer sweep).
 
-### Markers and references
+### Markers
 
-- **-3 dB markers** show where the gain has dropped 3 dB below its maximum (the cut-off frequency of
-  a filter). **Phase margin / gain margin** markers help with feedback-loop measurements.
-- **Keep as reference** stores a finished sweep so you can compare it with the next one.
+- **-3 dB points** – where the gain is 3 dB below its maximum (the cut-off frequencies of a filter),
+  interpolated between points and labelled on both plots.
+- **Unity gain** – where the gain crosses 0 dB.
+- **Gain and phase margins** – for loop-gain measurements: phase margin = 180° + phase at the 0 dB
+  crossover; gain margin = minus the gain where the phase crosses -180°.
 
-### Export
+The card lists the values; the readout row shows a summary.
 
-- **Export data** saves frequency, gain, gain (dB) and phase for every point as CSV.
-- **Export image** saves a picture of the plots.
+### References
+
+**Keep as reference** (card or run bar) stores the current sweep. References are drawn dashed under
+the live sweep so you can compare circuits or component values. Up to 8 are kept; each can be
+renamed, hidden, exported or deleted. They are saved with the session.
+
+## Export
+
+The panel's **Export** menu saves the data (frequency, gain, gain in dB, phase and a *Clipped* flag
+for every point, CSV or TSV, also during a sweep), an image of the plots, or a PDF with the image and
+the settings.
 
 ## How it measures
 
-At each frequency the analyzer outputs the sine wave, waits for the circuit to settle, records both
-inputs for a few periods and fits a sine of that exact frequency to each input. Gain is the ratio of
-the fitted amplitudes, phase the difference of the fitted phases. Because the stimulus is measured on
-AI 0 rather than assumed, output-level errors cancel out. Low frequencies take longer (a 1 Hz point
-needs several seconds).
+At each frequency the analyzer outputs a sine made of whole periods, records 16 000 samples of both
+inputs (five periods at low frequencies, up to 200 kS/s at higher ones) and fits a sine of that exact
+frequency to each input. Gain is the ratio of the fitted amplitudes, phase the difference of the
+fitted phases. The small delay between the sampling of AI 0 and AI 1 is corrected, and because the
+stimulus is measured on AI 0 rather than assumed, output-level errors cancel out. Low frequencies
+take longer: a 1 Hz point needs about 5 s of data.
 
 ## Tips
 
-- If the response is small, the analyzer automatically switches AI 1 to the sensitive ±2 V range.
-- A point drawn as a hollow red dot was clipped (the response exceeded ±10 V): reduce the Peak
-  Amplitude.
+- A point drawn with a red dot was clipped (the response exceeded ±10 V): reduce the Peak Amplitude.
 - The Bode Analyzer uses AO 0 and the analog inputs, so the Generator, the Oscilloscope and the
-  Spectrum Analyzer pause while it runs.
+  Spectrum Analyzer pause while it runs. If another instrument takes them during a sweep, the Bode
+  Analyzer pauses; **Resume** continues with the next point. After the sweep AO 0 returns to 0 V.
 
 ## Troubleshooting
 
-- **"No stimulus signal on AI 0"**: AO 0 is not connected to AI 0+, or AI 0- is not on AGND.
+- **"No stimulus signal on AI 0"**: AO 0 is not connected to AI 0+, AI 0- is not on AGND, or the
+  Peak Amplitude is 0 V.
 - **Gain around 0 dB and phase 0° everywhere**: AI 1 is probably connected to the stimulus instead of
   the circuit output.
-- **Noisy results at high gain losses**: increase the Peak Amplitude (if the circuit allows it).
+- **Noisy results at large attenuation**: increase the Peak Amplitude (if the circuit allows it) or
+  the averages per point.

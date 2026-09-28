@@ -242,8 +242,9 @@ private:
         bool visible = true;
         Polarity polarity = Normal;
         std::vector<Point> points;
-        std::unique_ptr<mybench::plot::TraceBuffer> gain;
-        std::unique_ptr<mybench::plot::TraceBuffer> phase;
+        // Children of the controller (C++ ownership also when QML reads them).
+        mybench::plot::TraceBuffer* gain = nullptr;
+        mybench::plot::TraceBuffer* phase = nullptr;
     };
     struct SweepKey {
         double start = 0, stop = 0, amplitude = 0;

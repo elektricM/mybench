@@ -23,7 +23,7 @@ Item {
             Readout {
                 Layout.fillWidth: true
                 alignment: Qt.AlignLeft
-                label: root.hasCutoff ? qsTr("−3 dB") : root.controller.pointCount > 0 ? qsTr("Gain @ %1").arg(Units.format(root.controller.readoutFrequency, "Hz", 3)) : qsTr("Bode")
+                label: root.hasCutoff ? qsTr("Cutoff") : root.controller.pointCount > 0 ? qsTr("Gain @ %1").arg(Units.format(root.controller.readoutFrequency, "Hz", 3)) : qsTr("Bode")
                 valueText: root.hasCutoff ? Units.format(root.controller.cutoffFrequencies[0], "Hz", 4)
                          : root.controller.pointCount > 0 ? Units.decibels(root.controller.readoutGainDb) : "—"
                 fontSize: 22

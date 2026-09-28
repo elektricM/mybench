@@ -36,8 +36,8 @@ BodeController::BodeController() : InstrumentController(u"bode"_s)
     setRequiredResources(ResourceArbiter::AnalogOutput | ResourceArbiter::AnalogInput);
     setSupportsSingle(false);   // Run = one sweep (ELVISmx)
     for (Reference& reference : m_references) {
-        reference.gain = std::make_unique<plot::TraceBuffer>();
-        reference.phase = std::make_unique<plot::TraceBuffer>();
+        reference.gain = new plot::TraceBuffer(this);
+        reference.phase = new plot::TraceBuffer(this);
     }
     m_maxGainDb = m_unityGain = m_phaseMargin = m_phaseCrossover = m_gainMargin = kNaN;
     updatePlan();
@@ -467,12 +467,17 @@ void BodeController::onFinished()
     else if (isPaused())
         setStatusText({});
     else if (complete)
-        setStatusText(tr("Done · %n point(s)", nullptr, pointCount()));
+        setStatusText(tr("Done · %1 points").arg(pointCount()));
     else if (!m_points.empty())
         setStatusText(tr("Stopped · %1/%2 points").arg(pointCount()).arg(m_total));
     else
         setStatusText({});
     m_remeasuring = false;
+    if (m_cursorsOn && (m_cursorIndex < 0 || m_cursorIndex >= pointCount()) && !m_points.empty()) {
+        m_cursorIndex = pointCount() / 2;   // ELVISmx: the cursor starts on the middle point
+        emit cursorChanged();
+        emit readoutChanged();
+    }
     emit pointsChanged();
 }
 
@@ -548,19 +553,19 @@ void BodeController::rebuildReference(Reference& reference)
         reference.phase->clear();
         return;
     }
-    fillTraces(reference.points, reference.polarity, reference.gain.get(), reference.phase.get(), nullptr, nullptr);
+    fillTraces(reference.points, reference.polarity, reference.gain, reference.phase, nullptr, nullptr);
 }
 
 // --- References ---------------------------------------------------------------------------------
 
 plot::TraceBuffer* BodeController::referenceGain(int slot)
 {
-    return slot >= 0 && slot < kMaxReferences ? m_references[size_t(slot)].gain.get() : nullptr;
+    return slot >= 0 && slot < kMaxReferences ? m_references[size_t(slot)].gain : nullptr;
 }
 
 plot::TraceBuffer* BodeController::referencePhase(int slot)
 {
-    return slot >= 0 && slot < kMaxReferences ? m_references[size_t(slot)].phase.get() : nullptr;
+    return slot >= 0 && slot < kMaxReferences ? m_references[size_t(slot)].phase : nullptr;
 }
 
 QVariantList BodeController::references() const
