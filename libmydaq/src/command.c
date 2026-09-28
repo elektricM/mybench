@@ -15,6 +15,31 @@ int md_is_connected(mydaq_device *dev)
     return connected;
 }
 
+int md_stream_alloc(mydaq_device *dev, uint8_t *stream)
+{
+    unsigned n;
+    int rc = MYDAQ_ERR_BUSY;
+    md_mutex_lock(&dev->state_lock);
+    for (n = MD_STREAM_FIRST; n <= MD_STREAM_LAST; ++n)
+        if (!(dev->streams_used & (1u << n))) {
+            dev->streams_used = (uint16_t)(dev->streams_used | (1u << n));
+            *stream = (uint8_t)n;
+            rc = MYDAQ_OK;
+            break;
+        }
+    md_mutex_unlock(&dev->state_lock);
+    return rc;
+}
+
+void md_stream_free(mydaq_device *dev, uint8_t stream)
+{
+    if (stream < MD_STREAM_FIRST || stream > MD_STREAM_LAST)
+        return;
+    md_mutex_lock(&dev->state_lock);
+    dev->streams_used = (uint16_t)(dev->streams_used & ~(1u << stream));
+    md_mutex_unlock(&dev->state_lock);
+}
+
 int md_note_error(mydaq_device *dev, int err)
 {
     if (err == MYDAQ_ERR_NO_DEVICE) {

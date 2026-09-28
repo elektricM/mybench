@@ -41,6 +41,39 @@ static void stats(const double *v, size_t n, size_t stride, double *mean, double
     *sd = n > 1 ? sqrt(q / (double)(n - 1)) : 0;
 }
 
+/* MYDAQ_HW_ONLY: comma-separated group names; a group runs when it is listed exactly. */
+static int selected(const char *only, const char *group)
+{
+    const size_t n = strlen(group);
+    const char *p = only;
+    if (!only)
+        return 1;
+    while ((p = strstr(p, group)) != NULL) {
+        if ((p == only || p[-1] == ',') && (p[n] == ',' || p[n] == '\0'))
+            return 1;
+        p += n;
+    }
+    return 0;
+}
+
+/* After the lock script takes the myDAQ back from the Windows VM, the device can refuse the AI
+ * timing engine (status -201381) for a few seconds while NI's driver on the other side was still
+ * using it. Wait until an on-demand read works (at most 15 s) so that transient state is not
+ * reported as a failure of the checks; the wait is printed. */
+static void wait_ready(mydaq_device *dev)
+{
+    const mydaq_ai_channel_config ch = {MYDAQ_AI0, MYDAQ_AI_RANGE_10V};
+    const uint64_t t0 = md_now_ms();
+    double v;
+    int rc;
+    while ((rc = mydaq_ai_read_scan(dev, &ch, 1, &v)) != MYDAQ_OK && md_now_ms() < t0 + 15000)
+        md_sleep_ms(250);
+    printf("ready: first on-demand read after %.2f s (%s, device status %ld)\n",
+           (double)(md_now_ms() - t0) / 1000.0, mydaq_error_name(rc),
+           (long)mydaq_last_device_status(dev));
+    EXPECT(rc == MYDAQ_OK, "device not ready after 15 s");
+}
+
 static void check_info(mydaq_device *dev)
 {
     mydaq_info info;
@@ -75,9 +108,15 @@ static void check_ai_on_demand(mydaq_device *dev)
     int c, k;
     uint64_t t0;
     for (c = 0; c < 4; ++c) {
+        int ok = 1;
         t0 = md_now_us();
-        for (k = 0; k < 10; ++k)
-            EXPECT_OK(mydaq_ai_read_scan(dev, &chans[c], 1, &v[k]));
+        for (k = 0; k < 10; ++k) {
+            const int rc = mydaq_ai_read_scan(dev, &chans[c], 1, &v[k]);
+            EXPECT(rc == MYDAQ_OK, "%s", mydaq_error_name(rc));
+            ok &= rc == MYDAQ_OK;
+        }
+        if (!ok)
+            continue;   /* no statistics over failed reads */
         stats(v, 10, 1, &mean, &sd);
         printf("AI on demand ai%d ±%s V: mean %.6f V sd %.3f mV, %.1f ms/read\n", (int)chans[c].channel,
                chans[c].range == MYDAQ_AI_RANGE_10V ? "10" : "2", mean, sd * 1e3,
@@ -474,6 +513,33 @@ static void check_counter(mydaq_device *dev)
            seen[1] ? "yes" : "no");
     EXPECT(seen[0] && seen[1], "FREQOUT toggles DIO4");
     EXPECT_OK(mydaq_freqout_stop(dev));
+
+    /* MYDAQ_JUMPERS=dio4-dio1: FREQOUT (DIO4) wired to the counter gate (DIO1). The one-counter
+     * frequency and period readings must match FREQOUT's exact 100 kHz / n. */
+    if (getenv("MYDAQ_JUMPERS") && strstr(getenv("MYDAQ_JUMPERS"), "dio4-dio1")) {
+        static const double hz[3] = {100e3, 10e3, 6250.0};
+        for (k = 0; k < 3; ++k) {
+            double fo = 0, fm = 0, pm = 0;
+            EXPECT_OK(mydaq_freqout_start(dev, hz[k], &fo));
+            cfg.kind = MYDAQ_CTR_FREQUENCY;
+            EXPECT_OK(mydaq_ctr_task_create(dev, &cfg, &t));
+            EXPECT_OK(mydaq_ctr_task_start(t));
+            md_sleep_ms(50);
+            rc = mydaq_ctr_task_read(t, &fm, 2000);
+            mydaq_ctr_task_destroy(t);
+            cfg.kind = MYDAQ_CTR_PERIOD;
+            EXPECT_OK(mydaq_ctr_task_create(dev, &cfg, &t));
+            EXPECT_OK(mydaq_ctr_task_start(t));
+            md_sleep_ms(50);
+            EXPECT_OK(mydaq_ctr_task_read(t, &pm, 2000));
+            mydaq_ctr_task_destroy(t);
+            EXPECT_OK(mydaq_freqout_stop(dev));
+            printf("jumper DIO4->DIO1: FREQOUT %.1f Hz -> frequency %s %.3f Hz, period %.9f s\n", fo,
+                   mydaq_error_name(rc), fm, pm);
+            EXPECT(rc == MYDAQ_OK && fabs(fm - fo) < fo * 1e-3, "counter frequency = FREQOUT");
+            EXPECT(fabs(pm * fo - 1.0) < 1e-3, "counter period = 1 / FREQOUT");
+        }
+    }
 }
 
 static void check_dmm_unverified(mydaq_device *dev)
@@ -491,6 +557,130 @@ static void check_dmm_unverified(mydaq_device *dev)
                mydaq_error_name(rc), (const char *)r.packet.raw, r.value, r.overload ? " OVERLOAD" : "");
         EXPECT(rc == MYDAQ_OK, "dmm %s", m[i].name);
     }
+}
+
+/* AI and AO continuous at the same time (they need two streams, see md_stream_alloc), in both
+ * start orders, at the maximum rates: 2 x 200 kS/s in, 2 x 200 kS/s streamed out. Then each
+ * task must survive the other one stopping. With MYDAQ_JUMPERS containing "ao0-ai0" (AO0 wired
+ * to AI0+, AI0- to AGND) the generated sine is also measured on AI0. */
+static void ai_ao_pass(mydaq_device *dev, int ao_first, double ai_rate, double ao_rate, int regen)
+{
+    enum { BLOCK = 4000 };
+    static double in[2 * BLOCK], out[2 * BLOCK];
+    mydaq_ai_config a;
+    mydaq_ao_config o;
+    mydaq_ai_task *ai = NULL;
+    mydaq_ao_task *ao = NULL;
+    const uint64_t seconds = 3;
+    uint64_t t0, got = 0, sent0, sent1, deadline;
+    int rc = MYDAQ_OK, rco = MYDAQ_OK, k;
+    size_t i;
+    double peak = 0;
+    const int jumper = getenv("MYDAQ_JUMPERS") && strstr(getenv("MYDAQ_JUMPERS"), "ao0-ai0");
+
+    for (i = 0; i < BLOCK; ++i) {   /* 0.5 V sine, 40 periods per block; AO1 inverted */
+        out[i] = 0.5 * sin(6.283185307179586 * 40.0 * (double)i / BLOCK);
+        out[BLOCK + i] = -out[i];
+    }
+    memset(&a, 0, sizeof a);
+    a.channels[0].channel = MYDAQ_AI0;
+    a.channels[1].channel = MYDAQ_AI1;
+    a.channels[0].range = a.channels[1].range = MYDAQ_AI_RANGE_10V;
+    a.num_channels = 2;
+    a.sample_rate = ai_rate;
+    a.mode = MYDAQ_CONTINUOUS;
+    memset(&o, 0, sizeof o);
+    o.channels[0] = MYDAQ_AO0;
+    o.channels[1] = MYDAQ_AO1;
+    o.num_channels = 2;
+    o.sample_rate = ao_rate;
+    o.mode = MYDAQ_CONTINUOUS;
+    o.regenerate = regen;
+    o.buffer_samples = (size_t)(ao_rate / 4);
+    EXPECT_OK(mydaq_ai_task_create(dev, &a, &ai));
+    EXPECT_OK(mydaq_ao_task_create(dev, &o, &ao));
+    if (!ai || !ao) {
+        mydaq_ai_task_destroy(ai);
+        mydaq_ao_task_destroy(ao);
+        return;
+    }
+    EXPECT_OK(mydaq_ao_task_write(ao, out, BLOCK, MYDAQ_GROUP_BY_CHANNEL, 1000));
+    while (!regen && mydaq_ao_task_space_available(ao) >= BLOCK)   /* streaming: fill the buffer */
+        EXPECT_OK(mydaq_ao_task_write(ao, out, BLOCK, MYDAQ_GROUP_BY_CHANNEL, 0));
+    for (k = 0; k < 2; ++k) {
+        if ((k == 0) == (ao_first != 0))
+            rco = mydaq_ao_task_start(ao);
+        else
+            rc = mydaq_ai_task_start(ai);
+    }
+    EXPECT(rc == MYDAQ_OK && rco == MYDAQ_OK, "start: AI %s, AO %s", mydaq_error_name(rc),
+           mydaq_error_name(rco));
+    t0 = md_now_ms();
+    sent0 = mydaq_ao_task_samples_sent(ao);
+    while (rc == MYDAQ_OK && md_now_ms() < t0 + seconds * 1000) {
+        if (!regen)
+            while (mydaq_ao_task_space_available(ao) >= BLOCK && rco == MYDAQ_OK)
+                rco = mydaq_ao_task_write(ao, out, BLOCK, MYDAQ_GROUP_BY_CHANNEL, 0);
+        rc = mydaq_ai_task_read(ai, in, BLOCK / 4, MYDAQ_GROUP_BY_CHANNEL, 2000);
+        if (rc == MYDAQ_OK)
+            got += BLOCK / 4;
+        if (jumper && rc == MYDAQ_OK)
+            for (i = 0; i < BLOCK / 4; ++i)
+                peak = fabs(in[i]) > peak ? fabs(in[i]) : peak;
+    }
+    sent1 = mydaq_ao_task_samples_sent(ao);
+    {
+        const double el = (double)(md_now_ms() - t0) / 1000.0;
+        printf("AI 2x%.0fk + AO 2x%.0fk %s, %s first, %.1f s: AI %s %.0f S/s/ch, AO %s %.0f S/s/ch\n",
+               ai_rate / 1e3, ao_rate / 1e3, regen ? "regenerated" : "streamed",
+               ao_first ? "AO" : "AI", el, mydaq_error_name(rc), (double)got / el,
+               mydaq_error_name(mydaq_ao_task_error(ao)), (double)(sent1 - sent0) / el);
+        EXPECT(rc == MYDAQ_OK && (double)got > 0.97 * ai_rate * el, "AI while AO runs");
+        EXPECT(mydaq_ao_task_error(ao) == MYDAQ_OK && rco == MYDAQ_OK &&
+                   (double)(sent1 - sent0) > 0.95 * ao_rate * el,
+               "AO while AI runs");
+    }
+    if (jumper) {
+        printf("  jumper AO0->AI0: peak %.3f V (expect 0.5)\n", peak);
+        EXPECT(fabs(peak - 0.5) < 0.03, "AO0 sine on AI0");
+    }
+    /* stop the first-started task; the other one keeps going */
+    if (ao_first) {
+        EXPECT_OK(mydaq_ao_task_stop(ao));
+        deadline = md_now_ms() + 500;
+        rc = MYDAQ_OK;
+        while (rc == MYDAQ_OK && md_now_ms() < deadline)
+            rc = mydaq_ai_task_read(ai, in, BLOCK / 4, MYDAQ_GROUP_BY_CHANNEL, 2000);
+        printf("  AI after AO stop: %s\n", mydaq_error_name(rc));
+        EXPECT(rc == MYDAQ_OK, "AI survives AO stop");
+    } else {
+        EXPECT_OK(mydaq_ai_task_stop(ai));
+        sent0 = mydaq_ao_task_samples_sent(ao);
+        deadline = md_now_ms() + 500;
+        while (md_now_ms() < deadline && rco == MYDAQ_OK) {
+            if (!regen && mydaq_ao_task_space_available(ao) >= BLOCK)
+                rco = mydaq_ao_task_write(ao, out, BLOCK, MYDAQ_GROUP_BY_CHANNEL, 0);
+            md_sleep_ms(5);
+        }
+        sent1 = mydaq_ao_task_samples_sent(ao);
+        printf("  AO after AI stop: %s, %.0f S/s/ch\n", mydaq_error_name(mydaq_ao_task_error(ao)),
+               (double)(sent1 - sent0) / 0.5);
+        EXPECT(mydaq_ao_task_error(ao) == MYDAQ_OK && rco == MYDAQ_OK &&
+                   (double)(sent1 - sent0) > 0.8 * ao_rate * 0.5,
+               "AO survives AI stop");
+    }
+    mydaq_ai_task_destroy(ai);
+    mydaq_ao_task_destroy(ao);
+}
+
+static void check_ai_ao_concurrent(mydaq_device *dev)
+{
+    ai_ao_pass(dev, 1, 200e3, 200e3, 0);
+    ai_ao_pass(dev, 0, 200e3, 200e3, 0);
+    ai_ao_pass(dev, 1, 100e3, 10e3, 1);
+    ai_ao_pass(dev, 0, 100e3, 10e3, 1);
+    EXPECT_OK(mydaq_ao_write(dev, MYDAQ_AO0, 0.0));
+    EXPECT_OK(mydaq_ao_write(dev, MYDAQ_AO1, 0.0));
 }
 
 int main(void)
@@ -522,29 +712,32 @@ int main(void)
         return 1;
     }
     check_info(dev);
-    if (!only || strstr(only, "ai")) {
+    wait_ready(dev);
+    if (selected(only, "ai")) {
         check_ai_on_demand(dev);
         check_ai_finite(dev);
         check_ai_continuous(dev);
         check_ai_abort(dev);
     }
-    if (!only || strstr(only, "ao"))
+    if (selected(only, "ao"))
         check_ao(dev);
-    if (!only || strstr(only, "aotimed"))
+    if (selected(only, "aotimed"))
         check_ao_timed(dev);
-    if (!only || strstr(only, "audio"))
+    if (selected(only, "concurrent"))
+        check_ai_ao_concurrent(dev);
+    if (selected(only, "audio"))
         check_audio_in(dev);
-    if (!only || strstr(only, "ctr"))
+    if (selected(only, "ctr"))
         check_counter(dev);
-    if (!only || strstr(only, "dio"))
+    if (selected(only, "dio"))
         check_dio(dev);
-    if (!only || (strstr(only, "dmm") && !strstr(only, "dmmall")))
+    if (selected(only, "dmm"))
         check_dmm(dev);
-    if (only && strstr(only, "dmmall")) {
+    if (only && selected(only, "dmmall")) {
         check_dmm_all(dev);
         check_dmm_unverified(dev);
     }
-    if (!only || strstr(only, "reset")) {
+    if (selected(only, "reset")) {
         const uint64_t t0 = md_now_us();
         EXPECT_OK(mydaq_reset(dev));
         printf("reset: %.2f s\n", (double)(md_now_us() - t0) / 1e6);

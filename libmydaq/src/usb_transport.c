@@ -32,6 +32,7 @@ typedef struct usb_stream {
     md_mutex lock;         /* guards in_flight, closing and (re)submission */
     unsigned in_flight;
     int closing;
+    int stalled;           /* a transfer ended with STALL: clear the halt on close */
 } usb_stream;
 
 int md_usb_error(int e)
@@ -76,6 +77,12 @@ static int usb_write(void *impl, uint8_t ep, const uint8_t *data, size_t len, si
                               timeout_ms);
     if (actual)
         *actual = done > 0 ? (size_t)done : 0;
+    if (rc == LIBUSB_ERROR_PIPE) {
+        /* the device stalled the endpoint (e.g. its stream was torn down under us): clear the
+         * halt so the endpoint is usable for the next task, and report the failure */
+        MD_WARN(t->ctx, "endpoint 0x%02x stalled; clearing the halt", ep);
+        libusb_clear_halt(t->handle, ep);
+    }
     if (rc != LIBUSB_SUCCESS)
         return md_usb_error(rc);
     return (size_t)done == len ? MYDAQ_OK : MYDAQ_ERR_USB;
@@ -93,6 +100,10 @@ static int usb_read(void *impl, uint8_t ep, mydaq_endpoint_type type, uint8_t *b
     else
         rc = libusb_bulk_transfer(t->handle, ep, buf, len, &done, timeout_ms);
     *actual = done > 0 ? (size_t)done : 0;
+    if (rc == LIBUSB_ERROR_PIPE) {
+        MD_WARN(t->ctx, "endpoint 0x%02x stalled; clearing the halt", ep);
+        libusb_clear_halt(t->handle, ep);
+    }
     if (rc == LIBUSB_ERROR_TIMEOUT && done > 0)
         return MYDAQ_OK;
     return md_usb_error(rc);
@@ -110,6 +121,11 @@ static void LIBUSB_CALL stream_transfer_done(struct libusb_transfer *x)
     closing = s->closing;
     md_mutex_unlock(&s->lock);
 
+    if (x->status == LIBUSB_TRANSFER_STALL) {
+        md_mutex_lock(&s->lock);
+        s->stalled = 1;
+        md_mutex_unlock(&s->lock);
+    }
     if (x->status != LIBUSB_TRANSFER_CANCELLED && !closing) {
         status = transfer_status_error(x->status);
         if (status == MYDAQ_ERR_USB)
@@ -176,6 +192,10 @@ static void usb_stream_close(void *impl, void *stream)
             return;
         }
         libusb_handle_events_timeout_completed(t->usb, &tv, NULL);
+    }
+    if (s->stalled) {
+        MD_WARN(t->ctx, "stream 0x%02x stalled; clearing the halt", s->endpoint);
+        libusb_clear_halt(t->handle, s->endpoint);
     }
     stream_free(s);
 }

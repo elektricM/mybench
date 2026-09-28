@@ -1,6 +1,7 @@
 /* Hardware-timed analog input (docs/protocol.md section 6).
  *
- * Data path: the device streams little-endian i16 samples, interleaved by scan, on bulk IN 0x84.
+ * Data path: the device streams little-endian i16 samples, interleaved by scan, on bulk IN 0x84
+ * (stream 4; another stream when an AO task already owns 4, see md_stream_alloc).
  * The transport's stream callback (event thread) appends them to a byte ring; readers consume
  * whole scans. Interrupt IN 0x82 carries event frames (done, error, FIFO overflow), watched while
  * the task runs. Finite and continuous acquisitions use the same commands; continuous ones set
@@ -42,6 +43,7 @@ struct mydaq_ai_task {
     double skew;
     size_t scan_bytes;
     size_t transfer_size;
+    uint8_t stream;          /* while hw_active: stream number (bulk IN 0x80 | stream), 0 = none */
 
     md_mutex op_lock;
     int hw_active;           /* device configured and started; cleanup pending (op_lock) */
@@ -199,15 +201,17 @@ static int configure_and_arm(mydaq_ai_task *t)
                                  finite ? (uint32_t)t->cfg.samples_per_channel : 0u, 0,
                                  0x00010000u, 1, 0, 1,
                                  finite ? 0x100u : 0u, finite ? 0u : 0x100u, finite ? 0x01000000u : 0u};
-    /* in_fifo.configure: host buffer bytes, stream 4 */
-    const uint32_t datapath[6] = {0, 0, t->host_buffer, 0, 0, 0x04000000u};
+    /* in_fifo.configure: host buffer bytes, stream number */
+    const uint32_t datapath[6] = {0, 0, t->host_buffer, 0, 0, (uint32_t)t->stream << 24};
     /* stream credit: exact bytes (finite) or unlimited */
     const uint32_t engine[1] = {finite ? (uint32_t)t->total_bytes : CREDIT_UNLIMITED};
+    const uint32_t endpoint_in[1] = {0x01100000u};   /* endpoint.configure(1 = IN, 0x10) */
+    const uint32_t endpoint = MD_OBJ_STREAM_BASE | t->stream;
     int rc;
 
     rc = md_ai_send_scan_list(dev, t->cfg.channels, t->cfg.num_channels);
     if (rc == MYDAQ_OK)
-        rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_RESET, "02fc0004 01100000", MD_TIMEOUT_CMD, 0, NULL);
+        rc = md_cmd_words(dev, MD_CH_OBJECT, MD_OP_RESET, endpoint, endpoint_in, 1, MD_TIMEOUT_CMD, NULL);
     if (rc == MYDAQ_OK)
         rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_WRITE, "05010001 00000006 3212f413 00000006 00000000",
                         MD_TIMEOUT_CMD, 0, NULL);
@@ -218,10 +222,10 @@ static int configure_and_arm(mydaq_ai_task *t)
         rc = md_cmd_words(dev, MD_CH_OBJECT, MD_OP_RESET, MD_OBJ_AI_DATAPATH, datapath, 6,
                           MD_TIMEOUT_CMD, NULL);
     if (rc == MYDAQ_OK)
-        rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_WRITE, "02fc0004", MD_TIMEOUT_CMD, 0, NULL);
+        rc = md_cmd_words(dev, MD_CH_OBJECT, MD_OP_WRITE, endpoint, NULL, 0, MD_TIMEOUT_CMD, NULL);
     if (rc == MYDAQ_OK)
-        rc = md_cmd_words(dev, MD_CH_STREAM, MD_OP_RESET, MD_OBJ_STREAM_ENGINE4, engine, 1,
-                          MD_TIMEOUT_CMD, NULL);
+        rc = md_cmd_words(dev, MD_CH_STREAM, MD_OP_RESET, MD_OBJ_STREAM_ENGINE_BASE | t->stream,
+                          engine, 1, MD_TIMEOUT_CMD, NULL);
     return rc;
 }
 
@@ -244,18 +248,22 @@ static int release_hw(mydaq_ai_task *t)
     size_t i;
     static const struct {
         uint8_t op;
-        const char *body;
+        uint32_t object;   /* 0 = our stream's endpoint object */
         unsigned flags;
     } seq[] = {
-        {MD_OP_COMMIT, "02fc0004", 0},           /* stop stream 4 */
-        {MD_OP_STATUS, "05500002", 0},
-        {MD_OP_STOP, "05500002", 0},
-        {MD_OP_STATUS, "05120000", 0},
-        {MD_OP_RELEASE, "05500002", 0},
-        {MD_OP_START, "02fc0004", MD_CMD_ANY_STATUS},   /* answers 0xfffc9033, also for NI */
+        {MD_OP_COMMIT, 0, 0},                    /* stop the stream */
+        {MD_OP_STATUS, MD_OBJ_AI_TIMING, 0},
+        {MD_OP_STOP, MD_OBJ_AI_TIMING, 0},
+        {MD_OP_STATUS, MD_OBJ_AI_FRONTEND, 0},
+        {MD_OP_RELEASE, MD_OBJ_AI_TIMING, 0},
+        {MD_OP_START, 0, MD_CMD_ANY_STATUS},     /* flush: answers 0xfffc9033, also for NI */
     };
     for (i = 0; i < sizeof seq / sizeof seq[0]; ++i) {
-        rc = md_cmd_hex(dev, MD_CH_OBJECT, seq[i].op, seq[i].body, MD_TIMEOUT_CMD, seq[i].flags, NULL);
+        const uint32_t object = seq[i].object ? seq[i].object : MD_OBJ_STREAM_BASE | t->stream;
+        md_buf b;
+        md_buf_init(&b);
+        md_put_u32(&b, object);
+        rc = md_cmd(dev, MD_CH_OBJECT, seq[i].op, &b, MD_TIMEOUT_CMD, seq[i].flags, NULL);
         if (rc == MYDAQ_ERR_NO_DEVICE)
             return rc;
         if (rc != MYDAQ_OK && first == MYDAQ_OK)
@@ -295,10 +303,14 @@ static int finish_hw(mydaq_ai_task *t)
         t->hw_active = 0;
     }
     close_streams(t);
-    if (!was_complete && md_is_connected(t->dev)) {
-        /* Aborted early: samples the device had already queued must not leak into the next
-         * acquisition. */
-        md_drain(t->dev, MD_EP_AI_IN, MYDAQ_EP_BULK, 64);
+    if (t->stream) {
+        if (!was_complete && md_is_connected(t->dev)) {
+            /* Aborted early: samples the device had already queued must not leak into the next
+             * acquisition. */
+            md_drain(t->dev, (uint8_t)(0x80u | t->stream), MYDAQ_EP_BULK, 64);
+        }
+        md_stream_free(t->dev, t->stream);
+        t->stream = 0;
     }
     return rc;
 }
@@ -311,7 +323,7 @@ static void report_read_position(mydaq_ai_task *t, uint32_t value)
 {
     md_buf b;
     md_buf_init(&b);
-    md_put_u32(&b, MD_OBJ_STREAM_ENGINE4);
+    md_put_u32(&b, MD_OBJ_STREAM_ENGINE_BASE | t->stream);
     md_put_u32(&b, value);
     md_send_oneway(t->dev, MD_CH_STREAM, MD_OP_WRITE, &b);
 }
@@ -475,10 +487,13 @@ int mydaq_ai_task_start(mydaq_ai_task *t)
     t->state = TASK_RUNNING;
     md_mutex_unlock(&t->lock);
 
-    md_cmd_lock(dev);
-    t->hw_active = 1;
-    rc = configure_and_arm(t);
-    md_cmd_unlock(dev);
+    rc = md_stream_alloc(dev, &t->stream);
+    if (rc == MYDAQ_OK) {
+        md_cmd_lock(dev);
+        t->hw_active = 1;
+        rc = configure_and_arm(t);
+        md_cmd_unlock(dev);
+    }
     if (rc == MYDAQ_OK) {
         rc = md_events_add(dev, on_event, t);
         t->events_on = rc == MYDAQ_OK;
@@ -486,7 +501,7 @@ int mydaq_ai_task_start(mydaq_ai_task *t)
     if (rc == MYDAQ_OK)
         rc = md_pump_acquire(dev);
     if (rc == MYDAQ_OK) {
-        rc = dev->ops->stream_open(dev->impl, MD_EP_AI_IN, MYDAQ_EP_BULK, t->transfer_size,
+        rc = dev->ops->stream_open(dev->impl, (uint8_t)(0x80u | t->stream), MYDAQ_EP_BULK, t->transfer_size,
                                    TRANSFER_COUNT, on_data, t, &t->data_stream);
         if (!t->data_stream)
             md_pump_release(dev);

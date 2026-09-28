@@ -157,6 +157,16 @@ program holds the device, or the subsystem is reserved), `TIMEOUT`, `OVERFLOW`, 
   (value 0x7fffffff − (consumed rounded to buffers + one buffer), NI's cadence). Stop/finish:
   endpoint stop, status, disarm, front-end release, unconfigure, endpoint flush (answers
   -225229, as for NI), then the host transfers are cancelled and EP 0x84 drained.
+- **Streams** (`command.c` `md_stream_alloc`, protocol.md 7.3): each timed AI or AO task takes
+  the lowest free stream number from 4 when it starts and frees it when it ends. A lone task
+  therefore uses stream 4 (NI's single-task traffic, byte-identical to the captures); a task
+  started while another runs gets stream 5, as DAQmx does. The number S goes into
+  `endpoint[S]` (0x02fc000S), the credit/read-position object 0x0002000S, AI `in_fifo.configure`
+  (u8 S), AO `out_timing.m0b(S, 0)` and the bulk endpoints 0x80|S (AI) / S (AO). AI and AO on the
+  same stream kill each other (AO's bulk OUT fails with an I/O error).
+- **Endpoint halts**: a bulk transfer that ends with STALL (sync write/read, or a stream
+  transfer) clears the halt (`libusb_clear_halt`) so the endpoint works for the next task; the
+  failure is still reported. (Not yet provoked on hardware.)
 - **Host buffer**: finite = the whole acquisition; continuous = `buffer_samples` if given, else
   the device is told `samples_per_channel` (as DAQmx) and the host keeps at least 2 s of data.
 - **Events** (`events.c`): one interrupt transfer on 0x82 is kept pending while any task runs;
@@ -265,7 +275,11 @@ Hardware tests (`libmydaq_hw`: C library, `usb_hw`: C++ backend through DeviceMa
 skipped unless `MYDAQ_HW_TESTS=1`; they run through `tools/devlock.sh native libmydaq`, which
 detaches the shared myDAQ from the NI VM for the duration of one run. They keep AO within ±1 V,
 end with AO at 0 V and DIO as inputs, and treat the floating inputs statistically.
-`MYDAQ_HW_ONLY=ai,dio` shortens the C run, `MYDAQ_HW_TRACE=1` logs every frame.
+`MYDAQ_HW_ONLY=ai,dio` shortens the C run (exact group names: `ai ao aotimed concurrent audio ctr
+dio dmm dmmall reset`), `MYDAQ_HW_TRACE=1` logs every frame, `MYDAQ_JUMPERS=ao0-ai0` adds the
+loopback checks that need AO0 wired to AI0. Right after the lock script takes the device back
+from the NI VM, the device can refuse the AI timing engine (status -201381) for a few seconds;
+the C run waits for a working on-demand read first (up to 15 s) and prints how long it took.
 The C tests also pass under AddressSanitizer + UndefinedBehaviorSanitizer and ThreadSanitizer
 (standalone build with `-fsanitize=...`).
 
@@ -305,12 +319,12 @@ natively on the real myDAQ (036CD1C6) through devlock, 2026-09-28 (`libmydaq_hwt
 | AI finite, 1–2 ch, mixed ranges, either order, ≤200 kS/s | implemented | 6 captures, 1,800 values | yes: 1 k–200 kS/s × 1–2 ch, abort + restart |
 | AI continuous (credit, read-position reports, overflow events) | implemented | 1 capture, 30,000 values | yes: 1 k, 2×10 k, 2×100 k, 2×200 kS/s for 3 s without loss; 50 kS/s through the C++ backend |
 | AI channel skew | implemented (`min(1500 \| 1250, divisor/n)` ticks) | via the configure frames | — |
-| Audio in L/R (±2 V, timed) | implemented | 2 captures, 1,440 values | pending |
+| Audio in L/R (±2 V, timed) | implemented | 2 captures, 1,440 values | yes: 48 kS/s, open input sd 0.4 mV |
 | AO static ao0/ao1 (±10 V cal) | implemented | 3 captures | yes: codes = DAQmx (output voltage not measured) |
-| AO timed finite (1–2 ch, 1 k–200 kS/s) | implemented | 5 captures (commands + sample stream) | pending |
-| AO timed continuous, regenerated / streamed | implemented | 4 captures | pending |
+| AO timed finite (1–2 ch, 1 k–200 kS/s) | implemented | 5 captures (commands + sample stream) | yes: 2 ch 20 kS/s (voltage not measured without a loopback) |
+| AO timed continuous, regenerated / streamed | implemented | 4 captures | yes: regenerate 2×20 k, stream 2×100 k and 2×200 k without underflow (quiet machine) |
 | AO underflow detection | implemented (timing + out_fifo event [H]) | emulator only | pending |
-| Audio out L/R (±2 V, timed) | implemented | 1 capture | pending |
+| Audio out L/R (±2 V, timed) | implemented | 1 capture | yes: 48 kS/s finite |
 | AO ±2 V range on AO0/AO1 | NOT_SUPPORTED | not captured | — |
 | DIO static (direction, read, write, line subsets) | implemented | 9 captures | yes: 0x55/0xAA/0x0F/0xF0 read back |
 | DMM DC V 60/20/2/0.2 V | implemented | 7 readings | yes (values = DAQmx) |
@@ -320,18 +334,18 @@ natively on the real myDAQ (036CD1C6) through devlock, 2026-09-28 (`libmydaq_hwt
 | DMM resistance 20 kΩ–20 MΩ (modes 16–19) | implemented, **unverified** | — | pending |
 | DMM diode (mode 20), continuity (mode 21), HW autorange | implemented, **unverified** | not reachable via DAQmx | pending |
 | ES51981 parsing, overload with sign | implemented | overload packets from Ω captures | no provoked overload |
-| Counter edge count (DIO0) | implemented | 1 capture | pending |
+| Counter edge count (DIO0) | implemented | 1 capture | yes: open DIO0 counts 0 |
 | Counter frequency (DIO1) | implemented (M) | 1 capture (timeout path) | pending |
 | Counter period (DIO1) | implemented, **unverified** (app code 2) | — | pending |
-| Pulse train continuous (DIO3) | implemented | 2 captures | pending |
-| Pulse train finite | implemented (U6..U8 order [H]) | 1 capture (50 % duty) | pending |
+| Pulse train continuous (DIO3) | implemented | 2 captures | yes: 5 Hz seen high and low on DIO3 |
+| Pulse train finite | implemented (U6..U8 order [H]) | 1 capture (50 % duty) | yes: 100 pulses at 1 kHz complete |
 | Pulse-train update while running | restart (stop + start) | — | — |
-| FREQOUT 100 kHz / n (DIO4) | implemented | 2 captures | pending |
+| FREQOUT 100 kHz / n (DIO4) | implemented | 2 captures | yes: 6250 Hz seen high and low on DIO4 |
 | FREQOUT 20/10 MHz timebases | not offered | not captured | — |
 | Counter pulse width, semi-period, two-edge, encoders, buffered input | NOT_SUPPORTED | not captured | — |
 | Power-fault event 0x0c91/0xdead | aborts a timed AO task | — | — |
 | Abort of an in-flight command (vendor control) | not used | — | — |
-| AI and AO (stream 4 IN and OUT) at the same time | allowed | emulator only | **pending** (both use `endpoint[4]`) |
+| AI and AO at the same time (streams 4 + 5) | implemented (stream allocator) | emulator (stream numbers per start order) | yes: 2×200 kS/s in + 2×200 kS/s streamed out, both start orders, each survives the other's stop; 2×100 k in + 2×10 k regenerated |
 
 ### Hardware verifications still pending (need the device)
 
@@ -339,8 +353,6 @@ natively on the real myDAQ (036CD1C6) through devlock, 2026-09-28 (`libmydaq_hwt
    build-usb -L hw -V` (adds timed AO finite/regenerate/2×100 kS/s streaming, audio in/out,
    counter edge count, frequency timeout, 5 Hz pulse train seen on DIO3, finite pulse train,
    FREQOUT seen on DIO4).
-2. **AI and AO running at the same time** (Bode, scope + generator): both use stream object
-   `endpoint[4]` (IN 0x84 / OUT 0x04); check that stopping one does not stop the other.
 3. DMM current (3 ranges each, DC and AC), resistance (6 ranges; 16–19 [H]), diode (20),
    continuity (21): `MYDAQ_HW_ONLY=dmmall MYDAQ_HW_TESTS=1 ctest --test-dir build-usb -R
    libmydaq_hw -V` (~35 s); ideally with a known resistor/diode/current. Hardware autorange with

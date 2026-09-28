@@ -43,6 +43,7 @@
 #define MD_OBJ_CORE 0x02fe0000u
 #define MD_OBJ_CORE_STATUS 0x02fe0001u
 #define MD_OBJ_STREAM4 0x02fc0004u
+#define MD_OBJ_STREAM_BASE 0x02fc0000u   /* | stream number: endpoint manager */
 #define MD_OBJ_PROPERTIES 0x05010001u
 #define MD_OBJ_05060000 0x05060000u
 #define MD_OBJ_CALMEM 0x05070000u
@@ -55,6 +56,7 @@
 #define MD_OBJ_05600000 0x05600000u
 #define MD_OBJ_DMM 0x0c900000u
 #define MD_OBJ_STREAM_ENGINE4 0x00020004u   /* on channel 7 */
+#define MD_OBJ_STREAM_ENGINE_BASE 0x00020000u   /* | stream number: credit / read position */
 
 /* Status the device returns for the final stream-4 release of an AI acquisition (NI gets it too) */
 #define MD_STATUS_STREAM_RELEASE ((int32_t)0xfffc9033u)

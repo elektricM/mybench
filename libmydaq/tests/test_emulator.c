@@ -534,6 +534,48 @@ static void test_ai_and_ao_together(void)
     emu_close(&e);
 }
 
+static void test_ai_ao_streams(void)
+{
+    /* AI and AO on the same stream kill each other on the real device: the second task of a
+     * pair takes the next free stream, as NI-DAQmx does (capture aiao-ao0cont-ai0cont-aofirst:
+     * AO on stream 4, AI on 5). A lone task always uses stream 4 (NI's single-task traffic). */
+    emu e;
+    mydaq_ai_config ai = finite_config(1, 10e3, 20000);
+    mydaq_ao_config ao = ao_config(1, 10e3, MYDAQ_CONTINUOUS, 1);
+    mydaq_ai_task *ta = NULL;
+    mydaq_ao_task *to = NULL;
+    static double buf[20000];
+    EMU_OPEN(e);
+    mydaq_mock_set_realtime(e.mock, 1);
+    E_RC(e, mydaq_ai_task_create(e.dev, &ai, &ta), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_create(e.dev, &ao, &to), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_write(to, buf, 1000, MYDAQ_GROUP_BY_SCAN, 0), MYDAQ_OK);
+    /* AO first */
+    E_RC(e, mydaq_ao_task_start(to), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_ao_stream(e.mock) == 4);
+    E_RC(e, mydaq_ai_task_start(ta), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_ai_stream(e.mock) == 5);
+    E_RC(e, mydaq_ai_task_read(ta, buf, 2000, MYDAQ_GROUP_BY_SCAN, 3000), MYDAQ_OK);
+    E_RC(e, mydaq_ai_task_stop(ta), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_stop(to), MYDAQ_OK);
+    /* AI first */
+    E_RC(e, mydaq_ai_task_start(ta), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_ai_stream(e.mock) == 4);
+    E_RC(e, mydaq_ao_task_start(to), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_ao_stream(e.mock) == 5);
+    E_RC(e, mydaq_ai_task_read(ta, buf, 2000, MYDAQ_GROUP_BY_SCAN, 3000), MYDAQ_OK);
+    E_CHECK(e, mydaq_ao_task_error(to) == MYDAQ_OK);
+    E_RC(e, mydaq_ai_task_stop(ta), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_stop(to), MYDAQ_OK);
+    /* alone again: stream 4 */
+    E_RC(e, mydaq_ao_task_start(to), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_ao_stream(e.mock) == 4);
+    E_RC(e, mydaq_ao_task_stop(to), MYDAQ_OK);
+    mydaq_ai_task_destroy(ta);
+    mydaq_ao_task_destroy(to);
+    emu_close(&e);
+}
+
 static void test_counter_and_freqout(void)
 {
     emu e;
@@ -843,6 +885,7 @@ const test_case emulator_tests[] = {
     {"emu.ao_invalid", test_ao_invalid},
     {"emu.ao_unplug", test_ao_unplug},
     {"emu.ai_and_ao_together", test_ai_and_ao_together},
+    {"emu.ai_ao_streams", test_ai_ao_streams},
     {"emu.counter_freqout", test_counter_and_freqout},
     {"emu.close_with_task", test_close_with_task},
     {"emu.ao", test_ao},

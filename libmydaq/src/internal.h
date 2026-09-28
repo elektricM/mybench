@@ -94,6 +94,7 @@ struct mydaq_device {
     mydaq_ctr_task *ctr_task;     /* ctr0 */
     int freqout_running;
     uint8_t dio_reserved;         /* DIO lines used by counter/FREQOUT (PFIn = DIOn) */
+    uint16_t streams_used;        /* bit n: stream n (endpoints 0x0n / 0x8n) owned by a task */
 
     int locks_ready;              /* all mutexes above initialised */
     mydaq_info info;
@@ -125,6 +126,15 @@ int md_cmd_words(mydaq_device *dev, uint16_t channel, uint8_t op, uint32_t objec
 
 /* Records a transport/device error: marks the device disconnected on MYDAQ_ERR_NO_DEVICE. */
 int md_note_error(mydaq_device *dev, int err);
+
+/* Stream numbers (endpoint objects 0x02fc000n, credit objects 0x0002000n, bulk endpoints 0x0n OUT /
+ * 0x8n IN). NI uses stream 4 for a lone AI or AO task; a second concurrent task needs another
+ * one (AI and AO on the same stream kill each other). md_stream_alloc takes the lowest free
+ * stream from MD_STREAM_FIRST; MYDAQ_ERR_BUSY when none is free. */
+#define MD_STREAM_FIRST 4u
+#define MD_STREAM_LAST 10u
+int md_stream_alloc(mydaq_device *dev, uint8_t *stream);
+void md_stream_free(mydaq_device *dev, uint8_t stream);
 int md_is_connected(mydaq_device *dev);
 
 /* Reads and discards whatever is pending on an IN endpoint (short timeouts). */

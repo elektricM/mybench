@@ -12,8 +12,10 @@
 #define EP_CMD_OUT 0x03u
 #define EP_CMD_IN 0x81u
 #define EP_EVENT 0x82u
-#define EP_AI 0x84u
-#define EP_AO_OUT 0x04u
+/* Stream endpoints: stream n uses bulk IN 0x8n / bulk OUT 0x0n (n = 4..10). The host picks the
+ * stream (4 alone; AI and AO together use two), announced in in_fifo.configure / out_timing.m0b. */
+#define IS_AI_EP(m, ep) ((ep) == (0x80u | (m)->ai_stream))
+#define IS_AO_EP(m, ep) ((ep) == (m)->ao_stream)
 
 /* ---- small containers ------------------------------------------------------------------ */
 
@@ -149,6 +151,8 @@ struct mydaq_mock {
     size_t nscan;
     uint32_t timing_mode, divisor, samples;
     int ai_streaming;
+    unsigned ai_stream;      /* stream number of the AI task (in_fifo.configure) */
+    unsigned ao_stream;      /* stream number of the AO task (out_timing.m0b) */
     uint64_t ai_t0_us, ai_sent_scans, ai_index;
     unsigned hwverify_busy;     /* hwverify answers -225270 this many more times */
     /* AO (bulk OUT 0x04) */
@@ -196,6 +200,7 @@ static mydaq_mock *mock_alloc(void)
     mydaq_mock *m = calloc(1, sizeof *m);
     if (!m)
         return NULL;
+    m->ai_stream = m->ao_stream = 4;
     md_mutex_init(&m->lock);
     md_cond_init(&m->cond);
     snprintf(m->serial, sizeof m->serial, "036CD1C6");
@@ -635,10 +640,19 @@ static void emulate(mydaq_mock *m, const uint8_t *f, size_t len)
     } else if (obj == 0x05500002u && op == 0x0e) {
         m->ai_streaming = 0;
         ack(m, ch);
-    } else if (obj == 0x02fc0004u && op == 0x0a) {
+    } else if (obj == 0x05510002u && op == 0x08 && blen >= 28) {   /* in_fifo.configure */
+        const unsigned n = b[24];
+        if (n >= 4 && n <= 10)
+            m->ai_stream = n;
+        ack(m, ch);
+    } else if (obj == 0x05600000u && op == 0x0b && blen >= 5) {    /* out_timing.m0b(stream, 0) */
+        if (b[4] >= 4 && b[4] <= 10)
+            m->ao_stream = b[4];
+        ack(m, ch);
+    } else if (cls == 0x02fc && (obj & 0xffffu) == m->ai_stream && op == 0x0a) {
         m->ai_streaming = 0;   /* stop stream */
         ack(m, ch);
-    } else if (obj == 0x02fc0004u && op == 0x0b) {
+    } else if (cls == 0x02fc && op == 0x0b) {
         respond(m, ch, 6, (int32_t)0xfffc9033u, NULL, 0);
     } else if (obj == 0x05130002u && op == 0x0b && blen >= 8 && be32(b + 4) == 1) {
         uint8_t s[4];
@@ -860,7 +874,7 @@ static int mock_write(void *impl, uint8_t ep, const uint8_t *data, size_t len, s
     int rc = MYDAQ_OK;
     if (actual)
         *actual = 0;
-    if (ep == EP_AO_OUT)
+    if (IS_AO_EP(m, ep))
         return ao_write(m, data, len, actual, timeout_ms);
     md_mutex_lock(&m->lock);
     if (m->unplugged) {
@@ -906,7 +920,7 @@ static int mock_read(void *impl, uint8_t ep, mydaq_endpoint_type type, uint8_t *
             *actual = (size_t)n;
             rc = MYDAQ_OK;
         }
-    } else if (ep == EP_AI) {
+    } else if (IS_AI_EP(m, ep)) {
         emulator_generate(m);
         if (m->ai_data.len) {
             *actual = m->ai_data.len < cap ? m->ai_data.len : cap;
@@ -996,7 +1010,7 @@ static int deliver(mydaq_mock *m)
         requested = s->pending[0];
         if (m->unplugged) {
             status = MYDAQ_ERR_NO_DEVICE;
-        } else if (s->ep == EP_AI) {
+        } else if (IS_AI_EP(m, s->ep)) {
             emulator_generate(m);
             n = m->ai_data.len < requested ? m->ai_data.len : requested;
             if (n > sizeof buf)
@@ -1164,6 +1178,8 @@ GETTER(uint8_t, mydaq_mock_dio_latch, m->dio_latch)
 GETTER(int, mydaq_mock_dmm_mode, m->dmm_mode)
 GETTER(unsigned, mydaq_mock_command_count, m->commands)
 GETTER(int, mydaq_mock_ai_streaming, m->ai_streaming)
+GETTER(unsigned, mydaq_mock_ai_stream, m->ai_stream)
+GETTER(unsigned, mydaq_mock_ao_stream, m->ao_stream)
 GETTER(unsigned, mydaq_mock_oneway_frames, m->oneway_frames)
 GETTER(unsigned, mydaq_mock_oneway_extra, m->oneway_extra)
 GETTER(uint32_t, mydaq_mock_last_read_pos, m->last_read_pos)

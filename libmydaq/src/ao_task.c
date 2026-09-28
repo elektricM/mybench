@@ -1,7 +1,8 @@
 /* Hardware-timed analog output: finite, continuous with regeneration, continuous streaming;
  * AO0/AO1 (±10 V) and the audio outputs (±2 V) (docs/protocol.md 7.2).
  *
- * Data path: little-endian i16 DAC codes, interleaved in channel order, go to bulk OUT 0x04. The
+ * Data path: little-endian i16 DAC codes, interleaved in channel order, go to bulk OUT 0x04 (stream
+ * 4; another stream when an AI task already owns 4, see md_stream_alloc). The
  * device buffers ~18-20 KB ahead of the output and NAKs while its FIFO is full, which paces the
  * host. A writer thread per running task feeds it with synchronous bulk writes (bounded
  * timeouts, partial writes accounted). Regeneration is host-side (NI re-sends the buffer too).
@@ -46,6 +47,7 @@ struct mydaq_ao_task {
     double rate;
     size_t scan_bytes;
     int audio;
+    uint8_t stream;           /* while hw_active: stream number (bulk OUT endpoint), 0 = none (op_lock) */
 
     md_mutex op_lock;
     int hw_active;            /* configured on the device; stop sequence pending (op_lock) */
@@ -210,7 +212,7 @@ static int send_credit(mydaq_ao_task *t, uint32_t bytes)
 {
     md_buf b;
     md_buf_init(&b);
-    md_put_u32(&b, MD_OBJ_STREAM_ENGINE4);
+    md_put_u32(&b, MD_OBJ_STREAM_ENGINE_BASE | t->stream);
     md_put_u32(&b, bytes);
     return md_send_oneway(t->dev, MD_CH_STREAM, MD_OP_RESET, &b);   /* output credit, one-way */
 }
@@ -252,7 +254,7 @@ static int write_once(mydaq_ao_task *t, uint8_t *chunk, size_t cap, uint32_t tim
         md_mutex_unlock(&t->lock);
     }
 
-    rc = t->dev->ops->write(t->dev->impl, 0x04, chunk, n, &actual, timeout_ms);
+    rc = t->dev->ops->write(t->dev->impl, t->stream, chunk, n, &actual, timeout_ms);
     md_mutex_lock(&t->lock);
     if (actual)
         consume(t, actual);
@@ -326,16 +328,26 @@ static int configure(mydaq_ao_task *t)
         md_put_u8(&b, 0);
         rc = md_cmd(dev, 2, MD_OP_WRITE, &b, MD_TIMEOUT_CMD, 0, NULL);
     }
-    if (rc == MYDAQ_OK)   /* endpoint[4].configure(0 = OUT, 0x10) */
-        rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_RESET, "02fc0004 0010", MD_TIMEOUT_CMD, 0, NULL);
-    if (rc == MYDAQ_OK)
-        rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_START, "05600000 0400", MD_TIMEOUT_CMD, 0, NULL);
+    if (rc == MYDAQ_OK) {   /* endpoint[stream].configure(0 = OUT, 0x10) */
+        md_buf_init(&b);
+        md_put_u32(&b, MD_OBJ_STREAM_BASE | t->stream);
+        md_put_hex(&b, "0010");
+        rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_RESET, &b, MD_TIMEOUT_CMD, 0, NULL);
+    }
+    if (rc == MYDAQ_OK) {   /* out_timing.m0b(stream, 0) */
+        md_buf_init(&b);
+        md_put_u32(&b, 0x05600000u);
+        md_put_u8(&b, t->stream);
+        md_put_u8(&b, 0);
+        rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_START, &b, MD_TIMEOUT_CMD, 0, NULL);
+    }
     if (rc == MYDAQ_OK)   /* power task status (the device then reports supply faults) */
         rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_WRITE, "0c920000", MD_TIMEOUT_CMD, 0, NULL);
     if (rc == MYDAQ_OK)
         rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_RESET, "05610000 01", MD_TIMEOUT_CMD, 0, NULL);
     if (rc == MYDAQ_OK)
-        rc = md_cmd_hex(dev, MD_CH_OBJECT, MD_OP_WRITE, "02fc0004", MD_TIMEOUT_CMD, 0, NULL);
+        rc = md_cmd_words(dev, MD_CH_OBJECT, MD_OP_WRITE, MD_OBJ_STREAM_BASE | t->stream, NULL, 0,
+                          MD_TIMEOUT_CMD, NULL);
     return rc;
 }
 
@@ -362,9 +374,16 @@ static int release_hw(mydaq_ao_task *t)
     int rc, first = MYDAQ_OK;
     size_t i;
     for (i = 0; i < sizeof seq / sizeof seq[0]; ++i) {
+        md_buf b;
         if (seq[i].finite_only && !finite)
             continue;
-        rc = md_cmd_hex(dev, MD_CH_OBJECT, seq[i].op, seq[i].body, MD_TIMEOUT_CMD, seq[i].flags, NULL);
+        md_buf_init(&b);
+        md_put_hex(&b, seq[i].body);
+        if (b.len == 4 && md_get_u32(b.data) == MD_OBJ_STREAM4) {   /* the endpoint of our stream */
+            md_buf_init(&b);
+            md_put_u32(&b, MD_OBJ_STREAM_BASE | t->stream);
+        }
+        rc = md_cmd(dev, MD_CH_OBJECT, seq[i].op, &b, MD_TIMEOUT_CMD, seq[i].flags, NULL);
         if (rc == MYDAQ_ERR_NO_DEVICE)
             return rc;
         if (rc != MYDAQ_OK && first == MYDAQ_OK)
@@ -399,6 +418,10 @@ static int finish(mydaq_ao_task *t)
         rc = release_hw(t);
         md_cmd_unlock(t->dev);
         t->hw_active = 0;
+    }
+    if (t->stream) {
+        md_stream_free(t->dev, t->stream);
+        t->stream = 0;
     }
     if (t->events_on) {
         md_events_remove(t->dev, on_event, t);
@@ -650,10 +673,13 @@ int mydaq_ao_task_start(mydaq_ao_task *t)
         return rc;
     }
 
-    md_cmd_lock(dev);
-    t->hw_active = 1;
-    rc = configure(t);
-    md_cmd_unlock(dev);
+    rc = md_stream_alloc(dev, &t->stream);
+    if (rc == MYDAQ_OK) {
+        md_cmd_lock(dev);
+        t->hw_active = 1;
+        rc = configure(t);
+        md_cmd_unlock(dev);
+    }
     if (rc == MYDAQ_OK)
         rc = send_credit(t, (uint32_t)t->credit_bytes);
     if (rc == MYDAQ_OK) {

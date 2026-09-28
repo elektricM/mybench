@@ -73,6 +73,9 @@ int mydaq_mock_dmm_mode(const mydaq_mock *m);
 unsigned mydaq_mock_command_count(const mydaq_mock *m);
 /** 1 while the emulated timing engine streams samples. */
 int mydaq_mock_ai_streaming(const mydaq_mock *m);
+/** Stream numbers (4..10) the host last configured for AI (in_fifo) and AO (out_timing.m0b). */
+unsigned mydaq_mock_ai_stream(const mydaq_mock *m);
+unsigned mydaq_mock_ao_stream(const mydaq_mock *m);
 /** One-way frames (stream read-position reports) received; in replay mode, how many of them
  *  were not in the script (they depend on the host's read timing); the last reported value. */
 unsigned mydaq_mock_oneway_frames(const mydaq_mock *m);
