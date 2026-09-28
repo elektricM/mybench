@@ -1,5 +1,7 @@
 #include "mybench/plot/plotaxis.h"
 
+#include <cmath>
+
 #include <algorithm>
 
 namespace mybench::plot {
@@ -163,6 +165,7 @@ void PlotAxis::setLabelsVisible(bool on) { MYBENCH_AXIS_SETTER(on, m_labelsVisib
 void PlotAxis::setGridVisible(bool on) { MYBENCH_AXIS_SETTER(on, m_gridVisible, appearanceChanged) }
 void PlotAxis::setMinorGridVisible(bool on) { MYBENCH_AXIS_SETTER(on, m_minorGridVisible, appearanceChanged) }
 void PlotAxis::setInverted(bool on) { MYBENCH_AXIS_SETTER(on, m_inverted, appearanceChanged) }
+void PlotAxis::setLogLabels(LogLabels labels) { MYBENCH_AXIS_SETTER(labels, m_logLabels, appearanceChanged) }
 void PlotAxis::setLabelFormat(LabelFormat f) { MYBENCH_AXIS_SETTER(f, m_labelFormat, appearanceChanged) }
 void PlotAxis::setDecimals(int d) { MYBENCH_AXIS_SETTER(d, m_decimals, appearanceChanged) }
 void PlotAxis::setInteractive(bool on) { MYBENCH_AXIS_SETTER(on, m_interactive, interactiveChanged) }
@@ -224,7 +227,26 @@ TickSet PlotAxis::ticks(double pixelLength) const
     if (isLog()) {
         if (!(m_min > 0))
             return {};
-        return logTicks(m_min, m_max, len, m_tickSpacing * 0.75);
+        TickSet t = logTicks(m_min, m_max, len, m_tickSpacing * 0.75);
+        if (m_logLabels == Decades && t.logDecades) {
+            // Only decades are labeled; 2..9 of every decade become minor lines.
+            std::vector<double> major, minor;
+            const int d0 = int(std::floor(std::log10(m_min) + 1e-9));
+            const int d1 = int(std::ceil(std::log10(m_max) - 1e-9));
+            for (int d = d0; d <= d1; ++d) {
+                const double base = std::pow(10.0, d);
+                for (int m = 1; m <= 9; ++m) {
+                    const double v = m * base;
+                    if (v < m_min * (1 - 1e-9) || v > m_max * (1 + 1e-9))
+                        continue;
+                    (m == 1 ? major : minor).push_back(v);
+                }
+            }
+            t.major = std::move(major);
+            t.minor = std::move(minor);
+            t.step = 1;
+        }
+        return t;
     }
     if (m_labelFormat == Time)
         return timeTicks(m_min, m_max, len / m_tickSpacing);

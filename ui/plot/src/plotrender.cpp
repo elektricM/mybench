@@ -941,12 +941,13 @@ void PlotPrivate::buildOverlays()
             continue;
         const QColor col = c->color();
         const quint32 packed = packColor(col);
-        const float hw = c->selected() || c->dragging() ? 0.9f : 0.5f;
+        const float hw = float(c->lineWidth()) * 0.5f + (c->selected() || c->dragging() ? 0.4f : 0.0f);
         LineGeometry &g = lineFor(c->style());
         if (vertical) {
-            g.segment(float(p), float(a.top()), float(p), float(a.bottom()), hw, packed);
+            if (c->lineVisible())
+                g.segment(float(p), float(a.top()), float(p), float(a.bottom()), hw, packed);
             verticals.push_back({p, c});
-        } else {
+        } else if (c->lineVisible()) {
             g.segment(float(a.left()), float(p), float(a.right()), float(p), hw, packed);
         }
         if (c->draggable())

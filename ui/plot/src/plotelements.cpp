@@ -216,6 +216,15 @@ void PlotCursor::setLabel(const QString &l) { if (m_label == l) return; m_label 
 void PlotCursor::setDraggable(bool on) { if (m_draggable == on) return; m_draggable = on; emit cursorChanged(); }
 void PlotCursor::setSnap(bool on) { if (m_snap == on) return; m_snap = on; emit cursorChanged(); }
 void PlotCursor::setReadoutVisible(bool on) { if (m_readoutVisible == on) return; m_readoutVisible = on; emit cursorChanged(); }
+void PlotCursor::setLineVisible(bool on) { if (m_lineVisible == on) return; m_lineVisible = on; emit cursorChanged(); }
+void PlotCursor::setLineWidth(qreal width)
+{
+    width = std::max<qreal>(0.5, width);
+    if (qFuzzyCompare(m_lineWidth, width))
+        return;
+    m_lineWidth = width;
+    emit cursorChanged();
+}
 void PlotCursor::setStyle(LineStyle s) { if (m_style == s) return; m_style = s; emit cursorChanged(); }
 void PlotCursor::setDragging(bool on) { if (m_dragging == on) return; m_dragging = on; emit draggingChanged(); notifyChanged(); }
 void PlotCursor::setSelected(bool on) { if (m_selected == on) return; m_selected = on; emit selectedChanged(); notifyChanged(); }

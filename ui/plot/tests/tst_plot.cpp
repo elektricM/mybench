@@ -1290,6 +1290,46 @@ private slots:
         QCOMPARE(trace->appearance().color, QColor("#00ff00"));
         f.release();
     }
+
+    // par1 bode #7: decade-only labels on log axes (minors 2..9 unlabeled).
+    void logDecadeLabels()
+    {
+        PlotAxis axis;
+        axis.setScale(PlotAxis::Log);
+        axis.setRange(10, 10000);
+        TickSet ticks = axis.ticks(1200);
+        QVERIFY(std::find(ticks.major.begin(), ticks.major.end(), 20.0) != ticks.major.end());   // default: 1-2-5
+        axis.setLogLabels(PlotAxis::Decades);
+        ticks = axis.ticks(1200);
+        QCOMPARE(ticks.major, (std::vector<double>{10, 100, 1000, 10000}));
+        QVERIFY(std::find(ticks.minor.begin(), ticks.minor.end(), 20.0) != ticks.minor.end());
+        QVERIFY(std::find(ticks.minor.begin(), ticks.minor.end(), 5000.0) != ticks.minor.end());
+        QVERIFY(std::is_sorted(ticks.minor.begin(), ticks.minor.end()));
+    }
+
+    // par1 scope #4: a cursor without its line (chip and drag stay) and a line width.
+    void cursorLineOptions()
+    {
+        PlotFixture f;
+        if (!f.create("colorScheme: Plot.Dark\n"
+                      "xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"
+                      "PlotCursor { objectName: \"c\"; position: 5; color: \"#ff0000\"; readoutVisible: false }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        auto *cursor = f.root->findChild<PlotCursor *>("c");
+        QVERIFY(cursor);
+        QVERIFY(cursor->lineVisible());
+        QCOMPARE(cursor->lineWidth(), 1.0);
+        const QPointF mid = f.plot->mapFromValue(QPointF(5, 0));
+        QImage image = f.grab();
+        QVERIFY2(qRed(image.pixel(mid.toPoint())) > 150, qPrintable(QString::number(image.pixel(mid.toPoint()), 16)));
+        cursor->setLineWidth(5);
+        image = f.grab();
+        QVERIFY(qRed(image.pixel((mid + QPointF(2, 0)).toPoint())) > 150);   // 5 px wide
+        cursor->setLineVisible(false);
+        image = f.grab();
+        QVERIFY2(qRed(image.pixel(mid.toPoint())) < 100, qPrintable(QString::number(image.pixel(mid.toPoint()), 16)));
+        f.release();
+    }
 };
 
 QTEST_MAIN(TestPlot)

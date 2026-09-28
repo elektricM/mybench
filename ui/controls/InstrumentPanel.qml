@@ -85,6 +85,7 @@ Rectangle {
             Notifications.notify(Notifications.Info, qsTr("Nothing to export yet"), qsTr("Run the instrument first."))
             return
         }
+        dataDialog.currentFolder = DataExport.lastFolderFor("csv")
         dataDialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, "csv")
         dataDialog.open()
     }
@@ -110,6 +111,7 @@ Rectangle {
         const pdf = options.destination === "pdf"
         imageDialog.pdf = pdf
         imageDialog.exportOptions = options
+        imageDialog.currentFolder = DataExport.lastFolderFor(pdf ? "pdf" : "png")
         imageDialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, pdf ? "pdf" : "png")
         imageDialog.open()
     }
@@ -165,7 +167,6 @@ Rectangle {
         title: qsTr("Export %1 data").arg(root.controller ? root.controller.title : "")
         fileMode: FileDialog.SaveFile
         nameFilters: DataExport.nameFiltersFor(root.instrumentId)
-        currentFolder: (DataExport.lastFolder, DataExport.lastFolderFor("csv"))
         onAccepted: root.controller.exportData(selectedFile)
     }
     PrintDialog {
@@ -181,7 +182,6 @@ Rectangle {
         fileMode: FileDialog.SaveFile
         nameFilters: pdf ? [qsTr("PDF (*.pdf)")] : [qsTr("PNG image (*.png)")]
         defaultSuffix: pdf ? "pdf" : "png"
-        currentFolder: (DataExport.lastFolder, DataExport.lastFolderFor(pdf ? "pdf" : "png"))
         onAccepted: root.writeImage(selectedFile, exportOptions)
     }
 

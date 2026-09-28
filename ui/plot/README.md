@@ -129,7 +129,7 @@ Palette (`paletteColor(i)`, default trace colors): CH0 green, CH1 cyan, amber (m
 ### PlotAxis
 
 `min`, `max` (visible range; assigning them from QML/C++ also sets the *home* range; interaction
-changes only the view, `zoomed` tells), `scale: PlotAxis.Linear/Log`, `divisions` (0 = nice 1-2-5
+changes only the view, `zoomed` tells), `scale: PlotAxis.Linear/Log` (`logLabels: PlotAxis.Decades`: labels only at decades), `divisions` (0 = nice 1-2-5
 ticks; N = N equal divisions), `minorTicks` (-1 auto), `tickSpacing` (px, default 90 x / 56 y),
 `unit`, `title` (shown "Title (unit)"), `unitInLabels` ("5 kHz" instead of "5 k"),
 `labelsVisible`, `gridVisible`, `minorGridVisible`, `inverted`,
@@ -179,7 +179,8 @@ disappears. `TraceBuffer.setUniformValues(x0, dx, [numbers])` fills small previe
 
 **PlotCursor** — `orientation` (Vertical: x = position), `position`, `color`, `label` ("C1"),
 `draggable`, `trace` (readout dot + value chip at the intersection; `value` = trace value in data
-units), `snap` (to the trace's samples), `readoutVisible`, `style`, `selected`, `dragging`.
+units), `snap` (to the trace's samples), `readoutVisible`, `style`, `lineVisible` (false: chip,
+readout and dragging only), `lineWidth` (px, default 1), `selected`, `dragging`.
 Signal `moved(position)`. Two vertical cursors show a Δ chip (and 1/Δ when the x unit is "s").
 
 **PlotLine** — reference line with an edge handle: `orientation` (Horizontal: y = value, e.g.

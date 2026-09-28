@@ -259,6 +259,9 @@ class PlotCursor : public PlotElement
     Q_PROPERTY(mybench::plot::PlotTrace *trace READ trace WRITE setTrace NOTIFY cursorChanged FINAL)
     Q_PROPERTY(bool snap READ snap WRITE setSnap NOTIFY cursorChanged FINAL)
     Q_PROPERTY(bool readoutVisible READ readoutVisible WRITE setReadoutVisible NOTIFY cursorChanged FINAL)
+    // false: no line across the plot (position chip, trace readout and dragging stay).
+    Q_PROPERTY(bool lineVisible READ lineVisible WRITE setLineVisible NOTIFY cursorChanged FINAL)
+    Q_PROPERTY(qreal lineWidth READ lineWidth WRITE setLineWidth NOTIFY cursorChanged FINAL)   // px, default 1
     Q_PROPERTY(mybench::plot::PlotElement::LineStyle style READ style WRITE setStyle NOTIFY cursorChanged FINAL)
     Q_PROPERTY(double value READ value NOTIFY valueChanged FINAL)
     Q_PROPERTY(bool dragging READ dragging NOTIFY draggingChanged FINAL)
@@ -287,6 +290,10 @@ public:
     void setSnap(bool on);
     bool readoutVisible() const { return m_readoutVisible; }
     void setReadoutVisible(bool on);
+    bool lineVisible() const { return m_lineVisible; }
+    void setLineVisible(bool on);
+    qreal lineWidth() const { return m_lineWidth; }
+    void setLineWidth(qreal width);
     LineStyle style() const { return m_style; }
     void setStyle(LineStyle s);
     // Vertical with trace: trace value (data units) at position; horizontal: the position.
@@ -315,6 +322,8 @@ private:
     QPointer<PlotTrace> m_trace;
     bool m_snap = false;
     bool m_readoutVisible = true;
+    bool m_lineVisible = true;
+    qreal m_lineWidth = 1.0;
     LineStyle m_style = Solid;
     bool m_dragging = false;
     bool m_selected = false;

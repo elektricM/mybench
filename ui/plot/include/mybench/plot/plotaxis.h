@@ -34,6 +34,9 @@ class PlotAxis : public QObject
     Q_PROPERTY(bool gridVisible READ gridVisible WRITE setGridVisible NOTIFY appearanceChanged FINAL)
     Q_PROPERTY(bool minorGridVisible READ minorGridVisible WRITE setMinorGridVisible NOTIFY appearanceChanged FINAL)
     Q_PROPERTY(bool inverted READ inverted WRITE setInverted NOTIFY appearanceChanged FINAL)
+    // Log axes: Auto labels 1-2-5 of each decade when there is room; Decades labels only the
+    // decades (10, 100, 1k...) with unlabeled minor lines at 2..9 (ELVISmx Bode).
+    Q_PROPERTY(LogLabels logLabels READ logLabels WRITE setLogLabels NOTIFY appearanceChanged FINAL)
     Q_PROPERTY(LabelFormat labelFormat READ labelFormat WRITE setLabelFormat NOTIFY appearanceChanged FINAL)
     Q_PROPERTY(int decimals READ decimals WRITE setDecimals NOTIFY appearanceChanged FINAL)
     Q_PROPERTY(bool interactive READ interactive WRITE setInteractive NOTIFY interactiveChanged FINAL)
@@ -50,6 +53,7 @@ public:
     enum Scale { Linear, Log };
     Q_ENUM(Scale)
     enum LabelFormat { Engineering, Fixed, Time };
+    enum LogLabels { AutoLogLabels, Decades };
     Q_ENUM(LabelFormat)
 
     explicit PlotAxis(QObject *parent = nullptr);
@@ -83,6 +87,8 @@ public:
     void setMinorGridVisible(bool on);
     bool inverted() const { return m_inverted; }
     void setInverted(bool on);
+    LogLabels logLabels() const { return m_logLabels; }
+    void setLogLabels(LogLabels labels);
     LabelFormat labelFormat() const { return m_labelFormat; }
     void setLabelFormat(LabelFormat f);
     int decimals() const { return m_decimals; }
@@ -170,6 +176,7 @@ private:
     bool m_gridVisible = true;
     bool m_minorGridVisible = true;
     bool m_inverted = false;
+    LogLabels m_logLabels = AutoLogLabels;
     LabelFormat m_labelFormat = Engineering;
     int m_decimals = -1;
     bool m_interactive = true;

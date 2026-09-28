@@ -485,6 +485,10 @@ InstrumentPanel {
 // saveExtraSettings: s["ch0Style"] = m_ch0Style.toJson();   restore: m_ch0Style.fromJson(s["ch0Style"].toMap());
 ```
 
+`PlotAxis.logLabels: PlotAxis.Decades` labels a log axis only at decades (minor lines at 2..9);
+`PlotCursor.lineVisible: false` hides a cursor's line (chip, readout and dragging stay) and
+`PlotCursor.lineWidth` sets its width in px.
+
 `exportDataHandled: true` leaves Export data… of a BenchPlot to the host (signal
 `exportDataRequested()` only); `copyDataAvailable: true` adds Copy data →
 `copyDataRequested()` (the host supplies the data; there is no built-in TSV).
