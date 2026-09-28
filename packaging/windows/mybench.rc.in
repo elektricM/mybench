@@ -1,0 +1,33 @@
+// Windows resources of mybench.exe (configured by packaging/CMakeLists.txt).
+#include <winver.h>
+
+IDI_ICON1 ICON "@MYBENCH_ICO_RC@"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     @MYBENCH_VERSION_COMMAS@
+PRODUCTVERSION  @MYBENCH_VERSION_COMMAS@
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "@MYBENCH_VENDOR@"
+            VALUE "FileDescription",  "@MYBENCH_APP_NAME@"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
+            VALUE "InternalName",     "mybench"
+            VALUE "LegalCopyright",   "(c) @MYBENCH_YEAR@ @MYBENCH_VENDOR@"
+            VALUE "OriginalFilename", "mybench.exe"
+            VALUE "ProductName",      "@MYBENCH_APP_NAME@"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

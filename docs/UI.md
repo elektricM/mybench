@@ -7,7 +7,7 @@ device connection, one resource arbiter, one session file and one design system.
 
 ## Technology (use what modern Qt 6 offers)
 
-- **Qt Quick / QML** with **Qt Quick Controls 2**, built with `qt_standard_project_setup(REQUIRES 6.8)`
+- **Qt Quick / QML** with **Qt Quick Controls 2**, built with `qt_standard_project_setup(REQUIRES 6.9)`
   and `qt_add_qml_module` (qmlcachegen/qmlsc compiled QML, `QML_ELEMENT`/`QML_SINGLETON`
   registration from C++, `pragma ComponentBehavior: Bound`, required properties, no context
   properties).

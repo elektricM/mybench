@@ -1,0 +1,13 @@
+# MYBENCH: give the logged-in user (and the plugdev group) access to the NI myDAQ over USB,
+# so MYBENCH / libmydaq can open it through libusb without root.
+#
+#   NI myDAQ (after NI's one-time firmware update): USB 3923:755b, vendor class ff.
+#
+# TAG+="uaccess" (systemd-logind: ACL for the user on the active seat) must be set before
+# 73-seat-late.rules, hence the 60- prefix. GROUP="plugdev" is for distributions/sessions
+# without logind (Debian/Ubuntu have that group; elsewhere udev ignores an unknown group).
+#
+# Install: /usr/lib/udev/rules.d/ (packages) or /etc/udev/rules.d/ (manual), then
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# and re-plug the myDAQ.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="3923", ATTR{idProduct}=="755b", MODE="0660", GROUP="plugdev", TAG+="uaccess"

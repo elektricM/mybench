@@ -33,12 +33,15 @@ qt_add_qml_module(mybench
     QML_FILES ${app_qml}
 )
 target_link_libraries(mybench PRIVATE mybench_ui)
+# The SVG icons need Qt's svg image/icon plugins at runtime; linking Qt Svg makes the deploy
+# tools (macdeployqt, windeployqt, linuxdeploy) ship them.
+target_link_libraries(mybench PRIVATE Qt6::Svg)
 
 set_target_properties(mybench PROPERTIES
     WIN32_EXECUTABLE TRUE
     MACOSX_BUNDLE TRUE
     MACOSX_BUNDLE_BUNDLE_NAME "${MYBENCH_APP_NAME}"
-    MACOSX_BUNDLE_GUI_IDENTIFIER "org.mybench.${MYBENCH_APP_NAME}"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "${MYBENCH_APP_ID}"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
 )

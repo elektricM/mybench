@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata (configured by packaging/CMakeLists.txt). Check: appstreamcli validate -->
+<component type="desktop-application">
+  <id>@MYBENCH_APP_ID@</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary=https://github.com/mybench/mybench</project_license>
+  <name>@MYBENCH_APP_NAME@</name>
+  <summary>Instrument suite for the NI myDAQ</summary>
+  <description>
+    <p>
+      @MYBENCH_APP_NAME@ is a modern, single-window replacement for NI ELVISmx for the NI myDAQ.
+      It talks to the device directly over USB (libusb); no NI software is needed.
+    </p>
+    <p>Instruments:</p>
+    <ul>
+      <li>Multimeter with trend chart, statistics, relative mode and logging</li>
+      <li>Oscilloscope with trigger markers, measurements, math, FFT, XY, persistence and references</li>
+      <li>Waveform generator: function, sweep and arbitrary waveforms on AO0/AO1, waveform editor</li>
+      <li>Bode analyzer and dynamic signal (spectrum) analyzer</li>
+      <li>Digital I/O with per-line direction, LEDs, switches, patterns and a timeline</li>
+      <li>Counter/timer, data logger and audio equalizer</li>
+    </ul>
+    <p>A simulated myDAQ is built in, so every instrument can be tried without hardware.</p>
+  </description>
+  <launchable type="desktop-id">@MYBENCH_APP_ID@.desktop</launchable>
+  <provides>
+    <binary>@MYBENCH_EXECUTABLE@</binary>
+    <modalias>usb:v3923p755B*</modalias>
+  </provides>
+  <url type="homepage">@MYBENCH_HOMEPAGE@</url>
+  <url type="bugtracker">@MYBENCH_HOMEPAGE@/issues</url>
+  <developer id="org.mybench">
+    <name>@MYBENCH_VENDOR@</name>
+  </developer>
+  <categories>
+    <category>Education</category>
+    <category>Science</category>
+    <category>Electronics</category>
+  </categories>
+  <keywords>
+    <keyword>myDAQ</keyword>
+    <keyword>oscilloscope</keyword>
+    <keyword>multimeter</keyword>
+    <keyword>function generator</keyword>
+    <keyword>data acquisition</keyword>
+  </keywords>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@PROJECT_VERSION@" date="2026-09-28">
+      <description><p>First packaged pre-release.</p></description>
+    </release>
+  </releases>
+</component>

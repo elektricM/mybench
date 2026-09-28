@@ -9,6 +9,7 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#include <winsock2.h> /* struct timeval (libusb API); must precede windows.h */
 #include <windows.h>
 typedef CRITICAL_SECTION md_mutex;
 typedef CONDITION_VARIABLE md_cond;

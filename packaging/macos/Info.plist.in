@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Configured by packaging/CMakeLists.txt. LSMinimumSystemVersion is raised at install time to
+     the newest minimum of the deployed binaries (packaging/macos/finalize-bundle.cmake). -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>@MYBENCH_APP_NAME@</string>
+	<key>CFBundleName</key>
+	<string>@MYBENCH_APP_NAME@</string>
+	<key>CFBundleExecutable</key>
+	<string>@MYBENCH_BUNDLE_EXECUTABLE@</string>
+	<key>CFBundleIconFile</key>
+	<string>@MYBENCH_ICON_NAME@.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>@MYBENCH_APP_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@PROJECT_VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@PROJECT_VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MYBENCH_MACOS_MIN@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.education</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© @MYBENCH_YEAR@ @MYBENCH_VENDOR@</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSRequiresAquaSystemAppearance</key>
+	<false/>
+</dict>
+</plist>

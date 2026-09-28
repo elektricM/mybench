@@ -1,0 +1,213 @@
+# Installers for a tagged release (docs/BUILDING.md "Packaging"):
+#   macOS    MYBENCH-<v>-macOS-universal.dmg     (Qt from aqtinstall, universal libusb from source)
+#   Linux    MYBENCH-<v>-linux-x86_64.AppImage   (ubuntu-22.04 baseline, Qt bundled)
+#            mybench_<v>_amd64.deb               (Ubuntu 26.04 / Debian with Qt >= 6.9, system Qt)
+#            mybench-<v>-1.x86_64.rpm            (Fedora 43, system Qt)
+#   Windows  MYBENCH-<v>-windows-x64.exe (NSIS) + .zip
+# Each package is installed/started once in the job (simulator, offscreen) before upload.
+# Push a tag v<version> (matching project(VERSION) in CMakeLists.txt) or run it by hand.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  MYBENCH_NO_USB: "1"
+  QT_QPA_PLATFORM: offscreen
+
+jobs:
+  macos:
+    name: macOS DMG
+    runs-on: macos-latest
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.11.3"
+          arch: clang_64
+          modules: qtshadertools qtmultimedia
+          cache: true
+      - run: brew install ninja pkgconf
+      - name: libusb (universal, minimum macOS ${{ env.MACOSX_DEPLOYMENT_TARGET }})
+        run: packaging/macos/build-libusb.sh "$RUNNER_TEMP/libusb"
+      - name: Configure
+        run: |
+          PKG_CONFIG_PATH="$RUNNER_TEMP/libusb/lib/pkgconfig" \
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            "-DCMAKE_PREFIX_PATH=$QT_ROOT_DIR" \
+            "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET
+      - run: cmake --build build --target mybench --parallel
+      - name: DMG
+        run: cd build && cpack -C Release -B "$PWD/package"
+      - name: Check the DMG
+        run: |
+          dmg=$(ls build/package/*.dmg)
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/mybench-dmg "$dmg"
+          app=$(ls -d /tmp/mybench-dmg/*.app)
+          codesign --verify --deep --strict "$app"
+          lipo -info "$app"/Contents/MacOS/*
+          if find "$app" -type f \( -name '*.dylib' -o -perm -u+x \) -exec otool -L {} + 2>/dev/null \
+               | grep -E '^\s+(/opt/homebrew|/usr/local|/Users/)'; then
+            echo "the bundle references libraries outside itself"; exit 1
+          fi
+          cp -R "$app" "$RUNNER_TEMP/"
+          hdiutil detach /tmp/mybench-dmg
+          "$RUNNER_TEMP/$(basename "$app")/Contents/MacOS/MYBENCH" --page home --screenshot home-dmg.png
+          test -s home-dmg.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            build/package/*.dmg
+            build/package/*.sha256
+
+  appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.11.3"
+          arch: linux_gcc_64
+          modules: qtshadertools qtmultimedia
+          cache: true
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libusb-1.0-0-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libfontconfig1-dev \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 \
+            libxcb-randr0 libxcb-render-util0 libxcb-image0 libpulse0 file xvfb
+      - name: AppImage
+        run: QT_PREFIX="$QT_ROOT_DIR" QMAKE="$QT_ROOT_DIR/bin/qmake" xvfb-run -a packaging/linux/appimage/build-appimage.sh build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: build/*.AppImage
+
+  deb:
+    name: Debian package (Ubuntu 26.04)
+    runs-on: ubuntu-latest
+    container: ubuntu:26.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependencies (distribution Qt)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates cmake ninja-build g++ pkg-config \
+            file dpkg-dev libusb-1.0-0-dev qt6-base-dev qt6-base-private-dev qt6-declarative-dev \
+            qt6-declarative-private-dev qt6-shadertools-dev qt6-svg-dev qt6-multimedia-dev \
+            libgl-dev libvulkan-dev
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+      - run: cmake --build build --target mybench --parallel
+      - run: cd build && cpack -G DEB -B "$PWD/package"
+      - name: Install and start the package
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get install -y ./build/package/*.deb
+          dpkg -L mybench
+          mybench --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: build/package/*.deb
+
+  rpm:
+    name: RPM package (Fedora 43)
+    runs-on: ubuntu-latest
+    container: fedora:43
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build dependencies (distribution Qt)
+        run: |
+          dnf install -y cmake ninja-build gcc-c++ pkgconf-pkg-config rpm-build file \
+            libusb1-devel qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel \
+            qt6-qtshadertools-devel qt6-qtsvg-devel qt6-qtmultimedia-devel
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+      - run: cmake --build build --target mybench --parallel
+      - run: cd build && cpack -G RPM -B "$PWD/package"
+      - name: Install and start the package
+        run: |
+          dnf install -y ./build/package/*.rpm
+          rpm -ql mybench
+          mybench --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: build/package/*.rpm
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.10.3"   # see ci.yml: aqtinstall cannot install Windows Qt >= 6.11 yet
+          arch: win64_msvc2022_64
+          modules: qtshadertools qtmultimedia
+          cache: true
+      - name: Dependencies
+        shell: pwsh
+        run: |
+          vcpkg install libusb:x64-windows
+          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+          "LIBUSB_PREFIX=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { choco install ninja -y --no-progress }
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+            "C:/Program Files (x86)/NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          }
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$QT_ROOT_DIR;$LIBUSB_PREFIX"
+      - run: cmake --build build --target mybench --parallel
+      - name: Installer
+        shell: bash
+        run: cd build && cpack -C Release -B "$PWD/package"
+      - name: Check the installed tree
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem build/package/*.exe | Select-Object -First 1
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$env:RUNNER_TEMP\MYBENCH" -Wait
+          Get-ChildItem -Recurse "$env:RUNNER_TEMP\MYBENCH" | Select-Object -First 60 FullName
+          # Qt must come from the install directory only: run with a PATH without Qt/vcpkg.
+          $env:PATH = "C:\Windows\system32;C:\Windows"
+          $exe = "$env:RUNNER_TEMP\MYBENCH\bin\mybench.exe"
+          $shot = "$env:RUNNER_TEMP\home.png"
+          $p = Start-Process -FilePath $exe -ArgumentList '--page', 'home', '--screenshot', $shot -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $shot)) { throw "mybench.exe failed ($($p.ExitCode))" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            build/package/*.exe
+            build/package/*.zip
+            build/package/*.sha256
+
+  publish:
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, appimage, deb, rpm, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: dist/*

@@ -1,0 +1,147 @@
+# Build and test MYBENCH on macOS, Linux and Windows (docs/BUILDING.md).
+# Tests never touch hardware: MYBENCH_NO_USB=1, and libmydaq's tests use its mock transport.
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MYBENCH_NO_USB: "1"
+  QT_QPA_PLATFORM: offscreen
+  CTEST_OUTPUT_ON_FAILURE: "1"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Qt 6.11)
+            os: macos-latest
+            qt: "6.11.3"
+            qt-arch: clang_64
+          - name: Linux (Qt 6.11)
+            os: ubuntu-24.04
+            qt: "6.11.3"
+            qt-arch: linux_gcc_64
+          - name: Windows (Qt 6.10, MSVC)
+            os: windows-latest
+            # aqtinstall 3.3 cannot read the per-architecture repository layout Qt uses for
+            # Windows since 6.11; 6.10 is the newest it installs there.
+            qt: "6.10.3"
+            qt-arch: win64_msvc2022_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ matrix.qt }}
+          arch: ${{ matrix.qt-arch }}
+          modules: qtshadertools qtmultimedia
+          cache: true
+
+      - name: Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja pkgconf libusb
+
+      - name: Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libusb-1.0-0-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libfontconfig1-dev \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 \
+            libxcb-randr0 libxcb-render-util0 libxcb-image0 libpulse0 libvulkan-dev xvfb \
+            desktop-file-utils appstream
+          # appstream is not needed to build; used by the packaging checks below
+
+      - name: Dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install libusb:x64-windows
+          $vcpkg = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+          "LIBUSB_PREFIX=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # libusb-1.0.dll for the test executables
+          "$vcpkg/bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { choco install ninja -y --no-progress }
+
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1   # cl, rc and fxc (qsb precompiles HLSL shaders with it)
+
+      - name: Configure
+        shell: bash
+        run: |
+          prefix="$QT_ROOT_DIR"
+          [ -n "${LIBUSB_PREFIX:-}" ] && prefix="$prefix;$LIBUSB_PREFIX"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        if: runner.os != 'Linux'
+        run: ctest --test-dir build --label-exclude hw --parallel 4 --timeout 300
+
+      - name: Test (Linux, under Xvfb for the OpenGL offscreen renders)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a ctest --test-dir build --label-exclude hw --parallel 4 --timeout 300
+
+      - name: Smoke test (screenshot of Home)
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            macOS)   exe=build/app/MYBENCH.app/Contents/MacOS/MYBENCH ;;
+            Windows) exe=build/app/mybench.exe ;;
+            *)       exe="xvfb-run -a build/app/mybench" ;;
+          esac
+          $exe --version
+          $exe --page home --screenshot home-${{ runner.os }}.png
+          test -s home-${{ runner.os }}.png
+
+      - name: Packaging checks (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          DESTDIR="$PWD/stage" cmake --install build --prefix /usr --component app
+          desktop-file-validate stage/usr/share/applications/*.desktop
+          appstreamcli validate --no-net --explain stage/usr/share/metainfo/*.metainfo.xml
+          udevadm verify stage/usr/lib/udev/rules.d/60-mybench-mydaq.rules
+          find stage -type f | sort
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshot-${{ runner.os }}
+          path: home-*.png
+          if-no-files-found: ignore
+
+  # The declared minimum Qt (qt_standard_project_setup(REQUIRES 6.9)).
+  minimum-qt:
+    name: Linux (Qt 6.9, minimum)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.9.3"
+          arch: linux_gcc_64
+          modules: qtshadertools qtmultimedia
+          cache: true
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libusb-1.0-0-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libfontconfig1-dev libxcb-cursor0 xvfb
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$QT_ROOT_DIR"
+      - run: cmake --build build --parallel
+      - run: xvfb-run -a ctest --test-dir build --label-exclude hw --parallel 4 --timeout 300

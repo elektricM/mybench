@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MYBENCH session files (docs/UI.md: workspace layout + instrument settings, JSON). -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-mybench-session">
+    <comment>MYBENCH session</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.mybench"/>
+  </mime-type>
+</mime-info>

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=@MYBENCH_APP_NAME@
+GenericName=Instrument Suite
+Comment=Multimeter, oscilloscope, generator and analyzers for the NI myDAQ
+Exec=@MYBENCH_EXECUTABLE@ %f
+Icon=@MYBENCH_APP_ID@
+Terminal=false
+Categories=Education;Science;Electronics;Engineering;
+Keywords=myDAQ;DAQ;oscilloscope;multimeter;DMM;function generator;Bode;spectrum;logic;ELVIS;
+MimeType=application/x-mybench-session;
+StartupNotify=true
