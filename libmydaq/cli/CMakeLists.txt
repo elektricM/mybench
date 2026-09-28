@@ -1,0 +1,7 @@
+add_executable(mydaq-cli mydaq_cli.c)
+target_link_libraries(mydaq-cli PRIVATE mydaq)
+if(UNIX)
+    target_link_libraries(mydaq-cli PRIVATE m)
+endif()
+set_target_properties(mydaq-cli PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+target_compile_options(mydaq-cli PRIVATE ${LIBMYDAQ_C_FLAGS})
