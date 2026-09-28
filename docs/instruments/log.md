@@ -15,13 +15,13 @@ statistics, and a delimited text file written while recording.
 | ELVISmx | Values / default | MYBENCH |
 |---|---|---|
 | Channel Select (ai0, ai1; Logging?) | ai0 on | **Channel Select** chips AI 0 (on), AI 1 (off) |
-| Sampling Rate (S/s) | 1 … 1000, step 1, `%.2f`; default 10 | **Sampling** card, same range/default/format |
+| Sampling Rate (S/s) | 1 … 1000, step 1, `%.2f`; **starts at 1000** (observed; the panel's saved value 10 is overridden by the `SamplingRate` key of `DataLogger.ini`, absent from the shipped ini, code default 1000) | **Sampling** card, same range/format; default 1000 (audit `log` #2) |
 | Maximum (V) / Minimum (V) | −10 … +10, step 0.1; +10 / −10 | **Input Limits** card; limits within ±2 V use the ±2 V range, otherwise ±10 V; also the fixed chart scale |
 | Auto-scale graph | on/off | toggle in Input Limits (default on) |
 | Log toggle ("Log"/"Logging…") | | **Record** / **Stop Recording** (run bar) |
 | File path for saved data | | **Log File** card: folder, name, format, options |
 | AI task | continuous, buffer 10 × rate, 1-s blocks | continuous, buffer 10 × rate; reads what is available every ~50 ms (display ≥ 10 Hz) |
-| File | per channel `Time`, `<dev>/ai<n>` columns, Tab, appended per block | see §4 (one shared time column for the AI channels, which share one sample clock) |
+| File | per channel a pair `Time`, `<dev>/ai<n>`; Tab; absolute date-time strings; appended per 1-s block; see §8 (recovered exactly) | see §4 (MYBENCH native layout) and §8 (**ELVISmx-compatible layout**, optional) |
 | Invalid path | "no data was saved" | warning toast "Could not create <file> (<reason>): no data was saved." |
 
 ## 3. MYBENCH design
@@ -86,5 +86,95 @@ resistance logging, refusal without channels.
 
 ## 7. Open questions
 
-- ELVISmx's exact time-column format (absolute vs relative) is unknown; MYBENCH writes relative
-  seconds plus the start time (and an optional timestamp column).
+- Everything about the ELVISmx file that code study could not settle is listed in §8.4 and is
+  asked of a real ELVISmx session (`manual-session-apps.md`, Data Logger part).
+
+## 8. ELVISmx Data Logger file: recovered format
+
+Source tags: **VI** = `NI ELVISmx Data Logger.vi` (constants, front panel resources) and the NI
+"Export Waveforms To Spreadsheet File (1D)" library VI it calls; **LOG** = real files written by
+that same library VI in the Oscilloscope and DSA `Log` command (see scope.md 8; the Data Logger
+uses the same VI with the header switched off). Confidence H / M / L.
+
+### 8.1 Dialogs and file handling
+
+| Item | Value | Source, conf. |
+|---|---|---|
+| Where the path is chosen | a path control `File path for saved data` with a folder button beside the `Log` button (no separate save dialog). The control also exists twice: a second hidden path control `Filename` with the same options | VI, H |
+| Browse dialog defaults | starting folder `C:\Users\Public\Documents` (the shared Documents folder); file-name filter `*.lvm`. The filter is the only type offered by the control's options; nothing writes LVM content (see 8.2), the name is just what the user types | VI (path-control browse options), H for the values, M for how the dialog presents them |
+| Extension added automatically | not known: no code adds an extension; the name typed is used as is | VI, M |
+| Default path | empty (the control's default is "Invalid file path") | VI, H |
+| Log with an invalid or empty path | logging is refused, an error dialog says (in our words) that nothing was saved because the destination path is invalid and the folder button should be used | VI, H |
+| Existing file | **appended to**, never replaced: both the header write and every data write use "append = true". Starting a second logging session into the same file adds a new header row in the middle of the file | VI flags H; behaviour M |
+| When data are written | `Log` (toggle, caption `Logging...` while on) is only usable while the app runs. Pressing it writes the header once, then one data block per second is appended while it stays on. Blocks acquired before `Log` was pressed are not written | VI, H (commands `write header` / `write data`), M (timing) |
+| A file "saved to" indicator | a path indicator named `FilePathIndicator` exists in the VI; not visible in the screenshots | VI, L |
+| Line ending, encoding | CR LF (Windows), single-byte text, no byte-order mark | LOG for the library VI (CRLF), M |
+
+### 8.2 Layout
+
+```
+<header row>  <TAB>-separated, one row, written when Log is pressed
+<data rows>   <TAB>-separated, appended once per 1-s block
+```
+
+- **Header row** (VI, H for the pieces, M for exact join): for every channel whose `Logging?` chip is on,
+  in channel order, two cells: the fixed text `Time` and then `<device name>/ai<n>` where
+  `<device name>` is the name of the selected device (for example `myDAQ1`) and `<n>` the AI channel
+  number (0 or 1 on a myDAQ; the number is the row position in the channel list). Example with both
+  channels on: `Time<TAB>myDAQ1/ai0<TAB>Time<TAB>myDAQ1/ai1`. No comment lines, no date line, no
+  units, no `waveform`/`t0`/`delta t` rows (the library VI is told not to write its own header).
+  Whether the row ends with a trailing TAB is unknown (L).
+- **Data rows** (VI H for flags; LOG for cell formats): the library VI is called with "multiple
+  time columns" on, so **every channel has its own time column** followed by its value column:
+  `t_ai0<TAB>v_ai0<TAB>t_ai1<TAB>v_ai1`. One row per sample; a block holds `round(rate)` rows
+  (1 second). The two time cells of a row are expected to be equal for a shared sample clock (M: the Scope log shows the two channels' `t0` 2 microseconds apart, so they may differ slightly).
+  No trailing TAB on data rows (LOG).
+- **Time cell**: the absolute wall-clock time of that sample (block start plus k / rate), written as
+  the computer's *short date*, **two spaces**, then the 24-hour time with **six fractional digits**:
+  `9/28/2026  06:28:38.381043` (LOG, H for the shape; the date part follows the Windows region
+  setting: `M/D/YYYY` on the test PC, so the observed sample is US style).
+- **Value cell**: volts in exponent notation with **six decimals** and an unpadded exponent, for
+  example `5.174413E+0`, `-1.220740E-2` (negative and E-n forms confirmed in real Scope and DSA log
+  files; LOG, H for that VI; the logger passes raw volts, so no
+  units in the file).
+- Decimal separator: `.` on the test PC; the library formatting is not locale-aware for numbers
+  (LOG, M). Delimiter: TAB; the delimiter input is not wired (VI, H).
+- No blank line between blocks, no row numbering, no flush marker (M).
+
+### 8.3 Synthetic example (ours; not an NI file)
+
+Two channels, 1000 S/s, logging started at 10:15:00 on 28 Sep 2026, US regional settings (`<TAB>`
+stands for one tab character, every line ends with CR LF):
+
+```
+Time<TAB>myDAQ1/ai0<TAB>Time<TAB>myDAQ1/ai1
+9/28/2026  10:15:00.000000<TAB>1.234560E-1<TAB>9/28/2026  10:15:00.000000<TAB>-4.500000E-1
+9/28/2026  10:15:00.001000<TAB>1.240012E-1<TAB>9/28/2026  10:15:00.001000<TAB>-4.499871E-1
+9/28/2026  10:15:00.002000<TAB>1.229874E-1<TAB>9/28/2026  10:15:00.002000<TAB>-4.501003E-1
+...  (997 more rows for the first second, then the next second appended)
+```
+
+With only `ai1` on the header would be `Time<TAB>myDAQ1/ai1` and rows `t<TAB>v`.
+
+### 8.4 What only a real ELVISmx file can settle
+
+1. The exact header row: device-name text, `Time` caption, trailing tab or not, line ending.
+2. Whether `Time` cells really are absolute date-time strings in the Data Logger (LOG shows it
+   for the library VI; the logger's own waveforms could carry a different `t0`), and how the
+   date part looks with a non-US region (asked only to document; MYBENCH writes ISO by default).
+3. Whether a value column ever holds another format (small and negative values are already
+   confirmed for the library VI).
+4. The browse dialog: window title, file types offered besides `*.lvm`, default file name, whether
+   a name typed without extension gets one, behaviour when picking an existing file (overwrite
+   prompt or silent append).
+5. Second `Log` press in one run, or a new `Start` with `Log` already on: header repeated? file
+   reopened?
+6. What happens to `Log` when the file cannot be written mid-run (disk removed).
+7. Timestamp drift: whether the time of block N+1 continues exactly from block N.
+
+### 8.5 MYBENCH decision
+
+Keep the native layout of §4 as default. Add a third **Layout** choice, `ELVISmx compatible` (file extension `.txt`, not `.lvm`: the content is not LabVIEW Measurement format), in the
+Log File card that writes §8.2 exactly (per-channel Time/value pairs, absolute date-time in the ELVISmx short-date form,  `E` values, no `#` header, append to an existing file) so that scripts written
+for the ELVISmx logger keep working; the DMM extension columns are not written in that layout.
+Audit rows `log` #5-#7.

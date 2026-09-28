@@ -78,10 +78,17 @@ Window `Digital Multimeter - NI ELVISmx`, 412 x 508 px, fixed size.
 
 ## 3. Featured applications
 
-DC Level and Data Logger were explored; the other four were not launched. All items are
-**MISSING** from the instrument specs and are proposed in [featured-apps.md](featured-apps.md)
-(DC mode in `gen`, new Data Logger panel, Octave view in `dsa`, Audio Equalizer panel, Scope
-options, DIO timeline additions).
+Coverage marks (2026-09-28): **explored** = UI observed; **code** = recovered from the VIs only
+(no launch). Details and sources: [featured-apps.md](featured-apps.md).
+
+| App | Status | What is covered | Coverage |
+|---|---|---|---|
+| DC Level | explored | controls, range, Start/Stop behaviour; DAQmx calls not captured | `gen.md` DC mode, `featured-apps.md 2` |
+| Data Logger | explored + code | controls, defaults (rate 1000), log file layout recovered (header pair per channel, absolute date-time cells, `E` values, TAB, CRLF, append), path control (`*.lvm`, shared Documents); real file and dialog still to observe | `log.md 2, 8`, `featured-apps.md 3` |
+| Octave Analyzer | explored (screens) + code | every control, Mode / Time Constant / band index / weighting behaviour, tabs, staircase display, Settled; SVT engine | `dsa.md 14`, `featured-apps.md 4` |
+| Audio Equalizer | code only | panel elements, defaults, ranges, filter design, constants, two rate/delay configurations; never launched | `aeq.md 8`, `featured-apps.md 5` |
+| 8-Channel Oscilloscope | out of scope | mapped to the Oscilloscope | `scope.md`, `featured-apps.md 6` |
+| Digital Waveform Viewer | out of scope | mapped to the Digital I/O timeline (ELVIS II only) | `dio.md 4`, `featured-apps.md 7` |
 
 ## 4. Oscilloscope (`Scope.exe`)
 
@@ -248,8 +255,9 @@ Window `Digital Reader - NI ELVISmx`, 357 x 366 px, fixed. Screens: `explore/dio
 
 ## 12. Not explored (for a follow-up agent)
 
-- Featured apps: Octave Analyzer, Audio Equalizer, 8-Channel Oscilloscope, Digital Waveform Viewer
-  (not launched); Data Logger log file and dialogs; DC Level DAQmx calls.
+- Featured apps: Audio Equalizer never launched (defaults of the routing combos, plots); Data Logger
+  real log file, browse dialog and Help panel; Octave Analyzer filter class, dB reference; DC Level
+  DAQmx calls. (8-Channel Oscilloscope and Digital Waveform Viewer: out of scope.)
 - DMM: Help window content beyond the first page; behaviour with a real signal (continuity tone,
   real overload values) - impossible with the simulated device.
 - Scope: TDMS log format; Help; C1/C2 combos while running with CH 1 disabled; Graph Properties

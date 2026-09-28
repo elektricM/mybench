@@ -315,3 +315,89 @@ AI 0 test signal: 1 kHz sine, 1 V peak, 1 % third harmonic, 0.5 mV rms noise.
   waveform export (`waveform`, `t0` absolute, `delta t`, then absolute timestamp + value rows,
   channel named `Source signal`), a blank line, `FFT waveform`, `Units: <unit>`, then one row per
   line `frequency <TAB> value` exactly as displayed (400 rows 0 ... 39 900 Hz at the defaults).
+
+## 14. Octave Analyzer (ELVISmx featured app) - recovered behaviour
+
+Source tags: **SCR** = screenshots `ni-local/screens/explore/octave/` (numbers 01-16); **FP** = front
+panel resources of `NI ELVISmx Octave Analyzer.vi`; **VI** = its constants and call structure; **SVT** =
+NI Sound and Vibration library VIs it calls (third-octave analysis, octave weighting). Confidence H / M / L.
+Method for the code part: [algorithms/featured.md 4](algorithms/featured.md). All text is ours.
+
+### 14.1 Window and controls
+
+Fixed-size window (no maximize), blue title band `Octave Analyzer`, `Help >>` side panel
+(Introduction / How to Use). Left column, top to bottom (SCR 01, H):
+
+| Group | Control | Values | Default | Notes, source, conf. |
+|---|---|---|---|---|
+| Physical Channel | Select Device | myDAQ / ELVIS II devices found; `No Supported Devices Found` when none | first device | disabled while running. SCR, FP, H |
+| | Channel(s) | list `<dev>/ai0`, `<dev>/ai1`, `<dev>/audioInputLeft`, `<dev>/audioInputRight`, `<dev>/dmm`, plus `Browse...` (channel browser) | `ai0` | a channel list of several AI channels is accepted (N-channel analysis); `dmm` or any non-analog-input channel is refused at Start with a message asking for an analog input channel. SCR 02 H; VI M for multi-channel |
+| | Minimum (V) / Maximum (V) | -10 ... +10 (coerced) | -10 / 10 | become the AI channel limits; no cross-check between them when idle (5 / 8 accepted); disabled while running. SCR 06, 08a, FP, H |
+| Exponential Averaging | Mode | **Slow, Fast, Impulse, Custom** | **Fast** | live while running. SCR 03, H |
+| | Time Constant (ms) | 0 ... 10000, step 1; typing 99999 gives 10000 | 125 | enabled only for Custom; with other modes it is grayed and keeps its last value (125 at start; 0 after Custom 0, SCR 09 to 15), also while running. SCR 03, 05, 06, 07b, 08b, H. 0 is accepted in Custom. |
+| Frequency | Low Band (Hz) | integer **band index 0 ... 30** (see 14.2), caption says Hz | **0** | live while running, restarts the display |
+| | High Band (Hz) | same | **30** | typing 99999 or 1000 is kept in the box but behaves as 30. SCR 05, 11, 13 |
+| | Weighting | **Linear, A-weighting, B-weighting, C-weighting** | Linear | live while running. SCR 04, 12, H |
+| Run | Start / Stop / Help >> | | | Stop grayed while idle; while running Start is grayed. SCR 01, 09 |
+
+Behaviour while running (SCR 09, H): Select Device, Channel(s), Minimum and Maximum are grayed;
+Mode, Time Constant (Custom only), Low/High Band, Weighting and the graph tabs stay usable.
+Changing Low/High Band while running re-draws the band set at once (SCR 10-15).
+
+### 14.2 Band set (the important correction)
+
+- The analysis is **1/3 octave** with the **31 ISO nominal bands 20 Hz ... 20 kHz**: 20, 25, 31.5, 40,
+  50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1k, 1.25k, 1.6k, 2k, 2.5k, 3.15k, 4k,
+  5k, 6.3k, 8k, 10k, 12.5k, 16k, 20k (SVT band label list inside the VI, H).
+- `Low Band` / `High Band` select the first and last band **by index into that list**: 0 = 20 Hz,
+  5 = 63 Hz, 20 = 2 kHz, 30 = 20 kHz. Evidence: Low 5 / High 20 draws steps from about 63 Hz to
+  2 kHz (SCR 15); Low 0 / High 30 draws 20 Hz ... 20 kHz (SCR 10); High 1000 draws the same full
+  range (SCR 11) so out-of-range is clamped to 30; Low 100 leaves a single dot at 20 kHz (SCR 13, 14).
+  (H.) The number is *not* a frequency although the label says Hz. The VI stores the choice as an
+  enumeration of those nominal frequencies (FP/VI type descriptor, H).
+- Behaviour when Low > High: not tested (L).
+- Filter class of the SVT analysis (ANSI S1.11 vs IEC 61260, both available in the library) is
+  not wired by the app; library default applies (L).
+
+### 14.3 Measurement and display
+
+Engine (VI, H unless noted): continuous AI at **50 kS/s**, reads of **1000 samples** per channel
+(20 ms cadence; the test VM raised error `-200279` "cannot keep up with hardware acquisition" and
+offered `Continue`; explorer checkpoint note, M). Each block goes through the NI third-octave analysis with the
+exponential averaging settings {Mode, Time Constant} and the band range, then through the octave
+weighting filter (weights applied to band powers at the band centres, M). The analysis reports
+whether its filters have settled.
+
+- Time constants (library behaviour, L): Slow 1 s, Fast 125 ms, Impulse 35 ms rise / 1.5 s decay,
+  Custom = the field. dB conversion is switched on; the reference is the library default
+  `20 uPa` and the axis title says so (`Band Power (dB ref 20u Pa)`, fixed text even though the
+  input is volts). Whether the numbers are 10 log(V^2 / (20u)^2) or relative to 1 V^2 is not
+  settled; the test signal was not a known sine (L, manual session).
+- **Time tab** (SCR 09, 01): graph `Voltage (V)` (ticks -10 ... 10) vs `Time (s)`, X axis in
+  absolute clock time (`hh:mm:ss AM/PM`, ticks have no fractional seconds; at rest 01:00:00 ...
+  01:00:01 AM, running 05:42:22 ... 05:42:23 PM). **The displayed span is unresolved** (L): the
+  graph is fed 1000-sample blocks, so one 20 ms block is likely and the second-only tick labels
+  cannot show it; manual step C5. The label under the graph shows `Settled` (indicator caption
+  pair `Settled` / `Not settled`, H for the pair, M for position).
+- **Frequency tab** (SCR 10-15): band power drawn as a *staircase* (each band a flat step centred on
+  its nominal frequency, `Multiplot octave graph`); X log 20 ... 20 000 Hz, grid at 20, 200, 2000,
+  20000; Y autoscaled (observed -55 ... -20 dB linear weighting, -110 ... -20 with A); Y title
+  `Band Power (dB ref 20u Pa)`. With A weighting the low bands drop by the A curve (about -50 dB
+  at 20 Hz) - consistent with weighting applied to band powers (SCR 12, H). Only the bands in
+  Low ... High are drawn; the axis stays 20 ... 20 000.
+- No cursors, no readout table, no log/print button, no averaging restart, no run-once.
+
+### 14.4 MYBENCH (`dsa`, Octave mode) compared
+
+| Item | ELVISmx | MYBENCH now | Verdict |
+|---|---|---|---|
+| Band set | 31 ISO bands 20 Hz ... 20 kHz, indices 0..30 | 34 base-10 bands 10 Hz ... 20 kHz (indices 0..33), combos of nominal frequencies, default 20 Hz ... 20 kHz | same default range; extra bands 10 / 12.5 / 16 Hz are an extension (audit dsa #12) |
+| Band selector | numeric index box labelled Hz | two combos of nominal frequencies | better; keep |
+| Modes / time constants | Slow, Fast (default), Impulse, Custom (0 ... 10000 ms, 125) | same values, Custom only editable in Custom | OK |
+| Weighting | Linear, A, B, C | Z, A, B, C (audit dsa #11) | label only |
+| Filters | SVT third-octave (class unknown) | 6th-order Butterworth band-pass bank | accuracy vs SVT unverified (audit dsa #13) |
+| Channel | one or several AI, audio, refuses dmm | one source, AI 0/1/audio | audit dsa #10 |
+| Live changes while running | Mode, TC, bands, weighting | none of these controls is disabled while running | OK |
+| Frequency display | staircase, fixed 20 ... 20k axis, Y autoscale, title `Band Power (dB ref 20u Pa)` | bar chart of band level, axis from the band range | cosmetic (audit dsa #14) |
+| Time display | absolute-clock axis, span unresolved (probably one 20 ms block) | one 20 ms block, 0 ... record duration | probably equal; audit dsa #15 is conditional on manual step C5 |
+| Extras (MYBENCH) | none | Settled LED, overall level, loudest band, Run Once, export | keep |
