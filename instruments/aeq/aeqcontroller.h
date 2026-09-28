@@ -47,6 +47,12 @@ class AeqController : public InstrumentController
     Q_PROPERTY(int displayChannel READ displayChannel WRITE setDisplayChannel NOTIFY displayChanged)   // 0 = L, 1 = R
     Q_PROPERTY(int averagingIndex READ averagingIndex WRITE setAveragingIndex NOTIFY displayChanged)
     Q_PROPERTY(bool showInput READ showInput WRITE setShowInput NOTIFY displayChanged)
+    // Time view span: 0 = 20 ms, 1 = 100 ms (ELVISmx, default); per-graph Auto-scale (default on).
+    Q_PROPERTY(int timeSpanIndex READ timeSpanIndex WRITE setTimeSpanIndex NOTIFY displayChanged)
+    Q_PROPERTY(bool autoScaleTime READ autoScaleTime WRITE setAutoScaleTime NOTIFY displayChanged)
+    Q_PROPERTY(bool autoScaleSpectrum READ autoScaleSpectrum WRITE setAutoScaleSpectrum NOTIFY displayChanged)
+    Q_PROPERTY(QStringList timeSpanNames READ timeSpanNames CONSTANT)
+    Q_PROPERTY(double timeSpan READ timeSpan NOTIFY displayChanged)   // seconds
 
     // --- Derived ------------------------------------------------------------------------------
     Q_PROPERTY(QStringList sourceNames READ sourceNames CONSTANT)
@@ -116,6 +122,14 @@ public:
     int averagingIndex() const { return m_averagingIndex; }
     void setAveragingIndex(int index);
     bool showInput() const { return m_showInput; }
+    int timeSpanIndex() const { return m_timeSpanIndex; }
+    void setTimeSpanIndex(int index);
+    bool autoScaleTime() const { return m_autoScaleTime; }
+    void setAutoScaleTime(bool on);
+    bool autoScaleSpectrum() const { return m_autoScaleSpectrum; }
+    void setAutoScaleSpectrum(bool on);
+    QStringList timeSpanNames() const;
+    double timeSpan() const;
     void setShowInput(bool show);
 
     QStringList sourceNames() const;
@@ -163,7 +177,9 @@ private:
     struct Display {
         int channel;
         double timeConstant;
+        double timeSpan;
     };
+    Display display() const;
     void setGain(aeq::Band band, double db);
     void updateResponse();
     void postLive();
@@ -180,6 +196,9 @@ private:
     int m_displayChannel = 0;
     int m_averagingIndex = 1;   // 125 ms
     bool m_showInput = true;
+    int m_timeSpanIndex = 1;   // 100 ms
+    bool m_autoScaleTime = true;
+    bool m_autoScaleSpectrum = true;
 
     QVariantList m_meters;
     bool m_clipping = false;

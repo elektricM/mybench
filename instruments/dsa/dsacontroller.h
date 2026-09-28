@@ -25,6 +25,7 @@
 #include <mybench/plot/tracebuffer.h>
 #include <mybench/plot/waterfall.h>
 
+#include <QDateTime>
 #include <QStringList>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
@@ -123,6 +124,7 @@ class DsaController : public InstrumentController
     Q_PROPERTY(double fundamentalFrequency READ fundamentalFrequency NOTIFY resultsChanged)
     Q_PROPERTY(double fundamentalPower READ fundamentalPower NOTIFY resultsChanged)       // in powerUnit
     Q_PROPERTY(QString fundamentalPowerText READ fundamentalPowerText NOTIFY resultsChanged)
+    Q_PROPERTY(QString fundamentalPowerValueText READ fundamentalPowerValueText NOTIFY resultsChanged)   // number only
     Q_PROPERTY(double thd READ thd NOTIFY resultsChanged)         // %
     Q_PROPERTY(double sinad READ sinad NOTIFY resultsChanged)     // dB
     Q_PROPERTY(double vpk READ vpk NOTIFY resultsChanged)         // V
@@ -294,6 +296,7 @@ public:
     double fundamentalFrequency() const;
     double fundamentalPower() const;
     QString fundamentalPowerText() const;
+    QString fundamentalPowerValueText() const;
     double thd() const;
     double sinad() const;
     double vpk() const;
@@ -477,8 +480,8 @@ private:
     bool m_logFrequency = false;
     OctaveAveraging m_octaveAveraging = FastAveraging;
     double m_octaveTimeConstant = 125;         // ms (Custom)
-    int m_octaveLowBand = 3;                   // 20 Hz
-    int m_octaveHighBand = 33;                 // 20 kHz
+    int m_octaveLowBand = 0;                    // 20 Hz (index into the 31 ISO bands)
+    int m_octaveHighBand = 30;                 // 20 kHz
     OctaveWeighting m_octaveWeighting = ZWeighting;
 
     // View state and results (UI thread).
@@ -487,6 +490,7 @@ private:
     QString m_cursorText[2];
     QString m_cursorDeltaText;
     std::shared_ptr<const SpectrumFrame> m_frame;
+    QDateTime m_frameStamp;                    // wall clock when the block arrived (log t0)
     std::vector<double> m_display;             // displayed spectrum (magnitudeUnit)
     dsa::ValueRange m_scale{-120, 10};
     std::optional<dsa::ValueRange> m_autoScale;
@@ -495,6 +499,7 @@ private:
     int m_waterfallColumns = 0;
     double m_waterfallDf = 0;
     std::shared_ptr<const OctaveFrame> m_octaveFrame;
+    QDateTime m_octaveStamp;
     double m_octaveOverall = 0;
     bool m_octaveSettled = false;
     QString m_octaveLoudestBand;

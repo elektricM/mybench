@@ -6,6 +6,10 @@
 
 #include <mybench/devicehub.h>
 
+#include <mydaq/dsp/fft.h>
+#include <mydaq/dsp/spectrum.h>
+#include <mydaq/dsp/window.h>
+
 #include <QStandardPaths>
 #include <QtTest>
 
@@ -164,6 +168,30 @@ private slots:
         QVERIFY(std::abs(total - 1.5) < 1e-9);
     }
 
+    void analysisWindow()
+    {
+        // History: nothing before 0.3 s, then the largest power of two up to the 1 s window.
+        QCOMPARE(aeq::analysisLength(10000, 50000), size_t(0));
+        QCOMPARE(aeq::analysisLength(16384, 50000), size_t(16384));
+        QCOMPARE(aeq::analysisLength(40000, 50000), size_t(32768));
+        QCOMPARE(aeq::analysisLength(65536, 50000), size_t(65536));
+        QCOMPARE(aeq::maximumAnalysisLength(50000), size_t(65536));
+        QCOMPARE(aeq::maximumAnalysisLength(200000), size_t(65536));   // capped: 262144 points made the 200 kS/s stream drop out
+        // A 50 Hz tone (0.5 V^2 rms) lands in a single 1/24-octave band with the long window;
+        // the old 0.3 s window smears it over neighbours (bands are 2.9 Hz wide there).
+        const double fs = 50000;
+        const aeq::OctaveBands bands = aeq::octaveBands(24, 25, 25000);
+        auto peakBand = [&](size_t n) {
+            std::vector<double> x(n);
+            for (size_t i = 0; i < n; ++i)
+                x[i] = std::sin(2 * std::numbers::pi * 50.0 * double(i) / fs);
+            const mydaq::dsp::PowerSpectrum ps = mydaq::dsp::powerSpectrum(x, fs, mydaq::dsp::WindowType::Hanning);
+            const std::vector<double> p = aeq::bandPowers(bands, ps.power, ps.info.df);
+            return *std::max_element(p.begin(), p.end()) / ps.info.enbw;
+        };
+        QVERIFY2(peakBand(65536) > peakBand(16384) * 1.3, qPrintable(u"%1 vs %2"_s.arg(peakBand(65536)).arg(peakBand(16384))));
+    }
+
     void levels()
     {
         std::vector<double> x(1000);
@@ -201,6 +229,9 @@ private slots:
         ctl.initialize();
         ctl.useAnalogInputs();   // AI 0: 1 kHz sine 1 V; AI 1: 200 Hz square 0.5 V
         QVERIFY(!ctl.feedbackInSimulator());
+        QCOMPARE(ctl.timeSpanIndex(), 1);   // ELVISmx Time graph: 100 ms
+        QCOMPARE(ctl.timeSpan(), 0.1);
+        QVERIFY(ctl.autoScaleTime() && ctl.autoScaleSpectrum());
         ctl.flat();
         ctl.setVolume(1.0);
         ctl.run();
@@ -222,6 +253,29 @@ private slots:
         QTest::qWait(400);
         QTRY_VERIFY_WITH_TIMEOUT(std::abs(ctl.meters()[2].toMap()[u"peak"_s].toDouble()
                                           - (ctl.meters()[0].toMap()[u"peak"_s].toDouble() - 12.04)) < 0.5, 3000);
+        QCOMPARE(ctl.dropouts(), 0);
+        QVERIFY(ctl.isRunning());
+        // Time view: 100 ms = 5000 samples at 50 kS/s; 20 ms (triggered) = 1000.
+        QTRY_COMPARE_WITH_TIMEOUT(ctl.timeIn()->count(), qsizetype(std::llround(ctl.streamRate() * 0.1)), 3000);
+        ctl.setTimeSpanIndex(0);
+        QTRY_COMPARE_WITH_TIMEOUT(ctl.timeIn()->count(), qsizetype(std::llround(ctl.streamRate() * 0.02)), 3000);
+        ctl.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 2000);
+    }
+
+    void highRateKeepsUp()
+    {
+        // 200 kS/s with the default buffer: the spectrum window (capped at 65536 points) must not
+        // make the streaming loop miss its deadlines.
+        AeqController ctl;
+        ctl.initialize();
+        ctl.useAnalogInputs();
+        ctl.setRateIndex(2);      // 200 kS/s
+        ctl.setLatencyIndex(2);   // 250 ms (default)
+        QCOMPARE(ctl.streamRate(), 200000.0);
+        ctl.run();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isRunning() && ctl.spectrumOut()->count() > 0, 5000);
+        QTest::qWait(2500);   // the window grows to its full 1 s meanwhile
         QCOMPARE(ctl.dropouts(), 0);
         QVERIFY(ctl.isRunning());
         ctl.stop();

@@ -17,7 +17,7 @@ using Complex = std::complex<double>;
 
 // Nominal centres of one decade (IEC 61260 preferred values), repeated ×10.
 constexpr std::array kNominalMantissa{1.0, 1.25, 1.6, 2.0, 2.5, 3.15, 4.0, 5.0, 6.3, 8.0};
-constexpr int kFirstBand = -20;   // 1000 · 10^(-20/10) = 10 Hz
+constexpr int kFirstBand = -17;   // 1000 · 10^(-17/10) ≈ 20 Hz (nominal 20 Hz): 31 ISO bands 20 Hz … 20 kHz
 constexpr int kLastBand = 13;     // 1000 · 10^(13/10) ≈ 20 kHz
 
 std::vector<Band> makeBands()

@@ -75,6 +75,9 @@ class CtrController : public InstrumentController
     Q_PROPERTY(QString timebaseText READ timebaseText NOTIFY configChanged)
     Q_PROPERTY(int plannedLines READ plannedLines NOTIFY configChanged) // DIO mask of the next/current run
     Q_PROPERTY(QString terminals READ terminals NOTIFY configChanged)   // "DIO 1, 4"
+    // Titles of the chosen options the current device cannot do (empty = all supported); Run is
+    // refused with a warning naming them.
+    Q_PROPERTY(QStringList unsupportedInUse READ unsupportedInUse NOTIFY configChanged)
     // One entry per DIO line: { line, role, signal, owner: "input"|"pulse"|"freqout"|"",
     // heldBy: other instrument's title or "", conflict: bool }.
     Q_PROPERTY(QVariantList pins READ pins NOTIFY pinsChanged)
@@ -237,6 +240,11 @@ public:
     Q_INVOKABLE void selectFreqOut(int index);
     // Statistics and trend back to empty; counting measurements also restart from the initial count.
     Q_INVOKABLE void resetMeasurement();
+    // Capability checks against the current device (DeviceHub::supports): `measurement` is a
+    // Measurement value; featuresInUse() lists the mydaq::feature names the settings need.
+    Q_INVOKABLE bool measurementSupported(int measurement) const;
+    QStringList featuresInUse() const;
+    QStringList unsupportedInUse() const;
 
 signals:
     void counterFunctionChanged();
@@ -258,6 +266,7 @@ protected:
     DataTable exportTable() const override;
 
 private:
+    static QString featureTitle(const QString& feature);
     struct Live {
         double pulseFrequency;
         double dutyCycle;

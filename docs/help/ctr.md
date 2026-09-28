@@ -21,6 +21,15 @@ the current settings use:
 A line used by the Digital I/O panel is marked on the strip; pressing Run pauses Digital I/O so
 the two never drive the same line.
 
+## What your device supports
+
+Options the connected device cannot do are grayed out (a tooltip says *Not supported by this
+device*): measurements such as Pulse Width or the encoders, the Falling edge, counting down or
+with an external direction, *Initial Count*, *Reset on DIO 1*, Buffered sampling, and the pulse
+train's *Idle State High* and *Initial Delay*. If a setting saved earlier needs one of them, the
+Counter card lists it and Run is refused with a warning instead of failing on the device. The
+simulator supports everything.
+
 ## Quick start
 
 - **Measure a frequency**: connect the signal to DIO 1, keep *Measure · Frequency*, press **Run**.
@@ -49,7 +58,8 @@ the two never drive the same line.
   *Samples* and stops). Edge counts and encoders are always on demand.
 - The big readout shows the value with its unit; below it Min, Max, Mean, Std Dev and the number
   of readings, and a trend chart (drag or scroll to look back). **Reset stats** (or **Reset
-  count**) starts over. The **No input** light means no complete measurement has arrived yet.
+  count**) starts over. The trend also starts empty with every new run. The **No input** light
+  means no complete measurement has arrived yet.
 
 ## Pulse Train (DIO 3)
 
@@ -62,7 +72,8 @@ cycle are shown, and the diagram draws the first pulses.
 
 A square wave of 20 MHz, 10 MHz or 100 kHz divided by 1 to 16, so from 20 MHz down to 6.25 kHz
 in fixed steps. Type any frequency (it snaps to the nearest one) or pick it from **Available**.
-FREQOUT runs together with a measurement or a pulse train, or alone (*Counter: Off*).
+FREQOUT runs together with a measurement or a pulse train, or alone (*Counter: Off*). When a finite
+pulse train has sent its last pulse, the run stays active while FREQOUT is on, until you press Stop.
 
 ## Export
 

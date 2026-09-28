@@ -39,32 +39,32 @@ Item {
             Layout.fillWidth: true
             spacing: root.narrow ? Theme.spacingM : Theme.spacingXl
             DsaReadout {
-                implicitWidth: 150
-                label: qsTr("Fundamental")
-                valueText: (root.controller.hasResult ? root.controller.fundamentalFrequency.toFixed(2) : "0.00") + " Hz"
+                implicitWidth: 290
+                label: qsTr("Detected Fundamental Frequency (Hz)")
+                valueText: root.controller.hasResult ? root.controller.fundamentalFrequency.toFixed(2) : "0.00"
                 color: Theme.ch0
                 stale: !root.controller.running
             }
             DsaReadout {
-                implicitWidth: 170
-                label: qsTr("Fundamental Power")
-                valueText: root.controller.fundamentalPowerText
+                implicitWidth: 310
+                label: qsTr("Fundamental Frequency Power (%1)").arg(root.controller.powerUnit)
+                valueText: root.controller.fundamentalPowerValueText
                 stale: !root.controller.running
             }
             DsaReadout {
-                label: qsTr("THD")
-                valueText: root.controller.thd.toFixed(2) + " %"
+                label: qsTr("THD (%)")
+                valueText: root.controller.thd.toFixed(2)
                 color: Theme.math
                 stale: !root.controller.running
             }
             DsaReadout {
-                label: qsTr("SINAD")
-                valueText: root.controller.sinad.toFixed(2) + " dB"
+                label: qsTr("SINAD (dB)")
+                valueText: root.controller.sinad.toFixed(2)
                 stale: !root.controller.running
             }
             DsaReadout {
-                label: qsTr("Vpk")
-                valueText: root.controller.vpk.toFixed(root.controller.vpk < 1 ? 3 : 2) + " V"
+                label: qsTr("Vpk (V)")
+                valueText: root.controller.vpk.toFixed(2)
                 color: Theme.ch1
                 stale: !root.controller.running
             }

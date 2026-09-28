@@ -230,6 +230,22 @@ void LogController::setFileFormat(FileFormat format)
     emit fileSettingsChanged();
 }
 
+void LogController::setFileLayout(FileLayout layout)
+{
+    if (layout == m_fileLayout)
+        return;
+    m_fileLayout = layout;
+    emit fileSettingsChanged();
+}
+
+void LogController::setAppendToExisting(bool append)
+{
+    if (append == m_appendToExisting)
+        return;
+    m_appendToExisting = append;
+    emit fileSettingsChanged();
+}
+
 void LogController::setTimestampColumn(bool enabled)
 {
     if (enabled == m_timestampColumn)
@@ -305,13 +321,15 @@ QString LogController::chartCapacity() const
 
 QString LogController::fileExtension() const
 {
+    if (m_fileLayout == ElvismxLayout)
+        return u"txt"_s;   // not .lvm: the content is not LabVIEW Measurement format
     return m_fileFormat == CommaSeparated ? u"csv"_s : u"tsv"_s;
 }
 
 QString LogController::nextFilePath() const
 {
     return LogFileWriter::uniquePath(m_folder, m_baseName, m_appendTimestamp, fileExtension(),
-                                     QDateTime::currentDateTime());
+                                     QDateTime::currentDateTime(), m_fileLayout == ElvismxLayout && m_appendToExisting);
 }
 
 // --- Recording --------------------------------------------------------------------------------
@@ -328,6 +346,8 @@ void LogController::setRecordingState(bool recording, bool paused, bool pending)
 
 QStringList LogController::headerComments() const
 {
+    if (m_fileLayout == ElvismxLayout)
+        return {};   // no `#` lines in the compatible layout
     DataTable table;
     table.title = title();
     table.instrumentId = instrumentId();
@@ -404,7 +424,7 @@ InstrumentController::WorkerFunction LogController::createWorker()
     if (!m_ai0Enabled && !m_ai1Enabled && !m_dmmEnabled)
         throw mydaq::DeviceError(mydaq::DeviceError::InvalidConfig, tr("enable at least one channel to log"));
     if (!(m_minimum < m_maximum))
-        throw mydaq::DeviceError(mydaq::DeviceError::InvalidConfig, tr("Minimum must be below Maximum"));
+        throw InvalidInput(tr("Minimum must be below Maximum."));
     updateResources();
 
     struct Snapshot {
@@ -420,6 +440,8 @@ InstrumentController::WorkerFunction LogController::createWorker()
         bool timestampColumn = false;
         char delimiter = '\t';
         double stopAfter = 0;   // s, 0 = no limit
+        bool elvismx = false;   // ELVISmx-compatible file layout
+        bool append = false;
     } snap;
     if (m_ai0Enabled)
         snap.channels.push_back(mydaq::AiChannel::AI0);
@@ -436,6 +458,10 @@ InstrumentController::WorkerFunction LogController::createWorker()
     snap.timestampColumn = m_timestampColumn;
     snap.delimiter = m_fileFormat == CommaSeparated ? ',' : '\t';
     snap.stopAfter = m_stopAfterEnabled ? m_stopAfterMinutes * 60.0 : 0.0;
+    snap.elvismx = m_fileLayout == ElvismxLayout;
+    snap.append = snap.elvismx && m_appendToExisting;
+    if (snap.elvismx)
+        snap.delimiter = '\t';
 
     m_commands->takeAll();
     if (m_armRecord || m_recordOnRun) {
@@ -461,6 +487,12 @@ InstrumentController::WorkerFunction LogController::createWorker()
             if (analog)
                 columns << tr("DMM time (s)");
             columns << tr("DMM %1 (%2)").arg(snap.dmmName, snap.dmmUnit);
+        }
+        if (snap.elvismx) {   // Time / <dev>/ai<n> pairs per channel; the DMM is not written
+            QStringList names;
+            for (mydaq::AiChannel ch : snap.channels)
+                names << (ch == mydaq::AiChannel::AI0 ? u"ai0"_s : u"ai1"_s);
+            columns = logger::elvismxHeader(u"myDAQ1"_s, names);
         }
 
         std::unique_ptr<mydaq::AiTask> task;
@@ -494,7 +526,7 @@ InstrumentController::WorkerFunction LogController::createWorker()
         std::vector<RunningStats> stats(nch);
         RunningStats dmmStats;
         bool dmmOverload = false;
-        int dmmIndex = snap.dmmRange > 0 ? snap.dmmRange - 1 : 0;
+        int dmmIndex = snap.dmmRange > 0 ? snap.dmmRange - 1 : int(snap.dmmRanges.size()) - 1;   // Auto starts on the largest
 
         LogFileWriter writer;
         bool paused = false;
@@ -512,9 +544,30 @@ InstrumentController::WorkerFunction LogController::createWorker()
                 setRecordingState(recording, isPaused, false);
             });
         };
+        // A DMM reading that has no AI sample to share a row with gets a row of its own with
+        // empty AI cells (its own time); DMM-only logs are made of such rows. Every queued
+        // reading is written eventually, also when the AI rate is below the DMM rate.
+        auto writeDmmRows = [&]() {
+            while (!snap.elvismx && writer.isOpen() && !paused && !pendingDmm.empty()) {
+                const auto [dt, value] = pendingDmm.front();
+                pendingDmm.pop_front();
+                writer.addNumber(dt);
+                if (snap.timestampColumn)
+                    writer.addText(QDateTime::fromMSecsSinceEpoch(qint64(std::llround((dt + recordStartEpoch) * 1000)))
+                                       .toString(Qt::ISODateWithMs));
+                for (size_t c = 0; c < nch; ++c)
+                    writer.addEmpty();
+                if (analog)
+                    writer.addNumber(dt);
+                writer.addNumber(value);
+                writer.endRow();
+            }
+        };
+
         auto closeFile = [&](bool notify) {
             if (!writer.isOpen())
                 return;
+            writeDmmRows();
             const QString path = writer.path();
             const int64_t rows = writer.rows();
             writer.close();
@@ -541,9 +594,19 @@ InstrumentController::WorkerFunction LogController::createWorker()
                     recordStartIndex = sampleIndex;
                     recordStartEpoch = analog ? t0 + double(sampleIndex) / rate : nowSeconds();
                     QStringList comments = command.comments;
-                    comments << tr("Start: %1").arg(QDateTime::fromMSecsSinceEpoch(qint64(recordStartEpoch * 1000))
+                    if (!snap.elvismx)
+                        comments << tr("Start: %1").arg(QDateTime::fromMSecsSinceEpoch(qint64(recordStartEpoch * 1000))
                                                         .toString(Qt::ISODateWithMs));
                     QString error;
+                    if (snap.elvismx && !analog) {
+                        ctx.post([this] {
+                            setRecordingState(false, false, false);
+                            reportWarning(tr("The ELVISmx-compatible layout logs AI channels only: enable AI 0 or AI 1."));
+                        });
+                        break;
+                    }
+                    writer.setLineEnding(snap.elvismx ? "\r\n" : "\n");
+                    writer.setAppend(snap.append);
                     if (!writer.open(command.path, comments, columns, snap.delimiter, &error)) {
                         const QString path = command.path;
                         ctx.post([this, path, error] {
@@ -584,20 +647,18 @@ InstrumentController::WorkerFunction LogController::createWorker()
             if (snap.dmm) {
                 const mydaq::DmmReading reading = device.dmmRead(snap.dmmFunction, snap.dmmRanges[size_t(dmmIndex)].max);
                 const double t = nowSeconds();
-                bool keep = true;
-                if (snap.dmmRange == 0) {   // autorange: readings taken on a range being left are dropped
-                    const int next = logger::autoRange(snap.dmmRanges, dmmIndex, reading.value, reading.overload);
-                    keep = next == dmmIndex;
-                    dmmIndex = next;
-                }
-                if (keep) {
+                // Auto: the next range comes straight from this reading (as the DMM instrument);
+                // every reading is kept, also one taken on a range that is then left.
+                if (snap.dmmRange == 0)
+                    dmmIndex = logger::autoRange(snap.dmmRanges, dmmIndex, reading.value, reading.overload);
+                {
                     dmmOverload = reading.overload;
                     const double value = reading.overload ? qQNaN() : reading.value;
                     if (!reading.overload) {
                         dmmStats.add(value);
                         m_dmm.append(t, value);
                     }
-                    if (writer.isOpen() && !paused)
+                    if (writer.isOpen() && !paused && !snap.elvismx)
                         pendingDmm.emplace_back(t - recordStartEpoch, value);
                 }
             } else if (!ctx.sleepMs(50)) {
@@ -617,6 +678,16 @@ InstrumentController::WorkerFunction LogController::createWorker()
                     if (writer.isOpen() && !paused) {
                         for (size_t i = 0; i < n; ++i) {
                             const int64_t k = sampleIndex + int64_t(i);
+                            if (snap.elvismx) {
+                                // Per channel: absolute time of the sample, then its value.
+                                const QByteArray time = logger::elvismxTime(qint64(std::llround((t0 + double(k) / rate) * 1e6))).toLatin1();
+                                for (size_t c = 0; c < nch; ++c) {
+                                    writer.addRaw(time);
+                                    writer.addRaw(logger::elvismxValue(data[c][i]).toLatin1());
+                                }
+                                writer.endRow();
+                                continue;
+                            }
                             writer.addNumber(double(k - recordStartIndex) / rate);
                             if (snap.timestampColumn)
                                 writer.addText(QDateTime::fromMSecsSinceEpoch(qint64(std::llround((t0 + double(k) / rate) * 1000)))
@@ -635,24 +706,19 @@ InstrumentController::WorkerFunction LogController::createWorker()
                             }
                             writer.endRow();
                         }
+                        writeDmmRows();   // readings beyond the rows just written (AI rate below the DMM rate)
                     }
                     sampleIndex += int64_t(n);
                     ctx.addSamples(qint64(n * nch));
                     ctx.acquisitionDone();
+                } else {
+                    writeDmmRows();   // no AI sample this pass: the readings get rows of their own
                 }
             } else if (snap.dmm) {
                 ctx.addSamples(1);
                 ctx.acquisitionDone();
                 // DMM only: one row per reading.
-                while (!pendingDmm.empty()) {
-                    writer.addNumber(pendingDmm.front().first);
-                    if (snap.timestampColumn)
-                        writer.addText(QDateTime::fromMSecsSinceEpoch(qint64(std::llround((pendingDmm.front().first + recordStartEpoch) * 1000)))
-                                           .toString(Qt::ISODateWithMs));
-                    writer.addNumber(pendingDmm.front().second);
-                    writer.endRow();
-                    pendingDmm.pop_front();
-                }
+                writeDmmRows();
             }
 
             if (writer.isOpen()) {

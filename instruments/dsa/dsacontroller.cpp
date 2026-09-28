@@ -1,5 +1,7 @@
 #include "dsacontroller.h"
+#include "dsalogwriter.h"
 
+#include <mybench/dataexport.h>
 #include <mybench/devicehub.h>
 #include <mybench/units.h>
 
@@ -10,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <deque>
+#include <utility>
 
 using namespace Qt::StringLiterals;
 using namespace std::chrono_literals;
@@ -24,7 +27,7 @@ using Clock = std::chrono::steady_clock;
 
 constexpr std::array kLines{200, 400, 800, 1600, 3200};   // ELVISmx Resolution (lines) ring
 constexpr std::array kRanges{10.0, 2.0};                  // +/- 10V, +/- 2V
-constexpr double kMinimumSpan = 10.0;                     // Hz
+constexpr double kMinimumSpan = 405.0;                     // Hz
 constexpr double kFallbackMaxRate = 200000.0;             // S/s, when no device is selected
 constexpr auto kPublishInterval = 33ms;                   // display updates: at most ~30/s
 constexpr size_t kPeakCount = 8;                          // rows of the peak table
@@ -165,6 +168,7 @@ void DsaController::setWeighting(Weighting weighting)
         return;
     m_weighting = weighting;
     emit weightingChanged();
+    updateRestartEnabled();
     postLiveSettings();
 }
 
@@ -482,7 +486,9 @@ bool DsaController::restartEnabled() const
 
 void DsaController::updateRestartEnabled()
 {
-    const bool enabled = isRunning() && (isOctave() || m_averagingMode != NoAveraging);
+    // ELVISmx: Restart is live only while running and Weighting is Linear (grayed with
+    // Exponential); the modes without a weighting (None, Peak Hold) keep it off too.
+    const bool enabled = isRunning() && (isOctave() || (weightingEnabled() && m_weighting == LinearWeighting));
     if (enabled != m_restartEnabled) {
         m_restartEnabled = enabled;
         emit restartEnabledChanged();
@@ -495,7 +501,9 @@ dsp::SpectrumFormat DsaController::displayFormat() const
     format.unit = m_units == LinearUnits ? dsp::SpectrumUnit::Linear
                 : m_units == DbmUnits    ? dsp::SpectrumUnit::Dbm
                                          : dsp::SpectrumUnit::Db;
-    format.mode = m_magnitudeMode == PeakMagnitude ? dsp::SpectrumMode::Peak : dsp::SpectrumMode::Rms;
+    // Mode is grayed for dBm (ELVISmx): the stored choice is kept but does not apply.
+    format.mode = m_magnitudeMode == PeakMagnitude && m_units != DbmUnits ? dsp::SpectrumMode::Peak
+                                                                         : dsp::SpectrumMode::Rms;
     format.density = m_spectrumDisplay == PowerSpectralDensityDisplay;
     return format;
 }
@@ -514,8 +522,7 @@ QString DsaController::levelUnit() const
 
 QString DsaController::powerUnit() const
 {
-    const dsp::SpectrumFormat format = displayFormat();
-    return dsa::powerUnit(format.unit, format.mode);
+    return dsa::powerUnit(dsp::SpectrumUnit::Linear, displayFormat().mode);
 }
 
 double DsaController::frequencyMinimum() const
@@ -556,13 +563,19 @@ double DsaController::fundamentalPower() const
 {
     if (!m_frame || !m_frame->measurements.valid)
         return 0.0;
-    const dsp::SpectrumFormat format = displayFormat();
-    return dsa::powerValue(m_frame->measurements.fundamentalPower, format.unit, format.mode);
+    // Always a linear power (V^2, doubled in Peak), whatever the Units (observed in ELVISmx).
+    return dsa::powerValue(m_frame->measurements.fundamentalPower, dsp::SpectrumUnit::Linear, displayFormat().mode);
 }
 
 QString DsaController::fundamentalPowerText() const
 {
-    return dsa::levelText(fundamentalPower(), powerUnit(), logarithmicUnits());
+    return dsa::levelText(fundamentalPower(), powerUnit(), false);
+}
+
+QString DsaController::fundamentalPowerValueText() const
+{
+    const double p = fundamentalPower();
+    return (p == 0.0 || std::abs(p) >= 0.01) ? dsa::fixedText(p, 2) : QString::number(p, 'e', 2);
 }
 
 double DsaController::thd() const
@@ -920,6 +933,7 @@ void DsaController::applySpectrumFrame(std::shared_ptr<const SpectrumFrame> fram
 {
     const bool dfChanged = !m_frame || m_frame->averaged.info.df != frame->averaged.info.df;
     m_frame = std::move(frame);
+    m_frameStamp = QDateTime::currentDateTime();
     setStatusText(statusFor(*m_frame));
     m_timeTrace.setUniform(0.0, 1.0 / m_frame->sampleRate, m_frame->time);
     if (dfChanged)
@@ -936,14 +950,14 @@ void DsaController::updateSpectrumDisplay(bool newData)
     const SpectrumFrame& f = *m_frame;
     const dsp::SpectrumFormat format = displayFormat();
     const double df = f.averaged.info.df;
-    m_display = dsp::formatSpectrum(f.averaged, format);
+    m_display = dsa::formatSpectrum(f.averaged, format);
     m_spectrumTrace.setUniform(0.0, df, m_display);
 
     auto formatHold = [&](const std::vector<double>& powers) {
         dsp::PowerSpectrum p;
         p.info = f.averaged.info;
         p.power = powers;
-        return dsp::formatSpectrum(p, format);
+        return dsa::formatSpectrum(p, format);
     };
     std::vector<double> maxDisplay, minDisplay;
     if (m_maxHold && f.maxHold.size() == f.averaged.power.size()) {
@@ -1051,6 +1065,7 @@ void DsaController::updateScale()
 void DsaController::applyOctaveFrame(std::shared_ptr<const OctaveFrame> frame)
 {
     m_octaveFrame = std::move(frame);
+    m_octaveStamp = QDateTime::currentDateTime();
     m_timeTrace.setUniform(0.0, 1.0 / m_octaveFrame->sampleRate, m_octaveFrame->time);
     setStatusText(m_octaveFrame->elapsed >= octaveSettlingTime() ? tr("Running") : tr("Settling…"));
     updateOctaveDisplay();
@@ -1248,6 +1263,18 @@ void DsaController::updateCursors()
 // ---------------------------------------------------------------------------------------------
 // Export (ELVISmx Log): dsa.md §7
 
+namespace {
+
+// Data for the ELVISmx-style text log writer; t0 = the block's start (arrival minus its length).
+void setLogExtra(DataTable& table, const QDateTime& arrival, double duration, double dt, const QString& units)
+{
+    table.extra[QString::fromLatin1(dsa::kLogT0)] = arrival.addMSecs(-qint64(std::llround(duration * 1000.0)));
+    table.extra[QString::fromLatin1(dsa::kLogDt)] = dt;
+    table.extra[QString::fromLatin1(dsa::kLogUnits)] = units;
+}
+
+}  // namespace
+
 DataTable DsaController::exportTable() const
 {
     DataTable table;
@@ -1258,7 +1285,7 @@ DataTable DsaController::exportTable() const
         table.addMetadata(tr("Source"), tr("%1, range ±%2 V, sample rate %3 S/s")
                                             .arg(mydaq::toString(f.channel)).arg(f.range).arg(f.sampleRate));
         static const std::array averagingNames{tr("Slow"), tr("Fast"), tr("Impulse"), tr("Custom")};
-        static const std::array weightingNames{tr("Z (Linear)"), tr("A"), tr("B"), tr("C")};
+        static const std::array weightingNames{tr("Linear"), tr("A"), tr("B"), tr("C")};
         table.addMetadata(tr("Analysis"), tr("1/3 octave, bands %1 … %2")
                                               .arg(octave::bands()[size_t(m_octaveLowBand)].label,
                                                    octave::bands()[size_t(m_octaveHighBand)].label));
@@ -1282,6 +1309,7 @@ DataTable DsaController::exportTable() const
             t[i] = double(i) / f.sampleRate;
         table.addColumn(tr("Time"), u"s"_s, std::move(t));
         table.addColumn(tr("Amplitude"), u"V"_s, f.time);
+        setLogExtra(table, m_octaveStamp, f.time.size() / f.sampleRate, 1.0 / f.sampleRate, u"dBV"_s + octaveWeightingSuffix());
         return table;
     }
 
@@ -1306,7 +1334,7 @@ DataTable DsaController::exportTable() const
                                               magnitudeUnit()));
     table.addMetadata(tr("Fundamental"), tr("%1 Hz, power %2 %3; THD %4 %; SINAD %5 dB; Vpk %6 V")
                                              .arg(dsa::fixedText(fundamentalFrequency(), 2),
-                                                  dsa::fixedText(fundamentalPower(), logarithmicUnits() ? 2 : 6), powerUnit(),
+                                                  dsa::fixedText(fundamentalPower(), 6), powerUnit(),
                                                   dsa::fixedText(m.thdPercent, 2), dsa::fixedText(m.sinadDb, 2),
                                                   dsa::fixedText(m.vpk, 3)));
     const double df = f.averaged.info.df;
@@ -1320,7 +1348,7 @@ DataTable DsaController::exportTable() const
         dsp::PowerSpectrum p;
         p.info = f.averaged.info;
         p.power = powers;
-        return dsp::formatSpectrum(p, format);
+        return dsa::formatSpectrum(p, format);
     };
     if (m_maxHold && f.maxHold.size() == m_display.size())
         table.addColumn(tr("Max hold"), magnitudeUnit(), formatted(f.maxHold));
@@ -1331,11 +1359,16 @@ DataTable DsaController::exportTable() const
         t[i] = double(i) / f.sampleRate;
     table.addColumn(tr("Time"), u"s"_s, std::move(t));
     table.addColumn(tr("Amplitude"), u"V"_s, f.time);
+    setLogExtra(table, m_frameStamp, double(f.time.size()) / f.sampleRate, 1.0 / f.sampleRate, magnitudeUnit());
+    table.extra[QString::fromLatin1(dsa::kLogLines)] = f.lines;
     return table;
 }
 
 void registerDsa(InstrumentRegistry& registry)
 {
+    static bool writerRegistered = false;
+    if (!std::exchange(writerRegistered, true))
+        DataExport::instance()->registerWriter(std::make_unique<dsa::LogWriter>(), u"dsa"_s);
     registry.registerInstrument({
         .id = u"dsa"_s,
         .title = QObject::tr("Spectrum Analyzer"),

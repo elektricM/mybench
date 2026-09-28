@@ -9,24 +9,28 @@
 
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace mybench::instruments::dsa {
 
 // Y-axis unit of the spectrum ("Magnitude (<unit>)"):
 //   dB:     dBVrms, dBVpk, dBVrms/√Hz, dBVpk/√Hz     dBm: dBm, dBm/Hz
-//   Linear: Vrms, Vpk, Vrms/√Hz, Vpk/√Hz
+//   Linear: Vrms^2, Vpk^2, Vrms^2/Hz, Vpk^2/Hz   (power, as ELVISmx)
 QString magnitudeUnit(const mydaq::dsp::SpectrumFormat& format);
 
 // Unit of "Fundamental Frequency Power (<unit>)": dBVrms/dBVpk, dBm, or Vrms²/Vpk² in Linear
 // (a power, never a density).
 QString powerUnit(mydaq::dsp::SpectrumUnit unit, mydaq::dsp::SpectrumMode mode);
 
+// dsp::formatSpectrum() with Linear as V^2 (power) instead of the core's amplitude.
+std::vector<double> formatSpectrum(const mydaq::dsp::PowerSpectrum& spectrum, const mydaq::dsp::SpectrumFormat& format);
+
 // A tone power (V² RMS) in the units of powerUnit(): Peak doubles it; Linear shows the power
 // itself; dB 10 log10(P / 1 V²); dBm 10 log10(P / 50 Ω / 1 mW). Logarithmic units floor at -400.
 double powerValue(double powerVrms2, mydaq::dsp::SpectrumUnit unit, mydaq::dsp::SpectrumMode mode);
 
 // A tone power as an amplitude level in the spectrum's (non-density) unit, e.g. for markers and
-// the harmonics/peaks tables: dBVrms, dBm or Vrms (sqrt of the power).
+// the harmonics/peaks tables: dBVrms, dBm or Vrms^2 (the power).
 double levelValue(double powerVrms2, mydaq::dsp::SpectrumUnit unit, mydaq::dsp::SpectrumMode mode);
 
 // Level of `power` relative to `reference` in dB (dBc); 0 if undefined.

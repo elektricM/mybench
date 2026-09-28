@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 
 #include <algorithm>
 #include <cmath>
@@ -21,7 +22,7 @@ constexpr qint64 kSyncIntervalMs = 5000;
 }
 
 QString LogFileWriter::uniquePath(const QString& folder, const QString& baseName, bool appendTimestamp,
-                                  const QString& extension, const QDateTime& now)
+                                  const QString& extension, const QDateTime& now, bool allowExisting)
 {
     QString base = baseName.trimmed();
     // Keep file names portable.
@@ -36,7 +37,7 @@ QString LogFileWriter::uniquePath(const QString& folder, const QString& baseName
         base += QLatin1Char('_') + now.toString(QStringLiteral("yyyyMMdd_HHmmss"));
     const QDir dir(folder);
     QString candidate = dir.filePath(base + QLatin1Char('.') + extension);
-    for (int n = 2; QFileInfo::exists(candidate); ++n)
+    for (int n = 2; !allowExisting && QFileInfo::exists(candidate); ++n)
         candidate = dir.filePath(QStringLiteral("%1_%2.%3").arg(base).arg(n).arg(extension));
     return candidate;
 }
@@ -57,13 +58,16 @@ bool LogFileWriter::open(const QString& path, const QStringList& comments, const
         return false;
     }
     m_file.setFileName(path);
-    if (!m_file.open(QIODevice::WriteOnly | QIODevice::NewOnly | QIODevice::Text)) {
+    const QIODevice::OpenMode mode = m_append ? QIODevice::WriteOnly | QIODevice::Append
+                                              : QIODevice::WriteOnly | QIODevice::NewOnly;
+    // Explicit line endings (m_eol) instead of the platform's text mode.
+    if (!m_file.open(mode)) {
         if (error)
             *error = m_file.errorString();
         return false;
     }
     for (const QString& line : comments)
-        m_buffer += "# " + line.toUtf8() + '\n';
+        m_buffer += "# " + line.toUtf8() + m_eol;
     for (const QString& column : columns)
         addText(column);
     endRow();
@@ -96,9 +100,15 @@ void LogFileWriter::addText(const QString& text)
     m_buffer += cell.toUtf8();
 }
 
+void LogFileWriter::addRaw(const QByteArray& cell)
+{
+    separate();
+    m_buffer += cell;
+}
+
 void LogFileWriter::endRow()
 {
-    m_buffer += '\n';
+    m_buffer += m_eol;
     m_rowStarted = false;
     ++m_rows;
 }
@@ -144,6 +154,33 @@ void LogFileWriter::close()
     m_file.close();
 }
 
+QString elvismxTime(qint64 epochMicroseconds)
+{
+    const qint64 ms = epochMicroseconds >= 0 ? epochMicroseconds / 1000 : -((-epochMicroseconds + 999) / 1000);
+    const qint64 micro = epochMicroseconds - ms * 1000;
+    const QDateTime t = QDateTime::fromMSecsSinceEpoch(ms);
+    return t.toString(QStringLiteral("M/d/yyyy  HH:mm:ss.")) + QStringLiteral("%1").arg(t.time().msec() * 1000 + micro, 6, 10, QLatin1Char('0'));
+}
+
+QString elvismxValue(double value)
+{
+    if (!std::isfinite(value))
+        return {};
+    QString text = QString::asprintf("%.6E", value);   // 5.174413E+00
+    const qsizetype e = text.indexOf(QLatin1Char('E'));
+    QString exponent = text.mid(e + 2);                 // digits after the sign
+    exponent.remove(QRegularExpression(QStringLiteral("^0+(?=\\d)")));
+    return text.left(e + 2) + exponent;
+}
+
+QStringList elvismxHeader(const QString& deviceName, const QStringList& channels)
+{
+    QStringList cells;
+    for (const QString& channel : channels)
+        cells << QStringLiteral("Time") << deviceName + QLatin1Char('/') + channel;
+    return cells;
+}
+
 void RunningStats::add(double value)
 {
     if (!std::isfinite(value))
@@ -169,11 +206,11 @@ double RunningStats::standardDeviation() const
 const std::vector<DmmFunctionInfo>& dmmFunctions()
 {
     static const std::vector<DmmFunctionInfo> functions{
-        {"DC Voltage", "V", {{60, "60 V"}, {20, "20 V"}, {2, "2 V"}, {0.2, "200 mV"}}},
-        {"AC Voltage", "V", {{20, "20 V"}, {2, "2 V"}, {0.2, "200 mV"}}},
-        {"DC Current", "A", {{1, "1 A"}, {0.2, "200 mA"}, {0.02, "20 mA"}}},
-        {"AC Current", "A", {{1, "1 A"}, {0.2, "200 mA"}, {0.02, "20 mA"}}},
-        {"Resistance", "Ω", {{20e6, "20 MΩ"}, {2e6, "2 MΩ"}, {200e3, "200 kΩ"}, {20e3, "20 kΩ"}, {2e3, "2 kΩ"}, {200, "200 Ω"}}},
+        {"DC Voltage", "V", {{0.2, "200 mV"}, {2, "2 V"}, {20, "20 V"}, {60, "60 V"}}},
+        {"AC Voltage", "V", {{0.2, "200 mV"}, {2, "2 V"}, {20, "20 V"}}},
+        {"DC Current", "A", {{0.02, "20 mA"}, {0.2, "200 mA"}, {1, "1 A"}}},
+        {"AC Current", "A", {{0.02, "20 mA"}, {0.2, "200 mA"}, {1, "1 A"}}},
+        {"Resistance", "Ω", {{200, "200 Ω"}, {2e3, "2 kΩ"}, {20e3, "20 kΩ"}, {200e3, "200 kΩ"}, {2e6, "2 MΩ"}, {20e6, "20 MΩ"}}},
     };
     return functions;
 }
@@ -182,11 +219,19 @@ int autoRange(const std::vector<DmmRangeInfo>& ranges, int current, double value
 {
     const int last = int(ranges.size()) - 1;
     current = std::clamp(current, 0, last);
-    if (overload)
-        return std::max(0, current - 1);
-    int next = current;
-    while (next < last && std::isfinite(value) && std::abs(value) < 0.9 * ranges[size_t(next + 1)].max)
-        ++next;
+    // Smallest range whose 2000-count limit the value stays under; anything else (or a value
+    // that is not a number) needs the largest.
+    int next = last;
+    if (std::isfinite(value)) {
+        for (int i = 0; i <= last; ++i) {
+            if (std::abs(value) < 0.9995 * ranges[size_t(i)].max) {
+                next = i;
+                break;
+            }
+        }
+    }
+    if (overload && next <= current)
+        next = std::min(last, current + 1);
     return next;
 }
 

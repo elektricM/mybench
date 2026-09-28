@@ -51,7 +51,8 @@ QString magnitudeUnit(const dsp::SpectrumFormat& format)
     case dsp::SpectrumUnit::Dbm:
         return format.density ? u"dBm/Hz"_s : u"dBm"_s;
     case dsp::SpectrumUnit::Linear:
-        return (peak ? u"Vpk"_s : u"Vrms"_s) + (format.density ? u"/√Hz"_s : QString());
+        // ELVISmx: Linear shows power (V^2 per line, V^2/Hz as a density), not amplitude.
+        return (peak ? u"Vpk^2"_s : u"Vrms^2"_s) + (format.density ? u"/Hz"_s : QString());
     }
     return {};
 }
@@ -62,9 +63,20 @@ QString powerUnit(dsp::SpectrumUnit unit, dsp::SpectrumMode mode)
     switch (unit) {
     case dsp::SpectrumUnit::Db: return peak ? u"dBVpk"_s : u"dBVrms"_s;
     case dsp::SpectrumUnit::Dbm: return u"dBm"_s;
-    case dsp::SpectrumUnit::Linear: return peak ? u"Vpk²"_s : u"Vrms²"_s;
+    case dsp::SpectrumUnit::Linear: return peak ? u"Vpk^2"_s : u"Vrms^2"_s;
     }
     return {};
+}
+
+std::vector<double> formatSpectrum(const dsp::PowerSpectrum& spectrum, const dsp::SpectrumFormat& format)
+{
+    if (format.unit != dsp::SpectrumUnit::Linear)
+        return dsp::formatSpectrum(spectrum, format);
+    // core's Linear is an amplitude (sqrt); the Spectrum Analyzer shows the power itself.
+    std::vector<double> out = dsp::formatSpectrum(spectrum, format);
+    for (double& v : out)
+        v *= v;
+    return out;
 }
 
 double powerValue(double powerVrms2, dsp::SpectrumUnit unit, dsp::SpectrumMode mode)
@@ -82,8 +94,7 @@ double powerValue(double powerVrms2, dsp::SpectrumUnit unit, dsp::SpectrumMode m
 
 double levelValue(double powerVrms2, dsp::SpectrumUnit unit, dsp::SpectrumMode mode)
 {
-    const double p = powerValue(powerVrms2, unit, mode);
-    return unit == dsp::SpectrumUnit::Linear ? std::sqrt(std::max(p, 0.0)) : p;
+    return powerValue(powerVrms2, unit, mode);
 }
 
 double relativeDb(double power, double reference)
@@ -112,7 +123,7 @@ QString levelText(double value, const QString& unit, bool logarithmic)
         value = 0.0;
     if (logarithmic)
         return fixedText(value, 2) + u' ' + unit;
-    if (unit.endsWith(u'²')) {
+    if (unit.contains(u"^2"_s)) {
         // A power in V²: SI prefixes would be ambiguous (mV² ≠ 1e-3 V²).
         if (value == 0.0 || std::abs(value) >= 0.01)
             return fixedText(value, 3) + u' ' + unit;

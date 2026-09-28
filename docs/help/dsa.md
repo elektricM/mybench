@@ -23,8 +23,9 @@ meter.
 
 ## Display
 
-- **Readouts** (top): *Fundamental* (detected fundamental frequency), *Fundamental Power* (in the
-  selected units), *THD*, *SINAD*, *Vpk* and *df* (line spacing).
+- **Readouts** (top): *Detected Fundamental Frequency (Hz)*, *Fundamental Frequency Power* (always
+  a linear power in Vrms² or Vpk², whatever the Units), *THD (%)*, *SINAD (dB)*, *Vpk (V)* and
+  *df* (line spacing).
 - **Spectrum**: magnitude against frequency, 0 Hz to the span. The strongest component is marked
   **F**; its harmonics **H2 … H10** are marked with their level relative to the fundamental (dBc) —
   weak ones that hide in the noise get a small unlabelled marker.
@@ -51,7 +52,8 @@ display (see *1/3 Octave* at the end).
 
 ### FFT Settings
 
-- **Frequency Span** – the spectrum covers 0 Hz up to this frequency. The sample rate is twice the
+- **Frequency Span** – the spectrum covers 0 Hz up to this frequency (at least 405 Hz: smaller
+  values are raised to 405 Hz). The sample rate is twice the
   span (shown as **Sample Rate** in the display header), up to 200 kS/s, so the span can be at most
   100 kHz.
 - **Resolution (lines)** – 200, 400, 800, 1600 or 3200 lines in the span. More lines give a finer
@@ -70,7 +72,9 @@ display (see *1/3 Octave* at the end).
   (`Averaging complete`) until you restart. *Exponential*: a running average where each new spectrum
   counts 1/N.
 - **# of Averages** – N.
-- **Restart** (card and run bar) – starts the averaging again. Changing the window or an averaging
+- **Restart** (card and run bar) – starts the averaging again. It is available only while running
+  with RMS or Vector averaging and *Linear* weighting (grayed with Exponential weighting, None and
+  Peak Hold). Changing the window or an averaging
   setting also restarts it; changing the source, range, span or lines restarts the acquisition.
 
 ### Trigger Settings
@@ -80,8 +84,10 @@ only on NI ELVIS).
 
 ### Frequency Display
 
-- **Units** – *Linear* (volts), *dB* (decibels relative to 1 V) or *dBm* (relative to 1 mW in 50 Ω).
-- **Mode** – *RMS* or *Peak*: a sine of 1 V peak reads 0.707 Vrms (−3.01 dBVrms) or 1 Vpk (0 dBVpk).
+- **Units** – *Linear* (power in V², axis `Vrms^2` or `Vpk^2`), *dB* (decibels relative to 1 V) or
+  *dBm* (relative to 1 mW in 50 Ω).
+- **Mode** – *RMS* or *Peak*: a sine of 1 V peak reads 0.5 Vrms² (−3.01 dBVrms) or 1 Vpk² (0 dBVpk).
+  Grayed for dBm, where it has no effect.
 - **Display Mode** – *Power Spectrum* or *Power Spectral Density* (power per hertz, for noise).
 
 These only change the display, also of a stopped result.
@@ -119,8 +125,8 @@ stops; pressed while running, the run ends once the average is complete), **Rest
 ## Measurements
 
 - **Detected Fundamental Frequency** – the strongest peak, refined between lines.
-- **Fundamental Power** – power of that peak summed over ±3 lines, in the selected units (Vrms² or
-  Vpk² in Linear).
+- **Fundamental Frequency Power** – power of that peak summed over ±3 lines. It is always a linear
+  power, in Vrms² (Vpk² when Mode is Peak), and does not follow the Units setting.
 - **THD** – total harmonic distortion: power of harmonics 2 to 10 relative to the fundamental.
 - **SINAD** – signal to noise-and-distortion ratio.
 - **Vpk** – half the difference between the highest and the lowest sample of the latest record.
@@ -133,8 +139,9 @@ source at 50 kS/s.
 - **Mode (time weighting)** – how fast the band levels follow the signal: *Slow* (1 s), *Fast*
   (125 ms), *Impulse* (35 ms rising, 1.5 s falling) or *Custom* with **Time Constant** (0 to
   10 000 ms).
-- **Low Band / High Band** – the range of bands shown (10 Hz to 20 kHz; default 20 Hz to 20 kHz).
-- **Weighting** – *Z* (none), or the *A*, *B* and *C* frequency weightings of sound level meters,
+- **Low Band / High Band** – the range of bands shown, chosen from the 31 standard bands
+  20 Hz … 20 kHz (band 0 = 20 Hz … band 30 = 20 kHz; default all of them).
+- **Weighting** – *Linear* (none), or the *A*, *B* and *C* frequency weightings of sound level meters,
   applied to the band levels.
 - **Display** – band levels in dBV as bars, the overall level (sum of the bands shown), the loudest
   band, and a **Settled** light: the lowest bands' filters need a moment after a start or a change
@@ -145,6 +152,11 @@ source at 50 kS/s.
 The panel's **Export** menu saves the displayed spectrum (and the hold curves when shown) with the
 latest time record as CSV or TSV — in 1/3 Octave mode the band levels — an image of the display, or a
 PDF with the image and the settings.
+
+Choose **ELVISmx-style text log (\*.txt)** for the layout of the NI Spectrum Analyzer log: the time
+record as a waveform block (`waveform`, `Source signal`, `t0`, `delta t`, then an absolute time and a
+value per sample), a blank line, `FFT waveform`, `Units: <unit>` and one `frequency<TAB>value` row per
+line exactly as displayed. In 1/3 Octave mode the second block lists the band centres and levels.
 
 ## Tips
 

@@ -1,5 +1,7 @@
 #include "equalizer.h"
 
+#include <mydaq/dsp/fft.h>
+
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -306,6 +308,23 @@ std::vector<double> bandPowers(const OctaveBands& bands, std::span<const double>
         result[b] = sum;
     }
     return result;
+}
+
+size_t maximumAnalysisLength(double fs)
+{
+    return std::min<size_t>(65536, mydaq::dsp::nextPowerOfTwo(size_t(std::max(64.0, fs * 1.0))));
+}
+
+size_t analysisLength(size_t filled, double fs)
+{
+    const size_t minimum = mydaq::dsp::nextPowerOfTwo(size_t(std::max(64.0, fs * 0.3)));
+    const size_t maximum = maximumAnalysisLength(fs);
+    if (filled < minimum)
+        return 0;
+    size_t n = minimum;
+    while (n * 2 <= filled && n * 2 <= maximum)
+        n *= 2;
+    return n;
 }
 
 Level measureLevel(std::span<const double> x, double fullScale)

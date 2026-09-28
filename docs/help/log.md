@@ -7,7 +7,7 @@ spreadsheet. It is MYBENCH's version of the NI "Data Logger" featured applicatio
 ## Quick start
 
 1. Connect the signal to **AI 0+ / AI 0−** (and AI 1 if needed).
-2. In **Channel Select**, turn on the channels to log. Set the **Sampling Rate** (10 S/s by
+2. In **Channel Select**, turn on the channels to log. Set the **Sampling Rate** (1000 S/s by
    default) and the **Input Limits**.
 3. Press **Run** to watch the signals (nothing is saved yet), then **Record** to start a file.
    **Record** also starts the logger when it is idle.
@@ -46,6 +46,16 @@ spreadsheet. It is MYBENCH's version of the NI "Data Logger" featured applicatio
   start of the recording, then one column per channel. DMM readings appear on the row where they
   arrived, with their own time.
 - Existing files are never overwritten (`_2`, `_3`… are added).
+- When AI and the DMM are logged together and the AI rate is lower than the DMM rate (the DMM
+  delivers about 10 readings per second), every DMM reading still gets a row: readings without an
+  AI sample beside them are written on rows of their own with empty AI cells.
+- **Layout**: *MYBENCH* (above) or *ELVISmx compatible*, for scripts written for the NI Data
+  Logger: a header row `Time`, `myDAQ1/ai0` (a `Time`/channel pair per AI channel), then one row
+  per sample with the absolute time (`9/28/2026  10:15:00.001000`) and the value in exponent
+  notation (`5.174413E+0`) for each channel; tab-separated, CR LF line ends, no `#` lines, extension
+  `.txt`. Only AI channels are written (not the DMM). *Append to an existing file* adds to the
+  named file, repeating the header row, as the NI app does (turn off *Date and time in the name*
+  to reuse one file).
 - The file is written while recording and saved to disk continuously: if the computer crashes,
   everything up to the last fraction of a second is kept.
 

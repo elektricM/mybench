@@ -29,7 +29,7 @@ Item {
                             .arg(Units.format(root.controller.frequencySpan, "Hz", 4))
                             .arg(root.controller.lines)
                             .arg(root.controller.windowLabels[root.controller.windowIndex])
-        displayInfo: qsTr("Sample Rate: %1").arg(Units.format(root.controller.running ? root.controller.sampleRate : root.controller.expectedSampleRate, "S/s", 4))
+        displayInfo: qsTr("Sample Rate: %1").arg(Units.format(root.controller.running ? root.controller.sampleRate : root.controller.expectedSampleRate, "S/s", 4, false))
 
         Item {
             anchors.fill: parent
@@ -110,11 +110,11 @@ Item {
                         SiField {
                             Layout.fillWidth: true
                             unit: "Hz"
-                            from: 10
+                            from: 405
                             to: root.controller.maximumSpan
                             digits: 5
                             stepSize: 1
-                            toolTip: qsTr("10 Hz … %1; sample rate = 2 × span").arg(Units.format(root.controller.maximumSpan, "Hz"))
+                            toolTip: qsTr("405 Hz … %1; sample rate = 2 × span").arg(Units.format(root.controller.maximumSpan, "Hz"))
                             value: root.controller.frequencySpan
                             onValueModified: v => root.controller.frequencySpan = v
                         }
@@ -141,7 +141,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("%1 · df %2 · record %3")
-                          .arg(Units.format(root.controller.expectedSampleRate, "S/s", 4))
+                          .arg(Units.format(root.controller.expectedSampleRate, "S/s", 4, false))
                           .arg(Units.format(root.controller.lineSpacing, "Hz", 4))
                           .arg(Units.format(2 * root.controller.lines / root.controller.expectedSampleRate, "s", 3))
                     color: Theme.textMuted
@@ -261,8 +261,10 @@ Item {
                     }
                     Field {
                         label: qsTr("Mode")
+                        disabled: root.controller.units === DsaController.DbmUnits
                         ComboBox {
                             Layout.fillWidth: true
+                            enabled: root.controller.units !== DsaController.DbmUnits
                             model: [qsTr("RMS"), qsTr("Peak")]
                             currentIndex: root.controller.magnitudeMode
                             onActivated: index => root.controller.magnitudeMode = index
@@ -520,7 +522,7 @@ Item {
                     SegmentedControl {
                         Layout.fillWidth: true
                         model: [
-                            { text: qsTr("Z"), toolTip: qsTr("None (Linear)") },
+                            { text: qsTr("Linear"), toolTip: qsTr("No weighting (flat)") },
                             { text: "A" }, { text: "B" }, { text: "C" }
                         ]
                         currentIndex: root.controller.octaveWeighting

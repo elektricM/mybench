@@ -16,6 +16,7 @@ Item {
 
     readonly property string pauseIcon: "qrc:/qt/qml/MyBench/Instruments/Log/assets/pause.svg"
     readonly property bool analog: controller.ai0Enabled || controller.ai1Enabled
+    readonly property bool elvismx: controller.fileLayout === LogController.ElvismxLayout
     readonly property var spans: [10, 60, 600, 3600, 0]
     property int spanIndex: 1
 
@@ -451,6 +452,14 @@ Item {
                 }
                 Text {
                     Layout.fillWidth: true
+                    visible: root.controller.minimum >= root.controller.maximum
+                    text: qsTr("Minimum must be below Maximum: Run is refused until it is.")
+                    color: Theme.danger
+                    font.pixelSize: Theme.fontSizeS
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
                     text: qsTr("Hardware range ±%1 V (limits within ±2 V use the finer range)").arg(root.controller.hardwareRange)
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeS
@@ -464,7 +473,8 @@ Item {
             },
             Section {
                 title: qsTr("Log File")
-                summary: root.controller.fileFormat === LogController.CommaSeparated ? "CSV" : qsTr("Tab")
+                summary: root.controller.fileLayout === LogController.ElvismxLayout ? qsTr("ELVISmx")
+                       : root.controller.fileFormat === LogController.CommaSeparated ? "CSV" : qsTr("Tab")
                 Field {
                     label: qsTr("Folder")
                     RowLayout {
@@ -499,13 +509,32 @@ Item {
                     }
                     Field {
                         label: qsTr("Format")
+                        disabled: root.elvismx
                         SegmentedControl {
                             Layout.fillWidth: true
+                            enabled: !root.elvismx
                             model: [{ text: qsTr("Tab"), toolTip: qsTr("Tab-separated (.tsv)") }, { text: "CSV", toolTip: qsTr("Comma-separated (.csv)") }]
                             currentIndex: root.controller.fileFormat
                             onActivated: index => root.controller.fileFormat = index
                         }
                     }
+                }
+                Field {
+                    label: qsTr("Layout")
+                    hint: root.elvismx ? qsTr("Time / myDAQ1/ai0 pairs, absolute date-time, CR LF (.txt). AI channels only; the DMM is not written.")
+                                       : qsTr("MYBENCH: header lines, seconds since the start")
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        model: [{ text: qsTr("MYBENCH") }, { text: qsTr("ELVISmx compatible"), toolTip: qsTr("The file layout of the NI ELVISmx Data Logger, for scripts written for it") }]
+                        currentIndex: root.controller.fileLayout
+                        onActivated: index => root.controller.fileLayout = index
+                    }
+                }
+                ToggleSwitch {
+                    visible: root.elvismx
+                    text: qsTr("Append to an existing file")
+                    checked: root.controller.appendToExisting
+                    onToggled: root.controller.appendToExisting = checked
                 }
                 ToggleSwitch {
                     text: qsTr("Date and time in the name")
@@ -513,6 +542,7 @@ Item {
                     onToggled: root.controller.appendTimestamp = checked
                 }
                 ToggleSwitch {
+                    visible: !root.elvismx
                     text: qsTr("Timestamp column")
                     checked: root.controller.timestampColumn
                     onToggled: root.controller.timestampColumn = checked

@@ -33,8 +33,14 @@ public:
 
     // A path in `folder` that does not exist yet: "<base>_<yyyyMMdd_HHmmss>.<ext>" (or "<base>.<ext>"
     // without the timestamp), with "_2", "_3"... appended when taken. Never overwrites.
+    // With `allowExisting` the first candidate is returned even if it exists (append mode).
     static QString uniquePath(const QString& folder, const QString& baseName, bool appendTimestamp,
-                              const QString& extension, const QDateTime& now);
+                              const QString& extension, const QDateTime& now, bool allowExisting = false);
+
+    // Line ending (default "\n") and append mode (default: create a new file, never overwrite).
+    // Set before open(). CR LF is written explicitly, so it is the same on every platform.
+    void setLineEnding(const QByteArray& eol) { m_eol = eol; }
+    void setAppend(bool append) { m_append = append; }
 
     // Creates the file (fails if it exists) and writes the comment lines ("# " is added) and the
     // column header. `delimiter` is '\t' or ','.
@@ -46,6 +52,7 @@ public:
     // Row building: cells are separated by the delimiter; NaN/infinite numbers are empty cells.
     void addNumber(double value);
     void addText(const QString& text);
+    void addRaw(const QByteArray& cell);   // pre-formatted cell (no escaping)
     void addEmpty() { addText({}); }
     void endRow();
 
@@ -62,11 +69,21 @@ private:
     QFile m_file;
     QByteArray m_buffer;
     char m_delimiter = '\t';
+    QByteArray m_eol = "\n";
+    bool m_append = false;
     bool m_rowStarted = false;
     int64_t m_rows = 0;
     int64_t m_bytes = 0;
     qint64 m_lastSync = 0;   // ms since epoch
 };
+
+// ELVISmx-compatible cell formats (log.md 8.2): the time of a sample as `M/d/yyyy  HH:mm:ss.ffffff`
+// (two spaces; local time from the epoch microseconds) and a value as `d.dddddd E+n` with an
+// unpadded exponent (`5.174413E+0`, `-1.220740E-2`).
+QString elvismxTime(qint64 epochMicroseconds);
+QString elvismxValue(double value);
+// Header row: `Time<TAB>myDAQ1/ai0` per channel, in the order given ("ai0", "ai1").
+QStringList elvismxHeader(const QString& deviceName, const QStringList& channels);
 
 // Welford running statistics over finite values.
 struct RunningStats {
@@ -81,7 +98,7 @@ struct RunningStats {
     double standardDeviation() const;   // n - 1; NaN below two values
 };
 
-// DMM functions the logger offers and their ranges (largest first, as the device lists them).
+// DMM functions the logger offers and their ranges (smallest first, as the DMM instrument lists them).
 struct DmmRangeInfo {
     double max;
     const char* label;
@@ -93,9 +110,10 @@ struct DmmFunctionInfo {
 };
 const std::vector<DmmFunctionInfo>& dmmFunctions();   // DC V, AC V, DC A, AC A, Resistance
 
-// Software autoranging: the range index (into the ranges, largest first) for the next reading
-// after `value` was read on `current`: up after an overload, down while the value would fit
-// under 90 % of the next smaller range.
+// Software autoranging as the DMM instrument (dmm.md 4.2): the first reading of a run is taken on
+// the largest range (`ranges.size() - 1`), then every next range is chosen directly from
+// |value|: the smallest range whose 2000-count limit (0.9995 x its maximum) the value does not
+// reach. An overload that would keep the same range moves one range up.
 int autoRange(const std::vector<DmmRangeInfo>& ranges, int current, double value, bool overload);
 
 }  // namespace mybench::instruments::logger

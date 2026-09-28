@@ -22,7 +22,7 @@ Item {
         return db > -3 ? Theme.danger : db > -12 ? Theme.warning : Theme.success
     }
 
-    implicitWidth: 18
+    implicitWidth: 30   // room for the peak number (-59, -120) beside its neighbour
     implicitHeight: 180
 
     ColumnLayout {

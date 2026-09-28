@@ -2,7 +2,7 @@
 // application "Octave Analyzer", docs/instruments/algorithms/featured.md §4).
 //
 // Base-10 third-octave bands (IEC 61260): exact centres fm = 1000 · 10^(n/10) Hz, edges
-// fm · 10^(∓1/20), nominal labels 10 Hz … 20 kHz. Each band is a 6th-order Butterworth band-pass
+// fm · 10^(∓1/20), nominal labels 20 Hz … 20 kHz (the 31 ISO bands of ELVISmx). Each band is a 6th-order Butterworth band-pass
 // (3rd-order low-pass prototype transformed to a band-pass, bilinear transform with prewarped
 // edges, three biquads with their zeros at z = ±1, normalized to 0 dB at the centre, double
 // precision). The squared output of every band goes through an exponential averager (sound level
@@ -32,7 +32,7 @@ struct Band {
     QString label;        // "31.5 Hz", "1.25 kHz"
 };
 
-// The 34 bands 10 Hz … 20 kHz, lowest first.
+// The 31 ISO 1/3-octave bands 20 Hz … 20 kHz, lowest first (Low/High Band are indices 0..30).
 const std::vector<Band>& bands();
 // Index of the band whose nominal centre is closest to `hertz`.
 int bandIndex(double hertz);

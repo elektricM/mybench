@@ -156,7 +156,7 @@ Item {
                         legendVisible: true
                         placeholderText: root.controller.running ? qsTr("Collecting…") : qsTr("Press Run to stream the input to the output")
                         xAxis { scale: PlotAxis.Log; min: 20; max: root.topFrequency; unit: "Hz"; unitInLabels: true }
-                        yAxis { min: -110; max: 10; unit: "dBV"; unitInLabels: true }
+                        yAxis { autoScale: root.controller.autoScaleSpectrum; min: -110; max: 10; unit: "dBV"; unitInLabels: true }
                         PlotTrace {
                             visible: root.controller.showInput
                             name: qsTr("Input")
@@ -188,8 +188,8 @@ Item {
                         hoverReadout: true
                         legendVisible: true
                         placeholderText: root.controller.running ? qsTr("Collecting…") : qsTr("Press Run to stream the input to the output")
-                        xAxis { min: 0; max: 0.02; unit: "s"; unitInLabels: true }
-                        yAxis { autoScale: true; min: -1; max: 1; unit: "V"; unitInLabels: true }
+                        xAxis { min: 0; max: root.controller.timeSpan; unit: "s"; unitInLabels: true }
+                        yAxis { autoScale: root.controller.autoScaleTime; min: -2; max: 2; unit: "V"; unitInLabels: true }
                         PlotTrace { visible: root.controller.showInput; name: qsTr("Input"); unit: "V"; buffer: root.controller.timeIn; color: Theme.alpha(Theme.textSecondary, 0.9); width: 1.2 }
                         PlotTrace { name: qsTr("Output"); unit: "V"; buffer: root.controller.timeOut; color: Theme.accent; width: 1.6 }
                     }
@@ -490,6 +490,26 @@ Item {
                         currentIndex: root.controller.averagingIndex
                         onActivated: index => root.controller.averagingIndex = index
                     }
+                }
+                Field {
+                    label: qsTr("Time Span")
+                    hint: qsTr("20 ms is triggered on a rising zero crossing; 100 ms shows the latest block")
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        model: root.controller.timeSpanNames
+                        currentIndex: root.controller.timeSpanIndex
+                        onActivated: index => root.controller.timeSpanIndex = index
+                    }
+                }
+                ToggleSwitch {
+                    text: qsTr("Auto-scale spectrum graph")
+                    checked: root.controller.autoScaleSpectrum
+                    onToggled: root.controller.autoScaleSpectrum = checked
+                }
+                ToggleSwitch {
+                    text: qsTr("Auto-scale time graph")
+                    checked: root.controller.autoScaleTime
+                    onToggled: root.controller.autoScaleTime = checked
                 }
                 ToggleSwitch {
                     text: qsTr("Show input")

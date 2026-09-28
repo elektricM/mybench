@@ -48,6 +48,11 @@ class LogController : public InstrumentController
     Q_PROPERTY(QString baseName READ baseName WRITE setBaseName NOTIFY fileSettingsChanged)
     Q_PROPERTY(bool appendTimestamp READ appendTimestamp WRITE setAppendTimestamp NOTIFY fileSettingsChanged)
     Q_PROPERTY(FileFormat fileFormat READ fileFormat WRITE setFileFormat NOTIFY fileSettingsChanged)
+    // NativeLayout: MYBENCH's own file (log.md 4). ElvismxLayout: the ELVISmx Data Logger layout
+    // (log.md 8.2): `Time`/`myDAQ1/ai0` header row, absolute date-time + E-notation cells,
+    // TAB, CR LF, `.txt`; AI channels only. appendToExisting adds to the named file (ELVISmx does).
+    Q_PROPERTY(FileLayout fileLayout READ fileLayout WRITE setFileLayout NOTIFY fileSettingsChanged)
+    Q_PROPERTY(bool appendToExisting READ appendToExisting WRITE setAppendToExisting NOTIFY fileSettingsChanged)
     Q_PROPERTY(bool timestampColumn READ timestampColumn WRITE setTimestampColumn NOTIFY fileSettingsChanged)
     Q_PROPERTY(bool recordOnRun READ recordOnRun WRITE setRecordOnRun NOTIFY fileSettingsChanged)
     Q_PROPERTY(bool stopAfterEnabled READ stopAfterEnabled WRITE setStopAfterEnabled NOTIFY fileSettingsChanged)
@@ -81,6 +86,8 @@ class LogController : public InstrumentController
 public:
     enum FileFormat { TabSeparated, CommaSeparated };
     Q_ENUM(FileFormat)
+    enum FileLayout { NativeLayout, ElvismxLayout };
+    Q_ENUM(FileLayout)
 
     LogController();
     ~LogController() override;
@@ -113,6 +120,10 @@ public:
     void setAppendTimestamp(bool append);
     FileFormat fileFormat() const { return m_fileFormat; }
     void setFileFormat(FileFormat format);
+    FileLayout fileLayout() const { return m_fileLayout; }
+    void setFileLayout(FileLayout layout);
+    bool appendToExisting() const { return m_appendToExisting; }
+    void setAppendToExisting(bool append);
     bool timestampColumn() const { return m_timestampColumn; }
     void setTimestampColumn(bool enabled);
     bool recordOnRun() const { return m_recordOnRun; }
@@ -204,7 +215,7 @@ private:
     bool m_dmmEnabled = false;
     int m_dmmFunction = 0;
     int m_dmmRange = 0;
-    double m_sampleRate = 10;
+    double m_sampleRate = 1000;   // ELVISmx default (log.md 2, observed)
     double m_maximum = 10;
     double m_minimum = -10;
     bool m_autoScale = true;
@@ -212,6 +223,8 @@ private:
     QString m_baseName = QStringLiteral("log");
     bool m_appendTimestamp = true;
     FileFormat m_fileFormat = TabSeparated;
+    FileLayout m_fileLayout = NativeLayout;
+    bool m_appendToExisting = false;
     bool m_timestampColumn = false;
     bool m_recordOnRun = false;
     bool m_stopAfterEnabled = false;

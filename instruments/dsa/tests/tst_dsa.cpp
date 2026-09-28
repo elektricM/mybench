@@ -10,6 +10,7 @@
 
 #include <mydaq/dsp/waveform.h>
 
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -81,8 +82,11 @@ private slots:
         QCOMPARE(dsa::magnitudeUnit(f), u"dBm/Hz"_s);
         f.unit = dsp::SpectrumUnit::Linear;
         f.mode = dsp::SpectrumMode::Rms;
-        QCOMPARE(dsa::magnitudeUnit(f), u"Vrms/√Hz"_s);
-        QCOMPARE(dsa::powerUnit(dsp::SpectrumUnit::Linear, dsp::SpectrumMode::Rms), u"Vrms²"_s);
+        QCOMPARE(dsa::magnitudeUnit(f), u"Vrms^2/Hz"_s);   // Linear is power (ELVISmx)
+        f.density = false;
+        f.mode = dsp::SpectrumMode::Peak;
+        QCOMPARE(dsa::magnitudeUnit(f), u"Vpk^2"_s);
+        QCOMPARE(dsa::powerUnit(dsp::SpectrumUnit::Linear, dsp::SpectrumMode::Rms), u"Vrms^2"_s);
         QCOMPARE(dsa::powerUnit(dsp::SpectrumUnit::Db, dsp::SpectrumMode::Peak), u"dBVpk"_s);
     }
 
@@ -93,7 +97,14 @@ private slots:
         QVERIFY(near(dsa::powerValue(0.5, dsp::SpectrumUnit::Db, dsp::SpectrumMode::Peak), 0.0, 1e-9));
         QVERIFY(near(dsa::powerValue(0.5, dsp::SpectrumUnit::Dbm, dsp::SpectrumMode::Rms), 10.0, 1e-9));
         QCOMPARE(dsa::powerValue(0.5, dsp::SpectrumUnit::Linear, dsp::SpectrumMode::Rms), 0.5);
-        QVERIFY(near(dsa::levelValue(0.5, dsp::SpectrumUnit::Linear, dsp::SpectrumMode::Rms), 0.70711, 1e-5));
+        QVERIFY(near(dsa::levelValue(0.5, dsp::SpectrumUnit::Linear, dsp::SpectrumMode::Rms), 0.5, 1e-9));   // power, no sqrt
+        // Linear spectrum values are V^2 too: a 1 V peak sine reads 0.5 at its line.
+        dsp::PowerSpectrum ps;
+        ps.info.df = 1.0;
+        ps.info.enbw = 1.0;
+        ps.power = {0.0, 0.5};
+        const std::vector<double> lin = dsa::formatSpectrum(ps, {dsp::SpectrumMode::Peak, dsp::SpectrumUnit::Linear, false, 50.0});
+        QVERIFY(near(lin[1], 1.0, 1e-9));
         QCOMPARE(dsa::powerValue(0.0, dsp::SpectrumUnit::Db, dsp::SpectrumMode::Rms), -400.0);
         QCOMPARE(dsa::fixedText(std::nan("")), u"0.00"_s);
         QCOMPARE(dsa::fixedText(-0.001), u"0.00"_s);
@@ -176,8 +187,8 @@ private slots:
     void octaveBands()
     {
         const std::vector<octave::Band>& b = octave::bands();
-        QCOMPARE(b.size(), size_t(34));
-        QCOMPARE(b.front().label, u"10 Hz"_s);
+        QCOMPARE(b.size(), size_t(31));   // the 31 ISO bands 20 Hz ... 20 kHz
+        QCOMPARE(b.front().label, u"20 Hz"_s);
         QCOMPARE(b.back().label, u"20 kHz"_s);
         QCOMPARE(b[size_t(octave::bandIndex(1000))].label, u"1 kHz"_s);
         QCOMPARE(b[size_t(octave::bandIndex(31.5))].label, u"31.5 Hz"_s);
@@ -261,7 +272,9 @@ private slots:
         QVERIFY(c->hasResult());
         QCOMPARE(c->averagesDone(), 5);   // Single completes the RMS average
         QVERIFY(near(c->fundamentalFrequency(), 1000, 1.0));
-        QVERIFY2(near(c->fundamentalPower(), -3.01, 0.1), qPrintable(QString::number(c->fundamentalPower())));
+        // Fundamental power is always linear V^2 (0.5 for 1 V peak), whatever the Units.
+        QVERIFY2(near(c->fundamentalPower(), 0.5, 0.01), qPrintable(QString::number(c->fundamentalPower())));
+        QCOMPARE(c->powerUnit(), u"Vrms^2"_s);
         QVERIFY2(near(c->thd(), 1.0, 0.1), qPrintable(QString::number(c->thd())));
         QVERIFY2(c->sinad() > 38 && c->sinad() < 41, qPrintable(QString::number(c->sinad())));
         QVERIFY2(near(c->vpk(), 1.0, 0.02), qPrintable(QString::number(c->vpk())));
@@ -275,13 +288,23 @@ private slots:
 
         // Display settings reformat the stopped result.
         c->setUnits(DsaController::DbmUnits);
-        QVERIFY(near(c->fundamentalPower(), 10.0, 0.1));
+        QVERIFY(near(c->fundamentalPower(), 0.5, 0.01));
+        QVERIFY(near(c->spectrum()->valueAt(1000), 10.0, 0.1));
+        // dBm: Mode is inert (grayed), Peak must not shift the level by 3 dB.
+        c->setMagnitudeMode(DsaController::PeakMagnitude);
+        QVERIFY(near(c->spectrum()->valueAt(1000), 10.0, 0.1));
+        QCOMPARE(c->magnitudeUnit(), u"dBm"_s);
+        QVERIFY(near(c->fundamentalPower(), 0.5, 0.01));
+        c->setMagnitudeMode(DsaController::RmsMagnitude);
         c->setUnits(DsaController::LinearUnits);
         QVERIFY(near(c->fundamentalPower(), 0.5, 0.01));
-        QCOMPARE(c->powerUnit(), u"Vrms²"_s);
-        QVERIFY(near(c->spectrum()->valueAt(1000), 0.7071, 0.01));
+        QCOMPARE(c->powerUnit(), u"Vrms^2"_s);
+        QCOMPARE(c->magnitudeUnit(), u"Vrms^2"_s);
+        QVERIFY(near(c->spectrum()->valueAt(1000), 0.5, 0.01));   // Linear = power in V^2
         c->setMagnitudeMode(DsaController::PeakMagnitude);
         QVERIFY(near(c->spectrum()->valueAt(1000), 1.0, 0.01));
+        QVERIFY(near(c->fundamentalPower(), 1.0, 0.02));
+        QCOMPARE(c->powerUnit(), u"Vpk^2"_s);
         c->setScaleMode(DsaController::ManualScale);
         QCOMPARE(c->spectrumMaximum(), 1.0);
         QCOMPARE(c->spectrumMinimum(), 0.0);
@@ -300,7 +323,29 @@ private slots:
         QVERIFY2(near(c->cursor1Position(), 3000, 0.01), qPrintable(QString::number(c->cursor1Position())));
         QVERIFY(!c->cursorDeltaText().isEmpty());
 
-        // Export.
+        // Export, ELVISmx-style text log (*.txt): waveform block, blank line, FFT waveform.
+        QTemporaryDir txtDir;
+        c->setUnits(DsaController::DbUnits);
+        QVERIFY(c->exportData(QUrl::fromLocalFile(txtDir.filePath(u"dsa.txt"_s))));
+        QFile txt(txtDir.filePath(u"dsa.txt"_s));
+        QVERIFY(txt.open(QIODevice::ReadOnly));
+        const QStringList lines = QString::fromUtf8(txt.readAll()).split(u"\r\n"_s);
+        QCOMPARE(lines.value(0), u"waveform\tSource signal"_s);
+        QVERIFY(lines.value(1).startsWith(u"t0\t"_s));
+        QVERIFY(QRegularExpression(uR"(^t0\t\d{1,2}/\d{1,2}/\d{4}  \d\d:\d\d:\d\d\.\d{6}$)"_s).match(lines.value(1)).hasMatch());
+        QVERIFY(lines.value(2).startsWith(u"delta t\t1.250000E-5"_s));   // 80 kS/s
+        QCOMPARE(lines.value(3), QString());
+        QCOMPARE(lines.value(4), u"time[0]\tSource signal"_s);
+        QVERIFY(QRegularExpression(uR"(^\d{1,2}/\d{1,2}/\d{4}  \d\d:\d\d:\d\d\.\d{6}\t-?\d\.\d{6}E[+-]\d+$)"_s).match(lines.value(5)).hasMatch());
+        const qsizetype fft = lines.indexOf(u"FFT waveform"_s);
+        QVERIFY(fft > 0);
+        QCOMPARE(lines.value(fft - 1), QString());   // blank line before it
+        QCOMPARE(lines.value(fft + 1), u"Units: dBVrms"_s);
+        QVERIFY(lines.value(fft + 2).startsWith(u"0.00\t"_s));
+        // 400 rows, 0 ... 39900 Hz (dsa.md 13), then the end of the file.
+        QVERIFY(lines.value(fft + 2 + 399).startsWith(u"39900.00\t"_s));
+        QVERIFY(lines.value(fft + 2 + 400).isEmpty());
+
         QTemporaryDir dir;
         QVERIFY(c->exportData(QUrl::fromLocalFile(dir.filePath(u"dsa.csv"_s))));
         QFile file(dir.filePath(u"dsa.csv"_s));
@@ -308,6 +353,31 @@ private slots:
         const QString text = QString::fromUtf8(file.readAll());
         QVERIFY(text.contains(u"# Frequency span: 40000 Hz, lines: 400, window: None"_s));
         QVERIFY(text.contains(u"Frequency (Hz),Magnitude (dBVrms),Time (s),Amplitude (V)"_s));
+        c->resetSettings();
+    }
+
+    void spanMinimumAndRestartRule()
+    {
+        DsaController* c = dsa();
+        c->setFrequencySpan(5);
+        QCOMPARE(c->frequencySpan(), 405.0);   // ELVISmx coerces to 405 Hz
+        c->resetSettings();
+        // Restart: only while running AND Weighting = Linear (RMS/Vector averaging).
+        QVERIFY(!c->restartEnabled());   // idle
+        c->run();
+        QTRY_VERIFY_WITH_TIMEOUT(c->isRunning(), 3000);
+        QCOMPARE(c->weighting(), DsaController::ExponentialWeighting);
+        QVERIFY(!c->restartEnabled());
+        c->setWeighting(DsaController::LinearWeighting);
+        QVERIFY(c->restartEnabled());
+        c->setAveragingMode(DsaController::PeakHoldAveraging);
+        QVERIFY(!c->restartEnabled());
+        c->setAveragingMode(DsaController::VectorAveraging);
+        QVERIFY(c->restartEnabled());
+        c->setWeighting(DsaController::ExponentialWeighting);
+        QVERIFY(!c->restartEnabled());
+        c->stop();
+        QTRY_VERIFY_WITH_TIMEOUT(c->state() == InstrumentController::Idle, 3000);
         c->resetSettings();
     }
 
@@ -319,7 +389,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(c->acquisitionCount() >= 3, 5000);
         c->setWindowIndex(1);   // Hanning: same tone power (window-compensated)
         QTRY_VERIFY_WITH_TIMEOUT(c->acquisitionCount() >= 8, 5000);
-        QVERIFY2(near(c->fundamentalPower(), -3.01, 0.15), qPrintable(QString::number(c->fundamentalPower())));
+        QVERIFY2(near(c->fundamentalPower(), 0.5, 0.02), qPrintable(QString::number(c->fundamentalPower())));
         c->setSourceChannel(2);   // AudioInput Left, 440 Hz: restarts the acquisition
         QTRY_VERIFY_WITH_TIMEOUT(c->isRunning() && near(c->fundamentalFrequency(), 440, 30), 8000);
         c->stop();
@@ -332,6 +402,8 @@ private slots:
         DsaController* c = dsa();
         c->setAnalysisMode(DsaController::OctaveAnalysis);
         QCOMPARE(c->expectedSampleRate(), 50000.0);
+        QCOMPARE(c->octaveLowBand(), 0);
+        QCOMPARE(c->octaveHighBand(), 30);
         QCOMPARE(c->octaveBandLabels().at(c->octaveLowBand()), u"20 Hz"_s);
         QCOMPARE(c->octaveBandLabels().at(c->octaveHighBand()), u"20 kHz"_s);
         c->run();

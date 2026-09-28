@@ -120,6 +120,14 @@ OctaveBands octaveBands(int fraction, double lowest, double highest);
 // the bin spacing still get their share.
 std::vector<double> bandPowers(const OctaveBands& bands, std::span<const double> power, double df);
 
+// FFT length of the spectrum display for `filled` samples of history at sample rate `fs`: the
+// largest power of two that fits, at most the 1 s window capped at 65536 points (1.3 s at 50 kS/s,
+// resolves the 1/24-octave bands from 25 Hz; a 262144-point FFT every 100 ms made the 200 kS/s
+// stream drop out), and 0 until 0.3 s (the old, coarser window) has been collected
+// so the first spectrum appears quickly and sharpens as the history grows.
+size_t analysisLength(size_t filled, double fs);
+size_t maximumAnalysisLength(double fs);   // the 1 s window, at most 65536 points
+
 // Peak and RMS level of a block, in dB relative to `fullScale` volts peak (dBFS; sine at full
 // scale: peak 0 dBFS, RMS -3 dBFS). -120 for silence.
 struct Level {

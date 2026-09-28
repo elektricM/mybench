@@ -22,6 +22,7 @@ namespace {
 constexpr double kRates[] = {50000.0, 100000.0, 200000.0};
 constexpr double kLatencies[] = {0.05, 0.1, 0.25, 0.35};
 constexpr double kTimeConstants[] = {0.010, 0.125, 1.0};
+constexpr double kTimeSpans[] = {0.020, 0.100};   // Time view: 20 ms (triggered), 100 ms (ELVISmx)
 constexpr double kBlockSeconds = 0.010;
 constexpr double kPeakHoldSeconds = 1.5;
 
@@ -68,6 +69,7 @@ public:
         m_filled = std::min(m_data.size(), m_filled + x.size());
     }
     bool full() const { return m_filled == m_data.size(); }
+    size_t filled() const { return m_filled; }
     // The last n samples, oldest first.
     std::vector<double> last(size_t n) const
     {
@@ -227,7 +229,7 @@ void AeqController::setDisplayChannel(int channel)
     if (channel == m_displayChannel)
         return;
     m_displayChannel = channel;
-    m_liveDisplay->post({m_displayChannel, kTimeConstants[m_averagingIndex]});
+    m_liveDisplay->post(display());
     emit displayChanged();
 }
 
@@ -237,7 +239,48 @@ void AeqController::setAveragingIndex(int index)
     if (index == m_averagingIndex)
         return;
     m_averagingIndex = index;
-    m_liveDisplay->post({m_displayChannel, kTimeConstants[m_averagingIndex]});
+    m_liveDisplay->post(display());
+    emit displayChanged();
+}
+
+AeqController::Display AeqController::display() const
+{
+    return {m_displayChannel, kTimeConstants[m_averagingIndex], kTimeSpans[m_timeSpanIndex]};
+}
+
+QStringList AeqController::timeSpanNames() const
+{
+    return {tr("20 ms"), tr("100 ms")};
+}
+
+double AeqController::timeSpan() const
+{
+    return kTimeSpans[m_timeSpanIndex];
+}
+
+void AeqController::setTimeSpanIndex(int index)
+{
+    index = std::clamp(index, 0, int(std::size(kTimeSpans)) - 1);
+    if (index == m_timeSpanIndex)
+        return;
+    m_timeSpanIndex = index;
+    m_liveDisplay->post(display());
+    emit displayChanged();
+}
+
+void AeqController::setAutoScaleTime(bool on)
+{
+    if (on == m_autoScaleTime)
+        return;
+    m_autoScaleTime = on;
+    emit displayChanged();
+}
+
+void AeqController::setAutoScaleSpectrum(bool on)
+{
+    if (on == m_autoScaleSpectrum)
+        return;
+    m_autoScaleSpectrum = on;
     emit displayChanged();
 }
 
@@ -397,7 +440,7 @@ InstrumentController::WorkerFunction AeqController::createWorker()
     m_dropouts = 0;
     resetMeters();
 
-    return [this, snap, eqSettings = m_eq, display = Display{m_displayChannel, kTimeConstants[m_averagingIndex]},
+    return [this, snap, eqSettings = m_eq, display = display(),
             liveEq = m_liveEq, liveDisplay = m_liveDisplay](WorkerContext& ctx) mutable {
         mydaq::Device& device = ctx.device();
         const double fs = device.coerceAiRate(snap.rate);
@@ -436,7 +479,7 @@ InstrumentController::WorkerFunction AeqController::createWorker()
         ctx.setStatus(tr("Streaming · latency %1").arg(Units::format(snap.latency + kBlockSeconds, u"s"_s, 3)));
 
         // Display state.
-        const auto fftLength = mydaq::dsp::nextPowerOfTwo(size_t(fs * 0.3));
+        const size_t fftLength = aeq::maximumAnalysisLength(fs);   // 1 s history; the FFT grows to it
         Ring ringIn(fftLength);
         Ring ringOut(fftLength);
         const aeq::OctaveBands bands = aeq::octaveBands(24, 25.0, std::min(25000.0, 0.48 * fs));
@@ -459,6 +502,14 @@ InstrumentController::WorkerFunction AeqController::createWorker()
         for (int side : snap.sideOfOutput)
             meters[2 + size_t(side)].active = true;
         int dropouts = 0;
+        // Under- and overflows share one warning toast, at most every 5 s.
+        auto warnRestart = [&](const QString& text) {
+            const double t = nowSeconds();
+            if (t - lastWarning > 5.0) {
+                lastWarning = t;
+                ctx.warn(text);
+            }
+        };
 
         std::vector<std::vector<double>> outputs(snap.outputs.size(), std::vector<double>(block));
         while (!ctx.stopRequested()) {
@@ -482,6 +533,7 @@ InstrumentController::WorkerFunction AeqController::createWorker()
                 if (error.code() != mydaq::DeviceError::Overflow)
                     throw;
                 ++dropouts;
+                warnRestart(tr("The input overflowed; the audio stream was restarted. A shorter block or a lower rate helps."));
                 startStreams();
                 continue;
             }
@@ -507,11 +559,7 @@ InstrumentController::WorkerFunction AeqController::createWorker()
                 if (error.code() != mydaq::DeviceError::Underflow)
                     throw;
                 ++dropouts;
-                const double t = nowSeconds();
-                if (t - lastWarning > 5.0) {
-                    lastWarning = t;
-                    ctx.warn(tr("The output ran dry; the audio stream was restarted. A longer latency helps."));
-                }
+                warnRestart(tr("The output ran dry; the audio stream was restarted. A longer latency helps."));
                 startStreams();
                 continue;
             }
@@ -576,13 +624,14 @@ InstrumentController::WorkerFunction AeqController::createWorker()
                 lastMeters = now;
             }
 
-            if (now - lastSpectrum >= 0.1 && ringIn.full()) {
+            const size_t analysisSize = aeq::analysisLength(ringIn.filled(), fs);
+            if (now - lastSpectrum >= 0.1 && analysisSize > 0) {
                 const double dt = now - lastSpectrum;
                 lastSpectrum = now;
                 const double alpha = averaged ? 1.0 - std::exp(-dt / std::max(1e-3, display.timeConstant)) : 1.0;
                 auto analyse = [&](const Ring& ring, std::vector<double>& avg, plot::TraceBuffer& trace) {
                     const mydaq::dsp::PowerSpectrum ps =
-                        mydaq::dsp::powerSpectrum(ring.last(fftLength), fs, mydaq::dsp::WindowType::Hanning);
+                        mydaq::dsp::powerSpectrum(ring.last(analysisSize), fs, mydaq::dsp::WindowType::Hanning);
                     const std::vector<double> p = aeq::bandPowers(bands, ps.power, ps.info.df);
                     std::vector<double> db(p.size());
                     for (size_t b = 0; b < p.size(); ++b) {
@@ -596,16 +645,19 @@ InstrumentController::WorkerFunction AeqController::createWorker()
                     analyse(ringOut, avgOut, m_spectrumOut);
                 averaged = true;
 
-                // Waveforms: 20 ms from a rising zero crossing of the input.
-                const auto window = size_t(fs * 0.02);
+                // Waveforms: 20 ms from a rising zero crossing of the input; the 100 ms view
+                // (ELVISmx) shows the latest block as it is.
+                const auto window = size_t(std::round(fs * display.timeSpan));
                 const std::vector<double> in = ringIn.last(2 * window);
                 const std::vector<double> out = ringOut.last(2 * window);
                 size_t start = window;
                 mydaq::dsp::EdgeTrigger trigger;
                 trigger.level = 0;
                 trigger.hysteresis = 0.01;
-                if (const auto edge = mydaq::dsp::findEdge(in, trigger); edge && *edge <= double(window))
-                    start = size_t(*edge);
+                if (display.timeSpan <= 0.0201) {
+                    if (const auto edge = mydaq::dsp::findEdge(in, trigger); edge && *edge <= double(window))
+                        start = size_t(*edge);
+                }
                 m_timeIn.setUniform(0.0, 1.0 / fs, std::span<const double>(in).subspan(start, window));
                 if (dout >= 0)
                     m_timeOut.setUniform(0.0, 1.0 / fs, std::span<const double>(out).subspan(start, window));

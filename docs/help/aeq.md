@@ -41,9 +41,11 @@ is not perfectly flat around the band edges, like the original.
 ## Displays
 
 - **Spectrum**: input (gray) and output (blue) in 1/24-octave bands, in dBV, for the **L** or
-  **R** channel. *Spectrum Averaging* (Display card) smooths it (10 ms, 125 ms, 1 s).
-- **Time**: 20 ms of the input and output waveforms, steadied on the input's rising zero
-  crossings.
+  **R** channel. *Spectrum Averaging* (Display card) smooths it (10 ms, 125 ms, 1 s). The analysis window grows
+  from 0.3 s to about 1 s (at most 65536 points, so it stays shorter at 200 kS/s) as the history builds up, so the lowest bands sharpen a second after Run.
+  *Auto-scale* switches for both graphs are in the Display card (on by default).
+- **Time**: the input and output waveforms over 100 ms (as the NI app) or, with *Time Span* set to
+  20 ms, steadied on the input's rising zero crossings.
 - **Meters**: RMS bar, peak line and held peak in dB below full scale (2 V); amber from −12 dB,
   red from −3 dB.
 

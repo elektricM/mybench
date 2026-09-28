@@ -23,6 +23,16 @@ Item {
     readonly property bool encoder: controller.encoderMeasurement
     readonly property bool interval: controller.intervalMeasurement
 
+    // Options the current device cannot do are greyed (DeviceHub capability query); the
+    // property read inside makes every binding that calls this re-evaluate on a device change.
+    function unsupported(feature: string): bool {
+        return DeviceHub.unsupportedFeatures.includes(feature)
+    }
+    readonly property var measurementFeatures: [
+        "", "", "", "counter.pulseWidth", "counter.semiPeriod", "counter.twoEdgeSeparation",
+        "counter.linearEncoder", "counter.angularEncoder"
+    ]
+
     // Statistics formatting in the measurement's unit.
     function fmt(v: real, spread: bool): string {
         if (isNaN(v))
@@ -352,11 +362,34 @@ Item {
                 Field {
                     label: qsTr("Measurement")
                     ComboBox {
+                        id: measurementBox
                         Layout.fillWidth: true
-                        model: root.controller.measurementNames
+                        textRole: "text"
+                        model: root.controller.measurementNames.map((name, i) => ({
+                            text: name,
+                            supported: root.measurementFeatures[i] === "" || !root.unsupported(root.measurementFeatures[i])
+                        }))
                         currentIndex: root.controller.measurement
                         onActivated: index => root.controller.measurement = index
+                        delegate: ItemDelegate {
+                            required property var model
+                            required property int index
+                            width: ListView.view.width
+                            text: model.supported ? model.text : qsTr("%1 (not supported)").arg(model.text)
+                            enabled: model.supported
+                            highlighted: measurementBox.highlightedIndex === index
+                            checkable: true
+                            checked: measurementBox.currentIndex === index
+                        }
                     }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.controller.unsupportedInUse.length > 0
+                    text: qsTr("Not supported by this device: %1. Run is refused until you change them.").arg(root.controller.unsupportedInUse.join(", "))
+                    color: Theme.warning
+                    font.pixelSize: Theme.fontSizeS
+                    wrapMode: Text.WordWrap
                 }
                 Field {
                     visible: root.measurement !== CtrController.SemiPeriod && !root.encoder
@@ -366,7 +399,9 @@ Item {
                     hint: root.measurement === CtrController.PulseWidth ? qsTr("Rising measures the high time, Falling the low time") : ""
                     SegmentedControl {
                         Layout.fillWidth: true
-                        model: [{ icon: "slope-rising-line", text: qsTr("Rising") }, { icon: "slope-falling-line", text: qsTr("Falling") }]
+                        model: [{ icon: "slope-rising-line", text: qsTr("Rising") },
+                                { icon: "slope-falling-line", text: qsTr("Falling"), enabled: !root.unsupported("counter.fallingEdge"),
+                                  toolTip: root.unsupported("counter.fallingEdge") ? qsTr("Not supported by this device") : "" }]
                         currentIndex: root.controller.activeEdge
                         onActivated: index => root.controller.activeEdge = index
                     }
@@ -386,8 +421,12 @@ Item {
                     label: qsTr("Count Direction")
                     SegmentedControl {
                         Layout.fillWidth: true
-                        model: [{ text: qsTr("Up") }, { text: qsTr("Down") },
-                                { text: qsTr("External"), toolTip: qsTr("DIO 2 high counts up, low counts down") }]
+                        model: [{ text: qsTr("Up") },
+                                { text: qsTr("Down"), enabled: !root.unsupported("counter.countDown"),
+                                  toolTip: root.unsupported("counter.countDown") ? qsTr("Not supported by this device") : "" },
+                                { text: qsTr("External"), enabled: !root.unsupported("counter.externalDirection"),
+                                  toolTip: root.unsupported("counter.externalDirection") ? qsTr("Not supported by this device")
+                                                                                          : qsTr("DIO 2 high counts up, low counts down") }]
                         currentIndex: root.controller.countDirection
                         onActivated: index => root.controller.countDirection = index
                     }
@@ -396,8 +435,10 @@ Item {
                     visible: root.counting
                     Field {
                         label: qsTr("Initial Count")
+                        disabled: root.unsupported("counter.initialCount")
                         SiField {
                             Layout.fillWidth: true
+                            enabled: !root.unsupported("counter.initialCount")
                             engineering: false
                             decimals: 0
                             stepSize: 1
@@ -410,7 +451,9 @@ Item {
                     Field {
                         label: qsTr("Reset on DIO 1")
                         hint: qsTr("A rising edge on DIO 1 sets the count to 0")
+                        disabled: root.unsupported("counter.resetOnDio")
                         ToggleSwitch {
+                            enabled: !root.unsupported("counter.resetOnDio")
                             checked: root.controller.resetOnDio1
                             onToggled: root.controller.resetOnDio1 = checked
                         }
@@ -550,8 +593,9 @@ Item {
                     SegmentedControl {
                         Layout.fillWidth: true
                         model: [{ text: qsTr("On Demand"), toolTip: qsTr("One reading every update interval (the latest measurement)") },
-                                { text: qsTr("Buffered"), enabled: root.interval,
-                                  toolTip: root.interval ? qsTr("Every period / interval is measured once (exact statistics)")
+                                { text: qsTr("Buffered"), enabled: root.interval && !root.unsupported("counter.buffered"),
+                                  toolTip: root.unsupported("counter.buffered") ? qsTr("Not supported by this device")
+                                         : root.interval ? qsTr("Every period / interval is measured once (exact statistics)")
                                                          : qsTr("Not available for counting measurements on NI myDAQ") }]
                         currentIndex: root.controller.sampling
                         onActivated: index => root.controller.sampling = index
@@ -677,15 +721,19 @@ Item {
                         label: qsTr("Idle State")
                         SegmentedControl {
                             Layout.fillWidth: true
-                            model: [qsTr("Low"), qsTr("High")]
+                            model: [qsTr("Low"),
+                                    { text: qsTr("High"), enabled: !root.unsupported("pulse.idleHigh"),
+                                      toolTip: root.unsupported("pulse.idleHigh") ? qsTr("Not supported by this device") : "" }]
                             currentIndex: root.controller.idleHigh ? 1 : 0
                             onActivated: index => root.controller.idleHigh = index === 1
                         }
                     }
                     Field {
                         label: qsTr("Initial Delay")
+                        disabled: root.unsupported("pulse.initialDelay")
                         SiField {
                             Layout.fillWidth: true
+                            enabled: !root.unsupported("pulse.initialDelay")
                             unit: "s"
                             from: 0
                             to: 100

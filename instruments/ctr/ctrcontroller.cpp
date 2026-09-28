@@ -1,5 +1,6 @@
 #include "ctrcontroller.h"
 
+#include <mybench/devicehub.h>
 #include <mybench/resourcearbiter.h>
 #include <mybench/units.h>
 
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <optional>
+#include <array>
 
 using namespace Qt::StringLiterals;
 
@@ -74,6 +76,7 @@ CtrController::CtrController() : InstrumentController(u"ctr"_s)
     updatePreview();
     connect(ResourceArbiter::instance(), &ResourceArbiter::holdersChanged, this, &CtrController::updatePins);
     connect(this, &InstrumentController::stateChanged, this, &CtrController::updatePins);
+    connect(DeviceHub::instance(), &DeviceHub::capabilitiesChanged, this, &CtrController::configChanged);
 }
 
 CtrController::~CtrController()
@@ -742,6 +745,92 @@ void CtrController::resetMeasurement()
     m_resetRequest->store(true);
 }
 
+// --- Device capabilities -----------------------------------------------------------------------
+
+QStringList CtrController::featuresInUse() const
+{
+    namespace F = mydaq::feature;
+    QStringList list;
+    auto need = [&list](const char* name) { list << QString::fromLatin1(name); };
+    if (m_counterFunction == Measure) {
+        switch (m_measurement) {
+        case CountEdges:
+            if (m_countDirection == CountDown)
+                need(F::CounterCountDown);
+            if (m_countDirection == CountExternal)
+                need(F::CounterExternalDirection);
+            if (m_initialCount != 0.0)
+                need(F::CounterInitialCount);
+            if (m_resetOnDio1)
+                need(F::CounterResetOnDio);
+            [[fallthrough]];
+        case Frequency:
+        case Period:
+            if (m_activeEdge == Falling)
+                need(F::CounterFallingEdge);
+            break;
+        case PulseWidth: need(F::CounterPulseWidth); break;
+        case SemiPeriod: need(F::CounterSemiPeriod); break;
+        case TwoEdgeSeparation: need(F::CounterTwoEdgeSeparation); break;
+        case LinearEncoder: need(F::CounterLinearEncoder); break;
+        case AngularEncoder: need(F::CounterAngularEncoder); break;
+        }
+        if (m_sampling == Buffered && intervalMeasurement())
+            need(F::CounterBuffered);
+    } else if (m_counterFunction == PulseTrain) {
+        if (m_idleHigh)
+            need(F::PulseIdleHigh);
+        if (m_initialDelay != 0.0)
+            need(F::PulseInitialDelay);
+    }
+    if (m_freqOutEnabled)
+        need(F::FrequencyOutput);
+    return list;
+}
+
+QStringList CtrController::unsupportedInUse() const
+{
+    QStringList refused;
+    for (const QString& feature : featuresInUse()) {
+        if (!DeviceHub::instance()->supports(feature))
+            refused << featureTitle(feature);
+    }
+    return refused;
+}
+
+bool CtrController::measurementSupported(int measurement) const
+{
+    static constexpr std::array<const char*, 8> features{
+        nullptr, nullptr, nullptr, mydaq::feature::CounterPulseWidth, mydaq::feature::CounterSemiPeriod,
+        mydaq::feature::CounterTwoEdgeSeparation, mydaq::feature::CounterLinearEncoder,
+        mydaq::feature::CounterAngularEncoder};
+    if (measurement < 0 || measurement >= int(features.size()) || !features[size_t(measurement)])
+        return true;
+    return DeviceHub::instance()->supports(QString::fromLatin1(features[size_t(measurement)]));
+}
+
+QString CtrController::featureTitle(const QString& feature)
+{
+    namespace F = mydaq::feature;
+    static const QHash<QString, QString> titles{
+        {QString::fromLatin1(F::CounterPulseWidth), tr("Pulse Width")},
+        {QString::fromLatin1(F::CounterSemiPeriod), tr("Semi-Period")},
+        {QString::fromLatin1(F::CounterTwoEdgeSeparation), tr("Two-Edge Separation")},
+        {QString::fromLatin1(F::CounterLinearEncoder), tr("Linear Encoder")},
+        {QString::fromLatin1(F::CounterAngularEncoder), tr("Angular Encoder")},
+        {QString::fromLatin1(F::CounterFallingEdge), tr("Falling edge")},
+        {QString::fromLatin1(F::CounterCountDown), tr("Counting down")},
+        {QString::fromLatin1(F::CounterExternalDirection), tr("External count direction")},
+        {QString::fromLatin1(F::CounterInitialCount), tr("Initial count")},
+        {QString::fromLatin1(F::CounterResetOnDio), tr("Reset on DIO 1")},
+        {QString::fromLatin1(F::CounterBuffered), tr("Buffered sampling")},
+        {QString::fromLatin1(F::PulseIdleHigh), tr("Idle state High")},
+        {QString::fromLatin1(F::PulseInitialDelay), tr("Initial delay")},
+        {QString::fromLatin1(F::FrequencyOutput), tr("FREQOUT")},
+    };
+    return titles.value(feature, feature);
+}
+
 // --- Run --------------------------------------------------------------------------------------
 
 InstrumentController::WorkerFunction CtrController::createWorker()
@@ -749,6 +838,11 @@ InstrumentController::WorkerFunction CtrController::createWorker()
     if (m_counterFunction == CounterOff && !m_freqOutEnabled)
         throw mydaq::DeviceError(mydaq::DeviceError::InvalidConfig,
                                  tr("nothing to run: choose Measure or Pulse Train, or enable FREQOUT"));
+    if (const QStringList refused = unsupportedInUse(); !refused.isEmpty())
+        throw InvalidInput(tr("This device cannot run: %1.").arg(refused.join(u", "_s)));
+    if (m_counterFunction == Measure) {
+        clearResults();   // a new run (Stop -> Run, or a restart after a setting change) starts a fresh trend
+    }
     if (m_counterFunction == Measure && intervalMeasurement()) {
         const CounterInputConfig c = inputConfig();
         if (!(c.minValue < c.maxValue))
@@ -832,6 +926,15 @@ InstrumentController::WorkerFunction CtrController::createWorker()
                         emit outputChanged();
                     });
                     ctx.acquisitionDone();
+                    if (freqOut) {
+                        // FREQOUT is independent of the counter (ctr.md 2): keep it running and
+                        // serving live changes until Stop.
+                        ctx.setStatus(tr("Pulses done · FREQOUT on DIO 4"));
+                        while (ctx.sleepMs(50)) {
+                            if (const auto l = live->take())
+                                applyFreqOut(*l);
+                        }
+                    }
                     return;
                 }
                 if (const auto l = live->take())

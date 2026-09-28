@@ -288,6 +288,74 @@ private slots:
         QCOMPARE(ctl.outputState(), u"Done"_s);
     }
 
+    void unsupportedOptionsAreRefusedUpFront()
+    {
+        // A limited backend (like the USB one today): the panel greys these; Run says why.
+        resetSim();
+        DeviceHub::instance()->setSimulatorUnsupportedFeatures(
+            {u"counter.pulseWidth"_s, u"counter.fallingEdge"_s, u"pulse.idleHigh"_s});
+        CtrController ctl;
+        ctl.initialize();
+        QVERIFY(ctl.unsupportedInUse().isEmpty());
+        QVERIFY(ctl.measurementSupported(CtrController::Frequency));
+        QVERIFY(!ctl.measurementSupported(CtrController::PulseWidth));
+        QVERIFY(ctl.measurementSupported(CtrController::SemiPeriod));
+        ctl.setMeasurement(CtrController::PulseWidth);
+        QCOMPARE(ctl.unsupportedInUse(), QStringList{u"Pulse Width"_s});
+        ctl.run();
+        QVERIFY(ctl.isIdle());
+        QVERIFY(!ctl.hasError());
+        QVERIFY(ctl.inputWarning().contains(u"Pulse Width"_s));
+        ctl.setMeasurement(CtrController::Frequency);
+        ctl.setActiveEdge(CtrController::Falling);
+        QCOMPARE(ctl.unsupportedInUse(), QStringList{u"Falling edge"_s});
+        ctl.setActiveEdge(CtrController::Rising);
+        ctl.setCounterFunction(CtrController::PulseTrain);
+        ctl.setIdleHigh(true);
+        QCOMPARE(ctl.unsupportedInUse(), QStringList{u"Idle state High"_s});
+        DeviceHub::instance()->setSimulatorUnsupportedFeatures({});
+        QVERIFY(ctl.unsupportedInUse().isEmpty());
+    }
+
+    void trendStartsEmptyOnANewRun()
+    {
+        resetSim();
+        sim()->setDigitalSource(1, clock(1000));
+        CtrController ctl;
+        ctl.initialize();
+        ctl.setUpdateInterval(0.01);
+        ctl.run();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.trend()->count() >= 30, 5000);
+        ctl.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 2000);
+        const qsizetype before = ctl.trend()->count();
+        ctl.run();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isRunning(), 2000);
+        QVERIFY2(ctl.trend()->count() < before, qPrintable(QString::number(ctl.trend()->count())));
+        ctl.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 2000);
+    }
+
+    void finitePulsesKeepFreqOutRunning()
+    {
+        resetSim();
+        CtrController ctl;
+        ctl.initialize();
+        ctl.setCounterFunction(CtrController::PulseTrain);
+        ctl.setPulseGeneration(CtrController::FinitePulses);
+        ctl.setPulseCount(20);
+        ctl.setPulseFrequency(1000);
+        ctl.setFreqOutEnabled(true);
+        ctl.run();
+        QTRY_COMPARE_WITH_TIMEOUT(ctl.outputState(), u"Done"_s, 3000);
+        QTest::qWait(200);
+        QVERIFY(ctl.isRunning());
+        QVERIFY(sim()->frequencyOutputRunning());
+        ctl.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 2000);
+        QVERIFY(!sim()->frequencyOutputRunning());
+    }
+
     void nothingToRun()
     {
         CtrController ctl;

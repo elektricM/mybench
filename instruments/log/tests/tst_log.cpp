@@ -6,6 +6,7 @@
 #include <mybench/devicehub.h>
 #include <mybench/instrumentregistry.h>
 
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -107,13 +108,20 @@ private slots:
 
     void autoRange()
     {
-        const auto& ranges = logger::dmmFunctions()[0].ranges;   // 60, 20, 2, 0.2 V
-        QCOMPARE(logger::autoRange(ranges, 0, 1.2345, false), 2);
-        QCOMPARE(logger::autoRange(ranges, 0, 0.1, false), 3);
-        QCOMPARE(logger::autoRange(ranges, 0, 25, false), 0);
-        QCOMPARE(logger::autoRange(ranges, 3, 0.0, true), 2);    // overload: one range up
-        QCOMPARE(logger::autoRange(ranges, 0, 70, true), 0);
-        QCOMPARE(logger::autoRange(ranges, 2, 1.9, false), 2);   // stays (no hysteresis loop)
+        // Smallest first: 0.2, 2, 20, 60 V; the DMM instrument's rule (dmm.md 4.2): the next
+        // range comes directly from the reading, 2000-count limits at 0.9995 x range.
+        const auto& ranges = logger::dmmFunctions()[0].ranges;
+        QCOMPARE(logger::dmmFunctions()[0].ranges.front().max, 0.2);
+        QCOMPARE(logger::autoRange(ranges, 3, 1.2345, false), 1);   // 1.23 V -> 2 V
+        QCOMPARE(logger::autoRange(ranges, 3, 0.1, false), 0);          // straight down, no stepping
+        QCOMPARE(logger::autoRange(ranges, 0, 25, false), 3);           // straight up
+        QCOMPARE(logger::autoRange(ranges, 0, 1.999, false), 2);        // at the 2 V limit
+        QCOMPARE(logger::autoRange(ranges, 1, 1.998, false), 1);
+        QCOMPARE(logger::autoRange(ranges, 1, 0.0, true), 2);           // overload: one range up
+        QCOMPARE(logger::autoRange(ranges, 3, 70, true), 3);
+        // Resistance: 8.26 k read on the 20 M range goes to 20 k at once.
+        const auto& ohms = logger::dmmFunctions()[4].ranges;
+        QCOMPARE(logger::autoRange(ohms, 5, 8260, false), 2);
     }
 
     void statistics()
@@ -132,7 +140,8 @@ private slots:
         QTemporaryDir dir;
         LogController ctl;
         ctl.initialize();
-        QCOMPARE(ctl.samplingRate(), 10.0);   // ELVISmx default
+        QCOMPARE(ctl.samplingRate(), 1000.0);   // ELVISmx default (observed)
+        QCOMPARE(ctl.chartCapacity(), u"5 h 33 min"_s);
         QVERIFY(ctl.resources().testFlag(ResourceArbiter::AnalogInput));
         QVERIFY(!ctl.resources().testFlag(ResourceArbiter::Multimeter));
         ctl.setFolder(dir.path());
@@ -228,6 +237,92 @@ private slots:
         QCOMPARE(log.header, (QStringList{u"Time (s)"_s, u"DMM Resistance (Ω)"_s}));
         QVERIFY(!log.rows.isEmpty());
         QVERIFY(std::abs(log.rows.last()[1].toDouble() - 4700) < 20);
+    }
+
+    void elvismxCellFormats()
+    {
+        QCOMPARE(logger::elvismxValue(5.174413), u"5.174413E+0"_s);
+        QCOMPARE(logger::elvismxValue(-0.0122074), u"-1.220740E-2"_s);
+        QCOMPARE(logger::elvismxValue(0.0), u"0.000000E+0"_s);
+        QCOMPARE(logger::elvismxValue(1.5e10), u"1.500000E+10"_s);
+        QCOMPARE(logger::elvismxValue(qQNaN()), QString());
+        const qint64 us = QDateTime(QDate(2026, 9, 28), QTime(10, 15, 0, 1)).toMSecsSinceEpoch() * 1000 + 42;
+        QCOMPARE(logger::elvismxTime(us), u"9/28/2026  10:15:00.001042"_s);   // two spaces, six digits
+        QCOMPARE(logger::elvismxHeader(u"myDAQ1"_s, {u"ai0"_s, u"ai1"_s}),
+                 (QStringList{u"Time"_s, u"myDAQ1/ai0"_s, u"Time"_s, u"myDAQ1/ai1"_s}));
+    }
+
+    void elvismxLayoutFile()
+    {
+        QTemporaryDir dir;
+        LogController ctl;
+        ctl.initialize();
+        ctl.setFolder(dir.path());
+        ctl.setBaseName(u"compat"_s);
+        ctl.setAppendTimestamp(false);
+        ctl.setFileLayout(LogController::ElvismxLayout);
+        ctl.setAppendToExisting(true);
+        ctl.setAi1Enabled(true);
+        ctl.setSamplingRate(200);
+        QCOMPARE(ctl.fileExtension(), u"txt"_s);
+        const QString path = dir.filePath(u"compat.txt"_s);
+        for (int session = 0; session < 2; ++session) {   // the second Log press appends
+            ctl.startRecording();
+            QTRY_VERIFY_WITH_TIMEOUT(ctl.recording(), 3000);
+            QTest::qWait(300);
+            ctl.stop();
+            QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 2000);
+            QCOMPARE(ctl.nextFilePath(), path);
+        }
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray bytes = file.readAll();
+        QVERIFY(bytes.contains("\r\n"));
+        QVERIFY(!bytes.contains("#"));
+        const QStringList lines = QString::fromLatin1(bytes).split(u"\r\n"_s, Qt::SkipEmptyParts);
+        QCOMPARE(lines[0], u"Time\tmyDAQ1/ai0\tTime\tmyDAQ1/ai1"_s);
+        const QRegularExpression cell(uR"(^\d{1,2}/\d{1,2}/\d{4}  \d\d:\d\d:\d\d\.\d{6}\t-?\d\.\d{6}E[+-]\d+\t\d{1,2}/\d{1,2}/\d{4}  \d\d:\d\d:\d\d\.\d{6}\t-?\d\.\d{6}E[+-]\d+$)"_s);
+        qsizetype headers = 0;
+        for (qsizetype i = 0; i < lines.size(); ++i) {
+            if (lines[i] == lines[0])
+                ++headers;
+            else
+                QVERIFY2(cell.match(lines[i]).hasMatch(), qPrintable(lines[i]));
+        }
+        QCOMPARE(headers, qsizetype(2));   // header repeated per Log press
+        // The samples are 5 ms apart: compare the first two time cells.
+        const QStringList a = lines[1].split(u'\t'), b = lines[2].split(u'\t');
+        const QDateTime ta = QDateTime::fromString(a[0].simplified().section(u'.', 0, 0), u"M/d/yyyy HH:mm:ss"_s);
+        QVERIFY(ta.isValid());
+        QVERIFY(a[0].mid(a[0].indexOf(u'.') + 1) != b[0].mid(b[0].indexOf(u'.') + 1));
+    }
+
+    void dmmSlowerAiKeepsEveryReading()
+    {
+        // AI at 1 S/s is far below the DMM rate: every DMM reading must still reach the file.
+        QTemporaryDir dir;
+        LogController ctl;
+        ctl.initialize();
+        ctl.setFolder(dir.path());
+        ctl.setSamplingRate(1);
+        ctl.setDmmEnabled(true);
+        ctl.startRecording();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.recording(), 3000);
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.dmm()->count() >= 12, 15000);
+        const QString path = ctl.recordFile();
+        ctl.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 3000);
+        const qsizetype readings = ctl.dmm()->count();
+        const LogFile log = readLog(path);
+        QCOMPARE(log.header, (QStringList{u"Time (s)"_s, u"AI 0 (V)"_s, u"DMM time (s)"_s, u"DMM DC Voltage (V)"_s}));
+        qsizetype dmmCells = 0;
+        for (const QStringList& row : log.rows) {
+            QCOMPARE(row.size(), 4);
+            if (!row[3].isEmpty())
+                ++dmmCells;
+        }
+        // The chart may hold one reading the file did not get (Stop between reading and queueing).
+        QVERIFY2(dmmCells >= readings - 1, qPrintable(u"%1 in the file, %2 read"_s.arg(dmmCells).arg(readings)));
     }
 
     void refusesWithoutChannels()
