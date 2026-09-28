@@ -1,17 +1,21 @@
 #include "scopecontroller.h"
 
 #include <mybench/dataexport.h>
+#include <mybench/devicehub.h>
 #include <mybench/notifications.h>
 
 #include <QElapsedTimer>
 #include <QFile>
+#include <QDateTime>
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QMetaMethod>
+#include <QRegularExpression>
 #include <QTextStream>
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 
 using namespace Qt::StringLiterals;
 
@@ -30,7 +34,6 @@ bool assign(T& member, V value)
 
 constexpr double kRollMinimumTimePerDiv = 50e-3;   // roll mode from 50 ms/div (0.5 s screen)
 constexpr int kMinimumCycleMs = 33;                // at most 30 records per second
-constexpr int kRunOnceTriggerTimeoutMs = 10000;    // Single + Edge: give up after 10 s
 
 QString rangeText(double range)
 {
@@ -42,6 +45,7 @@ QString rangeText(double range)
 // Everything the worker hands to the UI thread for one displayed record.
 struct ScopeController::Published {
     scope::Record record;
+    QDateTime startTime;
     double x0 = 0;
     scope::Measurements measurements[2];
     std::vector<double> math;
@@ -166,10 +170,25 @@ void ScopeController::setTriggerHysteresis(double divisions)
         emit triggerHysteresisChanged();
 }
 
-void ScopeController::setAutoTrigger(bool on)
+void ScopeController::setNoTriggerMode(NoTriggerMode mode)
 {
-    if (assign(m_autoTrigger, on))
-        emit autoTriggerChanged();
+    if (assign(m_noTriggerMode, mode))
+        emit noTriggerModeChanged();
+}
+
+void ScopeController::setFrequencyMethod(FrequencyMethod method)
+{
+    if (!assign(m_frequencyMethod, method))
+        return;
+    m_channel0.setFrequencyByEdges(method == EdgeFrequency);
+    m_channel1.setFrequencyByEdges(method == EdgeFrequency);
+    emit frequencyMethodChanged();
+}
+
+void ScopeController::setAutoscaleSetsLevel(bool on)
+{
+    if (assign(m_autoscaleSetsLevel, on))
+        emit autoscaleSetsLevelChanged();
 }
 
 void ScopeController::setCursorsOn(bool on)
@@ -258,16 +277,22 @@ QString ScopeController::timeDivLabel() const
     return scope::divisionLabel(m_timePerDiv, u"s"_s);
 }
 
+double ScopeController::maxRate() const
+{
+    const mydaq::DevicePtr device = DeviceHub::instance()->device();
+    return device ? device->maxAiRate() : 200000.0;
+}
+
 double ScopeController::plannedRate() const
 {
-    const DevicePtrHolder* unused = nullptr;
-    Q_UNUSED(unused)
-    return scope::planRate(m_timePerDiv, 200000.0, scope::SamplingMode(int(m_samplingMode))).rate;
+    const double rate = scope::planRate(m_timePerDiv, maxRate(), scope::SamplingMode(int(m_samplingMode))).rate;
+    const mydaq::DevicePtr device = DeviceHub::instance()->device();
+    return device ? device->coerceAiRate(rate) : rate;
 }
 
 int ScopeController::plannedRecordLength() const
 {
-    return int(scope::planRate(m_timePerDiv, 200000.0, scope::SamplingMode(int(m_samplingMode))).samples);
+    return int(scope::planRate(m_timePerDiv, maxRate(), scope::SamplingMode(int(m_samplingMode))).samples);
 }
 
 bool ScopeController::rollAvailable() const
@@ -304,7 +329,9 @@ scope::Snapshot ScopeController::snapshot() const
     s.level = m_triggerLevel;
     s.horizontalPercent = m_horizontalPosition;
     s.hysteresisDiv = m_triggerHysteresis;
-    s.autoTrigger = m_autoTrigger;
+    s.noTrigger = m_noTriggerMode == ShowUntriggered ? scope::NoTrigger::Auto
+                : m_noTriggerMode == KeepLastTrace   ? scope::NoTrigger::KeepLast
+                                                     : scope::NoTrigger::Clear;
     s.mathEnabled = m_math.enabled();
     s.mathFunction = m_math.coreFunction();
     return s;
@@ -317,15 +344,21 @@ bool ScopeController::setChannelSource(int index, int source)
     if (index < 0 || index > 1 || source < 0 || source > 3)
         return false;
     ScopeChannel* c = channel(index);
-    const auto newSource = ScopeChannel::Source(source);
-    const ScopeChannel* other = channel(1 - index);
-    if (isRunning() && c->enabled() && other->enabled()
-        && scope::isAudio(scope::Source(source)) != other->audio()) {
-        Notifications::instance()->notify(Notifications::Warning, title(),
-            tr("AI channels cannot be used with AudioInput channels. Select the same kind of source for both channels."));
-        return false;
+    ScopeChannel* other = channel(1 - index);
+    const bool audio = scope::isAudio(scope::Source(source));
+    (audio ? m_lastAudioSource : m_lastAiSource)[index] = source;
+    c->setSource(ScopeChannel::Source(source));
+    if (other->audio() != audio) {
+        // AI and audio inputs share the converters: the other channel follows to the same kind
+        // (its last choice of that kind; audio default: the other side of the jack).
+        int follow = (audio ? m_lastAudioSource : m_lastAiSource)[1 - index];
+        if (follow < 0)
+            follow = source == ScopeChannel::AudioLeft ? ScopeChannel::AudioRight : ScopeChannel::AudioLeft;
+        other->setSource(ScopeChannel::Source(follow));
+        Notifications::instance()->notify(Notifications::Info, title(),
+            tr("%1 switched to %2 (AI and audio inputs cannot be mixed)").arg(other->name(), other->sourceName()));
     }
-    c->setSource(newSource);
+    fixTriggerSource();
     return true;
 }
 
@@ -335,16 +368,9 @@ bool ScopeController::setChannelEnabled(int index, bool enabled)
         return false;
     ScopeChannel* c = channel(index);
     const ScopeChannel* other = channel(1 - index);
-    if (isRunning()) {
-        if (enabled && other->enabled() && c->audio() != other->audio()) {
-            Notifications::instance()->notify(Notifications::Warning, title(),
-                tr("AI channels cannot be used with AudioInput channels. Select the same kind of source for both channels."));
-            return false;
-        }
-        if (!enabled && !other->enabled()) {
-            Notifications::instance()->notify(Notifications::Warning, title(), tr("Enable at least one channel."));
-            return false;
-        }
+    if (isRunning() && !enabled && !other->enabled()) {
+        Notifications::instance()->notify(Notifications::Warning, title(), tr("Enable at least one channel."));
+        return false;
     }
     c->setEnabled(enabled);
     if (!enabled)
@@ -382,6 +408,11 @@ void ScopeController::applyAutoscale(const scope::AutoscaleResult& result)
     }
     if (std::isfinite(result.timePerDiv))
         setTimePerDiv(result.timePerDiv);
+    if (m_autoscaleSetsLevel && m_triggerType == Edge) {
+        const int tc = m_triggerSource == Chan1Source ? 1 : 0;
+        if (std::isfinite(result.channel[tc].midLevel))
+            setTriggerLevel(std::round(result.channel[tc].midLevel * 1000.0) / 1000.0);
+    }
     m_live->post(snapshot());   // the worker waits for this before its next record
     setAutoscaling(false);
 }
@@ -401,6 +432,11 @@ void ScopeController::setWaitingForTrigger(bool waiting)
 QString ScopeController::formatMeasurement(double value, const QString& unit) const
 {
     return scope::formatMeasurement(value, unit);
+}
+
+QString ScopeController::formatRate(double samplesPerSecond) const
+{
+    return samplesPerSecond > 0 ? scope::formatFixed(samplesPerSecond, u"S/s"_s, 2) : QString();
 }
 
 double ScopeController::valueAt(int index, double seconds) const
@@ -587,14 +623,15 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
         const scope::Acquirer::StopFn stop = [&ctx] { return ctx.stopRequested(); };
         bool autoscaleNow = autoscaleFirst;
         bool waiting = false;
-        QElapsedTimer onceClock;
-        onceClock.start();
+        bool cleared = false;
 
         // Measurements, math and traces of a record, then hand it to the UI thread.
         auto publish = [&](scope::Record&& record, double x0) {
             auto p = std::make_shared<Published>();
             const double fs = record.sampleRate;
-            const double dt = 1.0 / fs;
+            const double dt = fs > 0 ? 1.0 / fs : 1.0;
+            const size_t length = std::max(record.data[0].size(), record.data[1].size());
+            p->startTime = QDateTime::currentDateTime().addMSecs(-qint64(double(length) * dt * 1000.0));
             plot::TraceBuffer* traces[2] = {&m_ch0Trace, &m_ch1Trace};
             for (int ch = 0; ch < 2; ++ch) {
                 if (record.enabled(ch)) {
@@ -606,22 +643,19 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
             }
             if (record.enabled(0) && record.enabled(1)) {
                 const size_t n = std::min(record.data[0].size(), record.data[1].size());
-                m_xyTrace.setXY(std::span(record.data[0].data(), n), std::span(record.data[1].data(), n));
+                m_xyTrace.setXY(std::span<const double>(record.data[0].data(), n),
+                                std::span<const double>(record.data[1].data(), n));
             } else {
                 m_xyTrace.clear();
             }
             if (s.mathEnabled && scope::isFft(s.mathFunction)) {
                 const int src = s.mathFunction == scope::MathFunction::FftA ? 0 : 1;
                 if (record.enabled(src)) {
-                    const std::vector<double> db = scope::fftMagnitudeDb(record.data[src]);
-                    p->fftBinWidth = fs / double(record.data[src].size());
-                    m_fftTrace.setUniform(0.0, p->fftBinWidth, db);
-                    for (size_t k = 2; k < db.size(); ++k) {
-                        if (std::isnan(p->fftPeakLevel) || db[k] > p->fftPeakLevel) {
-                            p->fftPeakLevel = db[k];
-                            p->fftPeakFrequency = double(k) * p->fftBinWidth;
-                        }
-                    }
+                    const scope::FftResult fft = scope::fftAnalyse(record.data[src], fs);
+                    p->fftBinWidth = fft.binWidth;
+                    p->fftPeakFrequency = fft.peakFrequency;
+                    p->fftPeakLevel = fft.peakLevel;
+                    m_fftTrace.setUniform(0.0, fft.binWidth, fft.db);
                 } else {
                     m_fftTrace.clear();
                 }
@@ -669,7 +703,9 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
                 // Continue with the settings the UI derives from the result.
                 for (int i = 0; i < 100 && !live->hasValue() && !ctx.stopRequested(); ++i)
                     ctx.sleepMs(10);
-                onceClock.restart();
+                // Autoscale pressed while idle: ELVISmx only probes and applies the settings.
+                if (autoscaleFirst && ctx.once())
+                    break;
                 continue;
             }
 
@@ -683,8 +719,7 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
                     r.roll = true;
                     return scope::planAcquisition(r, ctx.device());
                 }();
-                if (!roller.running() || !scope::sameTask(plan, roller.plan())
-                    || plan.recordLength != roller.windowLength()) {
+                if (!roller.matches(plan)) {
                     acquirer.reset();
                     roller.stop();
                     roller.start(ctx.device(), s);
@@ -727,8 +762,15 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
             if (displayed) {
                 publish(std::move(*result.record), 0.0);
                 ctx.acquisitionDone();
+                cleared = false;
+            } else if (result.timedOut && s.noTrigger == scope::NoTrigger::Clear && !cleared) {
+                // ELVISmx: a record without trigger clears the graph and the measurements.
+                publish(scope::Record{}, 0.0);
+                cleared = true;
             }
-            if (ctx.once() && (displayed || onceClock.elapsed() >= kRunOnceTriggerTimeoutMs))
+            // Single: one displayed record; with Edge it keeps acquiring until a trigger is
+            // found or Stop is pressed (a single-shot "arm").
+            if (ctx.once() && displayed)
                 break;
             const int remaining = kMinimumCycleMs - int(cycle.elapsed());
             if (remaining > 0 && !ctx.sleepMs(remaining))
@@ -741,6 +783,7 @@ void ScopeController::applyRecord(const std::shared_ptr<const Published>& p)
 {
     m_record = p->record;
     m_recordX0 = p->x0;
+    m_recordTime = p->startTime;
     m_mathRecord = p->math;
     for (int ch = 0; ch < 2; ++ch) {
         if (m_record.enabled(ch))
@@ -789,7 +832,7 @@ DataTable ScopeController::exportTable() const
     } else {
         table.addMetadata(tr("Trigger"), rolling() ? tr("Immediate (roll mode)") : tr("Immediate"));
     }
-    table.addMetadata(tr("Sampling"), m_samplingMode == MaximumRate ? tr("maximum rate") : tr("standard (ELVISmx)"));
+    table.addMetadata(tr("Record length"), m_samplingMode == HighResolution ? tr("high resolution") : tr("standard (2500 points)"));
     if (m_cursorsOn) {
         auto cursorText = [this](const ScopeCursor& c) {
             return u"%1 s, linked to %2, %3"_s.arg(QString::number(c.position(), 'g', 6),
@@ -826,13 +869,76 @@ DataTable ScopeController::exportTable() const
     return table;
 }
 
+bool ScopeController::exportElvisText(const QUrl& file)
+{
+    const QString path = DataExport::localPath(file);
+    if (!hasRecord() || !(m_record.sampleRate > 0)) {
+        Notifications::instance()->notify(Notifications::Info, tr("Nothing to log yet"), tr("Run the instrument first."));
+        return false;
+    }
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        Notifications::instance()->notify(Notifications::Error, tr("Log not saved"), out.errorString());
+        return false;
+    }
+    // Layout of the ELVISmx Log TXT file (LabVIEW waveform export): a header block with t0 and
+    // delta t per channel, then time/value column pairs with absolute timestamps, %E values.
+    const double dt = 1.0 / m_record.sampleRate;
+    const QDateTime t0 = m_recordTime.isValid() ? m_recordTime : QDateTime::currentDateTime();
+    auto stamp = [&](double offset) {
+        const qint64 us = qint64(std::llround(offset * 1e6));
+        const QDateTime t = t0.addMSecs(us / 1000);
+        const int micro = int((t0.time().msec() * 1000 + us) % 1000000);
+        return t.toString(u"MM/dd/yyyy hh:mm:ss"_s) + u'.' + QString::number(micro).rightJustified(6, u'0')
+               + t.toString(u" AP"_s);
+    };
+    auto number = [](double v) { return QString::asprintf("%.6E", v); };
+    QList<int> channels;
+    for (int ch = 0; ch < 2; ++ch)
+        if (m_record.enabled(ch))
+            channels.append(ch);
+    QStringList rows[4];
+    rows[0] << u"waveform"_s;
+    rows[1] << u"t0"_s;
+    rows[2] << u"delta t"_s;
+    rows[3].clear();
+    QStringList header;
+    for (int i = 0; i < channels.size(); ++i) {
+        const int ch = channels[i];
+        rows[0] << u"Ch%1"_s.arg(ch) << QString();
+        rows[1] << stamp(m_record.skew[ch]) << QString();
+        rows[2] << number(dt) << QString();
+        header << u"time[%1]"_s.arg(i) << u"Ch%1"_s.arg(ch);
+    }
+    QTextStream stream(&out);
+    for (int r = 0; r < 3; ++r)
+        stream << rows[r].join(u'\t') << '\n';
+    stream << '\n' << header.join(u'\t') << '\n';
+    const size_t n = size_t(recordLength());
+    for (size_t i = 0; i < n; ++i) {
+        QStringList cells;
+        for (int ch : channels) {
+            cells << stamp(double(i) * dt + m_record.skew[ch]);
+            cells << (i < m_record.data[ch].size() ? number(m_record.data[ch][i]) : QString());
+        }
+        stream << cells.join(u'\t') << '\n';
+    }
+    stream.flush();
+    if (out.error() != QFile::NoError) {
+        Notifications::instance()->notify(Notifications::Error, tr("Log not saved"), out.errorString());
+        return false;
+    }
+    Notifications::instance()->notify(Notifications::Success, tr("Log saved"), path);
+    return true;
+}
+
 // --- Persistence of the sub-objects ------------------------------------------------------------
 
 void ScopeController::saveExtraSettings(QJsonObject& settings) const
 {
     settings.insert(u"channel0"_s, m_channel0.save());
     settings.insert(u"channel1"_s, m_channel1.save());
-    settings.insert(u"mathTrace"_s, const_cast<ScopeMath&>(m_math).save());
+    settings.insert(u"mathTrace"_s, m_math.save());
     settings.insert(u"cursor1"_s, m_cursor1.save());
     settings.insert(u"cursor2"_s, m_cursor2.save());
 }
@@ -844,6 +950,8 @@ void ScopeController::restoreExtraSettings(const QJsonObject& settings)
     m_math.restore(settings.value(u"mathTrace"_s).toObject());
     m_cursor1.restore(settings.value(u"cursor1"_s).toObject());
     m_cursor2.restore(settings.value(u"cursor2"_s).toObject());
+    if (m_cursorsOn && (std::isnan(m_cursor1.position()) || std::isnan(m_cursor2.position())))
+        resetCursors();
     fixTriggerSource();
 }
 

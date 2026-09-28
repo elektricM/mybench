@@ -45,3 +45,8 @@ endif()
 qt_add_executable(mybench-${instrument_id} dev/main.cpp)
 target_link_libraries(mybench-${instrument_id} PRIVATE ${instrument_target} ${instrument_target}plugin)
 target_include_directories(mybench-${instrument_id} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Unit tests (algorithms against the simulator, controller settings): ctest -R scope
+if(BUILD_TESTING OR NOT DEFINED BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

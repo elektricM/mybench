@@ -201,9 +201,9 @@ RatePlan planRate(double timePerDiv, double maxRate, SamplingMode mode)
 {
     const double screen = 10.0 * timePerDiv;
     RatePlan plan;
-    if (mode == SamplingMode::MaximumRate) {
-        plan.rate = maxRate;
-        plan.samples = int64_t(std::llround(maxRate * screen)) + 1;
+    if (mode == SamplingMode::HighResolution) {
+        plan.rate = std::min(maxRate, 100000.0 / screen);
+        plan.samples = int64_t(std::llround(plan.rate * screen)) + 1;
         return plan;
     }
     int64_t samples = 0;
@@ -349,9 +349,13 @@ Measurements measure(const std::vector<double>& x, double sampleRate, double vol
 
 QString formatMeasurement(double value, const QString& unit)
 {
+    return formatFixed(value, unit, std::abs(value) >= 1.0 ? 3 : 2);
+}
+
+QString formatFixed(double value, const QString& unit, int decimals)
+{
     if (!std::isfinite(value))
         return u"?"_s;
-    const int decimals = std::abs(value) >= 1.0 ? 3 : 2;
     static const std::array<const char16_t*, 9> prefixes{u"f", u"p", u"n", u"µ", u"m", u"", u"k", u"M", u"G"};
     int exponent = 0;
     if (value != 0.0)
@@ -417,8 +421,11 @@ AutoscaleChannel autoscaleChannel(const AutoscaleProbe& probe, bool audio)
         return result;
     const double amplitude = (probe.maximum - probe.minimum) / 2.0 * 2.2;
     result.signalRange = ranges[size_t(thresholdIndex(ranges, amplitude))];
+    result.midLevel = (probe.maximum + probe.minimum) / 2.0;
+    // Volts/Div nearest to 3/10 of A (observed in ELVISmx: a ±10 V ramp gives 5 V/div, a ±7.5 V
+    // one 5 V/div).
     const std::vector<double>& scales = voltsPerDivValues(audio);
-    result.voltsPerDiv = scales[size_t(thresholdIndex(scales, result.signalRange * 3.0 * 0.1))];
+    result.voltsPerDiv = scales[size_t(thresholdIndex(scales, amplitude * 3.0 / 10.0))];
     result.tonePresent = std::isfinite(probe.toneFrequency) && probe.toneFrequency > 0
                          && probe.toneAmplitude > 0.2 * result.signalRange;
     if (result.tonePresent)
@@ -493,15 +500,23 @@ std::vector<double> computeMath(MathFunction f, const std::vector<double>& a, co
     return out;
 }
 
-std::vector<double> fftMagnitudeDb(const std::vector<double>& x)
+FftResult fftAnalyse(const std::vector<double>& x, double sampleRate)
 {
-    if (x.size() < 4)
-        return {};
-    const mydaq::dsp::PowerSpectrum spectrum = mydaq::dsp::powerSpectrum(x, 1.0, mydaq::dsp::WindowType::Hanning);
+    FftResult r;
+    if (x.size() < 4 || !(sampleRate > 0))
+        return r;
+    const mydaq::dsp::PowerSpectrum spectrum = mydaq::dsp::powerSpectrum(x, sampleRate, mydaq::dsp::WindowType::Hanning);
     mydaq::dsp::SpectrumFormat format;
     format.mode = mydaq::dsp::SpectrumMode::Rms;
     format.unit = mydaq::dsp::SpectrumUnit::Db;
-    return mydaq::dsp::formatSpectrum(spectrum, format);
+    r.db = mydaq::dsp::formatSpectrum(spectrum, format);
+    r.binWidth = spectrum.info.df;
+    const mydaq::dsp::PeakEstimate peak = mydaq::dsp::findPeak(spectrum);
+    if (peak.power > 0) {
+        r.peakFrequency = peak.frequency;
+        r.peakLevel = 10.0 * std::log10(peak.power);
+    }
+    return r;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -631,15 +646,19 @@ CycleResult Acquirer::acquire(mydaq::Device& device, const Snapshot& snapshot, c
                                 std::max(0.0, snapshot.hysteresisDiv) * snapshot.channel[tc].voltsPerDiv};
         if (trigger.hysteresis > 0)
             trigger.hysteresis = std::max(trigger.hysteresis, 1e-3);
-        const auto k = findTrigger(data[size_t(plan.column[tc])], n, pre, trigger);
+        // The trigger sees the channel after its coupling (audio: mean removed).
+        std::vector<double>& triggerData = data[size_t(plan.column[tc])];
+        if (isAudio(snapshot.channel[tc].source))
+            removeMean(triggerData);
+        const auto k = findTrigger(triggerData, n, pre, trigger);
         if (k) {
             start = *k;
             record.triggered = true;
             record.triggerIndex = pre;
         } else {
             result.timedOut = true;
-            if (!snapshot.autoTrigger)
-                return result;   // ELVISmx: no record, the previous one stays displayed
+            if (snapshot.noTrigger != NoTrigger::Auto)
+                return result;   // ELVISmx: nothing to display (the caller clears or keeps)
         }
     }
     record.sampleRate = m_task->sampleRate();
@@ -762,6 +781,18 @@ int64_t Roller::poll()
     }
     m_count += int64_t(received);
     return int64_t(received) * int64_t(data.size());
+}
+
+bool Roller::matches(const AcquisitionPlan& plan) const
+{
+    if (!m_task || plan.recordLength != m_plan.recordLength || plan.config.sampleRate != m_plan.config.sampleRate
+        || plan.config.channels.size() != m_plan.config.channels.size())
+        return false;
+    for (size_t i = 0; i < plan.config.channels.size(); ++i)
+        if (plan.config.channels[i].channel != m_plan.config.channels[i].channel
+            || plan.config.channels[i].range != m_plan.config.channels[i].range)
+            return false;
+    return plan.column[0] == m_plan.column[0] && plan.column[1] == m_plan.column[1];
 }
 
 int64_t Roller::filled() const

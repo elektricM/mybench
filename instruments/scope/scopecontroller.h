@@ -50,7 +50,10 @@ class ScopeController : public InstrumentController
     Q_PROPERTY(double triggerLevel READ triggerLevel WRITE setTriggerLevel NOTIFY triggerLevelChanged)
     Q_PROPERTY(double horizontalPosition READ horizontalPosition WRITE setHorizontalPosition NOTIFY horizontalPositionChanged)
     Q_PROPERTY(double triggerHysteresis READ triggerHysteresis WRITE setTriggerHysteresis NOTIFY triggerHysteresisChanged)
-    Q_PROPERTY(bool autoTrigger READ autoTrigger WRITE setAutoTrigger NOTIFY autoTriggerChanged)
+    Q_PROPERTY(NoTriggerMode noTriggerMode READ noTriggerMode WRITE setNoTriggerMode NOTIFY noTriggerModeChanged)
+    // Measurements / autoscale options (MYBENCH, Advanced)
+    Q_PROPERTY(FrequencyMethod frequencyMethod READ frequencyMethod WRITE setFrequencyMethod NOTIFY frequencyMethodChanged)
+    Q_PROPERTY(bool autoscaleSetsLevel READ autoscaleSetsLevel WRITE setAutoscaleSetsLevel NOTIFY autoscaleSetsLevelChanged)
     // Cursors
     Q_PROPERTY(bool cursorsOn READ cursorsOn WRITE setCursorsOn NOTIFY cursorsOnChanged)
     Q_PROPERTY(bool showDeltaTime READ showDeltaTime WRITE setShowDeltaTime NOTIFY showDeltaTimeChanged)
@@ -70,6 +73,8 @@ class ScopeController : public InstrumentController
     Q_PROPERTY(bool rollAvailable READ rollAvailable NOTIFY planChanged)
     Q_PROPERTY(bool rolling READ rolling NOTIFY planChanged)                        // roll mode in effect
     Q_PROPERTY(QString validationMessage READ validationMessage NOTIFY planChanged)
+    // Every channel measurement: [{ flag, label, name, extension }] (ScopeChannel::Measurement).
+    Q_PROPERTY(QVariantList measurementCatalog READ measurementCatalog CONSTANT)
 
     // --- Results ------------------------------------------------------------------------------
     Q_PROPERTY(bool waitingForTrigger READ waitingForTrigger NOTIFY waitingForTriggerChanged)
@@ -109,8 +114,13 @@ public:
     Q_ENUM(TriggerSource)
     enum Slope { Rising, Falling };
     Q_ENUM(Slope)
-    enum SamplingMode { Standard, MaximumRate };
+    enum SamplingMode { Standard, HighResolution };
     Q_ENUM(SamplingMode)
+    // What an Edge acquisition without crossing shows: ELVISmx clears the graph.
+    enum NoTriggerMode { ClearGraph, KeepLastTrace, ShowUntriggered };
+    Q_ENUM(NoTriggerMode)
+    enum FrequencyMethod { ToneFrequency, EdgeFrequency };
+    Q_ENUM(FrequencyMethod)
     enum DisplayMode { YT, XY };
     Q_ENUM(DisplayMode)
     enum Background { ThemeBackground, Black, White };
@@ -145,8 +155,12 @@ public:
     void setHorizontalPosition(double percent);
     double triggerHysteresis() const { return m_triggerHysteresis; }
     void setTriggerHysteresis(double divisions);
-    bool autoTrigger() const { return m_autoTrigger; }
-    void setAutoTrigger(bool on);
+    NoTriggerMode noTriggerMode() const { return m_noTriggerMode; }
+    void setNoTriggerMode(NoTriggerMode mode);
+    FrequencyMethod frequencyMethod() const { return m_frequencyMethod; }
+    void setFrequencyMethod(FrequencyMethod method);
+    bool autoscaleSetsLevel() const { return m_autoscaleSetsLevel; }
+    void setAutoscaleSetsLevel(bool on);
     bool cursorsOn() const { return m_cursorsOn; }
     void setCursorsOn(bool on);
     bool showDeltaTime() const { return m_showDeltaTime; }
@@ -169,6 +183,7 @@ public:
     bool rollAvailable() const;
     bool rolling() const { return m_rollMode && rollAvailable(); }
     QString validationMessage() const { return scope::validate(snapshot()); }
+    QVariantList measurementCatalog() const { return ScopeChannel::measurementCatalog(); }
 
     bool waitingForTrigger() const { return m_waitingForTrigger; }
     bool hasRecord() const { return m_record.enabled(0) || m_record.enabled(1); }
@@ -203,14 +218,19 @@ public:
     scope::Snapshot snapshot() const;
 
     // --- Actions from the UI ------------------------------------------------------------------
-    // Source / Enabled with the ELVISmx rule: while running, a change that would mix AI and
-    // audio sources is refused (returns false, notification); idle, Run reports it.
+    // Source with the ELVISmx rule: AI and audio inputs cannot be mixed, so choosing an audio
+    // (AI) source switches the other channel to an audio (AI) source too (toast). Enabled:
+    // disabling the last enabled channel while running is refused (returns false).
     Q_INVOKABLE bool setChannelSource(int channel, int source);
     Q_INVOKABLE bool setChannelEnabled(int channel, bool enabled);
     // Autoscale (works idle or running; idle: probe, then one acquisition).
     Q_INVOKABLE void autoscale();
     // ELVISmx measurement text ("707.11 mV", "?").
     Q_INVOKABLE QString formatMeasurement(double value, const QString& unit) const;
+    // ELVISmx Sample Rate text ("50.00 kS/s").
+    Q_INVOKABLE QString formatRate(double samplesPerSecond) const;
+    // ELVISmx "Log" TXT layout (tab separated waveform export with absolute timestamps).
+    Q_INVOKABLE bool exportElvisText(const QUrl& file);
     // Reference traces: slot 0 = REF A, 1 = REF B; source 0 = CH 0, 1 = CH 1, 2 = math.
     Q_INVOKABLE bool saveReference(int slot, int source);
     Q_INVOKABLE void clearReference(int slot);
@@ -234,7 +254,9 @@ signals:
     void triggerLevelChanged();
     void horizontalPositionChanged();
     void triggerHysteresisChanged();
-    void autoTriggerChanged();
+    void noTriggerModeChanged();
+    void frequencyMethodChanged();
+    void autoscaleSetsLevelChanged();
     void cursorsOnChanged();
     void showDeltaTimeChanged();
     void displayModeChanged();
@@ -267,7 +289,8 @@ private:
     struct Published;
 
     void watch(QObject* object);
-    void onSettingChanged();
+    double maxRate() const;
+    Q_SLOT void onSettingChanged();
     void applyRecord(const std::shared_ptr<const Published>& published);
     void applyAutoscale(const scope::AutoscaleResult& result);
     void setWaitingForTrigger(bool waiting);
@@ -290,7 +313,12 @@ private:
     double m_triggerLevel = 0.0;
     double m_horizontalPosition = 50.0;
     double m_triggerHysteresis = 0.0;
-    bool m_autoTrigger = false;
+    NoTriggerMode m_noTriggerMode = ClearGraph;
+    FrequencyMethod m_frequencyMethod = ToneFrequency;
+    bool m_autoscaleSetsLevel = false;
+    // Last AI / audio source chosen per channel (the other channel follows to the same kind).
+    int m_lastAiSource[2] = {ScopeChannel::AI0, ScopeChannel::AI1};
+    int m_lastAudioSource[2] = {-1, -1};
     bool m_cursorsOn = false;
     bool m_showDeltaTime = true;
     DisplayMode m_displayMode = YT;
@@ -302,7 +330,8 @@ private:
     bool m_autoscaleOnStart = false;
     double m_fftBinWidth = 0;
     scope::Record m_record;
-    double m_recordX0 = 0;   // x of sample 0 of the displayed record (roll mode: < 0 while filling)
+    double m_recordX0 = 0;
+    QDateTime m_recordTime;  // wall-clock time of the first sample of the displayed record   // x of sample 0 of the displayed record (roll mode: < 0 while filling)
     std::vector<double> m_mathRecord;
     Reference m_ref[2];
 

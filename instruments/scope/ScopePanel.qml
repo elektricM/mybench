@@ -1,227 +1,673 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
-import MyBench.Plot
 
-// Oscilloscope panel. SKELETON: layout and section titles of docs/instruments/scope.md; a live
-// scope plot fed by the controller's TraceBuffers; the scope agent completes it.
+// Oscilloscope panel (docs/instruments/scope.md). Display: scope graph with markers, cursors and
+// measurement rows (ScopeDisplay). Inspector: the ELVISmx groups (Channel 0/1 Settings, Timebase,
+// Trigger, Cursors Settings, Display Measurements, Graph Properties, Advanced Settings) plus the
+// MYBENCH Math, Reference and Display cards. Run bar: Run (Run Continuously), Single (Run Once),
+// Autoscale, status and the Timeout LED.
 Item {
     id: root
 
     required property ScopeController controller
+    readonly property ScopeChannel ch0: controller.channel0
+    readonly property ScopeChannel ch1: controller.channel1
+    readonly property ScopeMath math: controller.math
+    readonly property bool edge: controller.triggerType === ScopeController.Edge
+    readonly property int triggerChannel: controller.triggerSource === ScopeController.Chan1Source ? 1 : 0
+
+    function channelName(index: int): string {
+        return index === 2 ? qsTr("Math") : "CH " + index
+    }
 
     InstrumentPanel {
+        id: panel
         anchors.fill: parent
         controller: root.controller
-        displayTitle: (root.controller.ch0Enabled ? "CH 0  " : "") + (root.controller.ch1Enabled ? "CH 1  " : "")
-                      + root.controller.timeDivLabels[root.controller.timeDivIndex] + "/div"
-        displayInfo: root.controller.sampleRate > 0 ? qsTr("Sample Rate %1").arg(Units.format(root.controller.sampleRate, "S/s")) : ""
+        displayTitle: {
+            let t = root.controller.timeDivLabel + "/div"
+            if (root.controller.rolling)
+                return t + "  ·  " + qsTr("Roll")
+            if (!root.edge)
+                return t + "  ·  " + qsTr("Immediate")
+            return t + "  ·  " + qsTr("Edge %1 CH %2 %3").arg(root.controller.triggerSlope === ScopeController.Rising ? "↑" : "↓")
+                                                          .arg(root.triggerChannel)
+                                                          .arg(Units.format(root.controller.triggerLevel, "V", 3))
+        }
+        displayInfo: (root.controller.running && root.controller.waitingForTrigger ? qsTr("*** Waiting for Trigger ***") + "   " : "")
+                     + qsTr("Sample Rate: %1").arg(root.controller.formatRate(root.controller.running ? root.controller.sampleRate
+                                                                                                     : root.controller.recordRate))
         runBar.showTimeout: true
+        runBar.timeoutText: qsTr("Timeout")
 
-        // --- Display ---------------------------------------------------------------------
-        ColumnLayout {
+        ScopeDisplay {
             anchors.fill: parent
-            spacing: Theme.spacingS
-            BenchPlot {
-                id: plot
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                graticule: Plot.Scope
-                placeholderText: root.controller.running ? "" : qsTr("Press Run to acquire")
-                xAxis { min: 0; max: 10 * root.controller.timePerDiv; divisions: 10; unit: "s"; unitInLabels: true }
-                yAxis { min: -5; max: 5; divisions: 10; labelsVisible: false; interactive: false }
-                PlotTrace {
-                    id: trace0
-                    buffer: root.controller.ch0
-                    visible: root.controller.ch0Enabled
-                    name: "CH 0"
-                    unit: "V"
-                    color: Theme.ch0
-                    yScale: 1 / root.controller.voltsPerDiv0
-                }
-                PlotTrace {
-                    buffer: root.controller.ch1
-                    visible: root.controller.ch1Enabled
-                    name: "CH 1"
-                    unit: "V"
-                    color: Theme.ch1
-                    yScale: 1 / root.controller.voltsPerDiv1
-                }
-                PlotLine {
-                    visible: root.controller.ch0Enabled
-                    value: 0
-                    handle: PlotLine.Start
-                    label: "0"
-                    color: Theme.ch0
-                    lineMode: PlotLine.Never
-                    draggable: false
-                }
-                PlotLine {
-                    visible: root.controller.triggerType === ScopeController.Edge
-                    trace: trace0
-                    value: root.controller.triggerLevel
-                    handle: PlotLine.End
-                    label: "T"
-                    color: Theme.math
-                    onMoved: v => root.controller.triggerLevel = v
-                }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingS
-                ChannelChip {
-                    text: "CH 0"
-                    color: Theme.ch0
-                    checked: root.controller.ch0Enabled
-                    detail: "RMS " + Units.format(root.controller.ch0Rms, "V", 3) + "   Freq " + Units.format(root.controller.ch0Frequency, "Hz", 4)
-                            + "   Vp-p " + Units.format(root.controller.ch0PeakToPeak, "V", 3)
-                    onToggled: root.controller.ch0Enabled = checked
-                }
-                ChannelChip {
-                    text: "CH 1"
-                    color: Theme.ch1
-                    checked: root.controller.ch1Enabled
-                    detail: root.controller.ch1Enabled ? "RMS " + Units.format(root.controller.ch1Rms, "V", 3) : ""
-                    onToggled: root.controller.ch1Enabled = checked
-                }
-                Item { Layout.fillWidth: true }
-            }
+            controller: root.controller
         }
 
-        // --- Inspector -------------------------------------------------------------------
         inspector: [
-            Section {
-                title: qsTr("Channel 0 Settings")
-                accentColor: Theme.ch0
-                summary: "AI 0 · " + root.controller.voltsDivLabels[root.controller.voltsDivIndex0] + "/div"
-                headerTools: ToggleSwitch {
-                    checked: root.controller.ch0Enabled
-                    onToggled: root.controller.ch0Enabled = checked
-                }
-                FieldRow {
-                    Field { label: qsTr("Source"); ComboBox { Layout.fillWidth: true; model: ["AI 0", "AudioInput Left"] } }
-                    Field { label: qsTr("Coupling"); ComboBox { Layout.fillWidth: true; model: ["DC"]; enabled: false } }
-                }
-                RowLayout {
-                    spacing: Theme.spacingL
-                    Knob {
-                        label: qsTr("Volts/Div")
-                        values: root.controller.voltsDivLabels
-                        labels: root.controller.voltsDivLabels
-                        currentIndex: root.controller.voltsDivIndex0
-                        color: Theme.ch0
-                        onIndexMoved: index => root.controller.voltsDivIndex0 = index
-                    }
-                    Knob {
-                        label: qsTr("Vertical Position")
-                        from: -5
-                        to: 5
-                        value: 0
-                        unit: "div"
-                        color: Theme.ch0
-                    }
-                }
+            ScopeChannelSection {
+                controller: root.controller
+                channel: root.ch0
+                channelColor: root.ch0.style.lineColor.length > 0 ? root.ch0.style.lineColor : Theme.ch0
             },
-            Section {
-                title: qsTr("Channel 1 Settings")
-                accentColor: Theme.ch1
-                summary: "AI 1 · " + root.controller.voltsDivLabels[root.controller.voltsDivIndex1] + "/div"
-                collapsed: !root.controller.ch1Enabled
-                headerTools: ToggleSwitch {
-                    checked: root.controller.ch1Enabled
-                    onToggled: root.controller.ch1Enabled = checked
-                }
-                Field {
-                    label: qsTr("Volts/Div")
-                    ComboBox {
-                        Layout.fillWidth: true
-                        model: root.controller.voltsDivLabels
-                        currentIndex: root.controller.voltsDivIndex1
-                        onActivated: index => root.controller.voltsDivIndex1 = index
-                    }
-                }
+            ScopeChannelSection {
+                controller: root.controller
+                channel: root.ch1
+                channelColor: root.ch1.style.lineColor.length > 0 ? root.ch1.style.lineColor : Theme.ch1
+                collapsed: !root.ch1.enabled
             },
+
+            // ---- Timebase -------------------------------------------------------------------------
             Section {
                 title: qsTr("Timebase")
-                summary: root.controller.timeDivLabels[root.controller.timeDivIndex] + "/div"
+                iconName: "clock"
+                summary: root.controller.timeDivLabel + "/div"
                 RowLayout {
+                    Layout.fillWidth: true
                     spacing: Theme.spacingL
                     Knob {
                         label: qsTr("Time/Div")
-                        values: root.controller.timeDivLabels
+                        values: root.controller.timeDivValues
                         labels: root.controller.timeDivLabels
                         currentIndex: root.controller.timeDivIndex
+                        showValue: false
+                        diameter: 62
                         onIndexMoved: index => root.controller.timeDivIndex = index
                     }
-                    ComboBox {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        model: root.controller.timeDivLabels
-                        currentIndex: root.controller.timeDivIndex
-                        onActivated: index => root.controller.timeDivIndex = index
+                        spacing: Theme.spacingXs
+                        ScopeCombo {
+                            readonly property int last: root.controller.timeDivLabels.length - 1
+                            model: root.controller.timeDivLabels.slice().reverse()
+                            currentIndex: last - root.controller.timeDivIndex
+                            Accessible.name: qsTr("Time/Div")
+                            onActivated: index => root.controller.timeDivIndex = last - index
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("%1 · %2 samples").arg(Units.format(root.controller.plannedRate, "S/s", 4))
+                                                         .arg(root.controller.plannedRecordLength)
+                            color: Theme.textMuted
+                            font.pixelSize: Theme.fontSizeS
+                            font.features: Theme.tabularFigures
+                            elide: Text.ElideRight
+                        }
+                        ToggleSwitch {
+                            text: qsTr("Roll mode")
+                            enabled: root.controller.rollAvailable
+                            checked: root.controller.rollMode
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("From 50 ms/div: the trace scrolls continuously, newest samples on the right (untriggered)")
+                            onToggled: root.controller.rollMode = checked
+                        }
                     }
                 }
             },
+
+            // ---- Trigger --------------------------------------------------------------------------
             Section {
                 title: qsTr("Trigger")
-                summary: root.controller.triggerType === ScopeController.Edge ? qsTr("Edge") : qsTr("Immediate")
+                iconName: "zap"
+                summary: root.edge ? qsTr("Edge") : qsTr("Immediate")
                 FieldRow {
                     Field {
                         label: qsTr("Type")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: [qsTr("Immediate"), qsTr("Edge")]
-                            currentIndex: root.controller.triggerType
-                            onActivated: index => root.controller.triggerType = index
+                        ScopeCombo {
+                            model: [qsTr("Immediate"), qsTr("Digital"), qsTr("Edge")]
+                            disabledIndices: [1]
+                            currentIndex: root.edge ? 2 : 0
+                            onActivated: index => {
+                                if (index === 1)
+                                    currentIndex = Qt.binding(() => root.edge ? 2 : 0)
+                                else
+                                    root.controller.triggerType = index === 2 ? ScopeController.Edge : ScopeController.Immediate
+                            }
                         }
                     }
                     Field {
                         label: qsTr("Slope")
+                        disabled: !root.edge
                         SegmentedControl {
                             Layout.fillWidth: true
-                            model: [{ icon: "slope-rising-line", toolTip: qsTr("Rising") },
-                                    { icon: "slope-falling-line", toolTip: qsTr("Falling") }]
+                            enabled: root.edge
+                            model: [{ icon: "slope-rising-line", toolTip: qsTr("Rising (positive) edge") },
+                                    { icon: "slope-falling-line", toolTip: qsTr("Falling (negative) edge") }]
+                            currentIndex: root.controller.triggerSlope
+                            onActivated: index => root.controller.triggerSlope = index
+                        }
+                    }
+                }
+                FieldRow {
+                    Field {
+                        label: qsTr("Source")
+                        disabled: !root.edge
+                        ScopeCombo {
+                            enabled: root.edge
+                            model: ["TRIG", "SYNC", qsTr("Chan 0 Source"), qsTr("Chan 1 Source")]
+                            disabledIndices: {
+                                let list = [0, 1]
+                                if (!root.ch0.enabled)
+                                    list.push(2)
+                                if (!root.ch1.enabled)
+                                    list.push(3)
+                                return list
+                            }
+                            currentIndex: root.edge ? root.controller.triggerSource + 2 : 0
+                            toolTip: qsTr("The trigger uses the signal of the chosen channel (which must be enabled)")
+                            onActivated: index => {
+                                if (isDisabled(index))
+                                    currentIndex = Qt.binding(() => root.edge ? root.controller.triggerSource + 2 : 0)
+                                else
+                                    root.controller.triggerSource = index - 2
+                            }
+                        }
+                    }
+                    Field {
+                        label: qsTr("Level (V)")
+                        disabled: !root.edge
+                        SiField {
+                            Layout.fillWidth: true
+                            enabled: root.edge
+                            unit: "V"
+                            from: -100
+                            to: 100
+                            stepSize: 0.1
+                            digits: 4
+                            value: root.controller.triggerLevel
+                            toolTip: qsTr("Trigger level, -100 … 100 V (drag the T marker on the right edge of the graph)")
+                            onValueModified: v => root.controller.triggerLevel = v
                         }
                     }
                 }
                 Field {
-                    label: qsTr("Level")
-                    SiField {
+                    label: qsTr("Horizontal Position (%)")
+                    disabled: !root.edge
+                    Layout.fillWidth: true
+                    RowLayout {
                         Layout.fillWidth: true
-                        unit: "V"
-                        from: -10
-                        to: 10
-                        digits: 3
-                        value: root.controller.triggerLevel
-                        onValueModified: v => root.controller.triggerLevel = v
+                        enabled: root.edge
+                        spacing: Theme.spacingS
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 100
+                            stepSize: 1
+                            value: root.controller.horizontalPosition
+                            onMoved: root.controller.horizontalPosition = value
+                        }
+                        SiField {
+                            Layout.preferredWidth: 78
+                            engineering: false
+                            decimals: 0
+                            unit: "%"
+                            from: 0
+                            to: 100
+                            stepSize: 1
+                            value: root.controller.horizontalPosition
+                            toolTip: qsTr("Where the trigger point sits on the screen (drag the T marker at the top)")
+                            onValueModified: v => root.controller.horizontalPosition = v
+                        }
+                    }
+                }
+                Text {
+                    visible: root.edge && root.controller.rolling
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Roll mode is on: the edge trigger is not used.")
+                    color: Theme.warning
+                    font.pixelSize: Theme.fontSizeS
+                }
+            },
+
+            // ---- Cursors Settings -----------------------------------------------------------------
+            Section {
+                title: qsTr("Cursors Settings")
+                iconName: "crosshair"
+                collapsed: !root.controller.cursorsOn
+                summary: root.controller.cursorsOn ? qsTr("On") : qsTr("Off")
+                headerTools: ToggleSwitch {
+                    checked: root.controller.cursorsOn
+                    Accessible.name: qsTr("Cursors On")
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Cursors On")
+                    onToggled: root.controller.cursorsOn = checked
+                }
+                FieldRow {
+                    Field {
+                        label: "C1"
+                        disabled: !root.controller.cursorsOn
+                        ScopeCombo {
+                            enabled: root.controller.cursorsOn
+                            model: ["CH 0", "CH 1", qsTr("Math")]
+                            disabledIndices: root.math.enabled && !root.math.fft ? [] : [2]
+                            disabledToolTip: qsTr("Enable the math trace first")
+                            currentIndex: root.controller.cursor1.channel
+                            onActivated: index => root.controller.cursor1.channel = index
+                        }
+                    }
+                    Field {
+                        label: "C2"
+                        disabled: !root.controller.cursorsOn
+                        ScopeCombo {
+                            enabled: root.controller.cursorsOn
+                            model: ["CH 0", "CH 1", qsTr("Math")]
+                            disabledIndices: root.math.enabled && !root.math.fft ? [] : [2]
+                            disabledToolTip: qsTr("Enable the math trace first")
+                            currentIndex: root.controller.cursor2.channel
+                            onActivated: index => root.controller.cursor2.channel = index
+                        }
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Drag C1/C2 on the graph; click one, then ← → to nudge.")
+                        color: Theme.textMuted
+                        font.pixelSize: Theme.fontSizeS
+                        wrapMode: Text.WordWrap
+                    }
+                    ActionButton {
+                        text: qsTr("Center")
+                        compact: true
+                        tone: "ghost"
+                        enabled: root.controller.cursorsOn
+                        onClicked: root.controller.resetCursors()
                     }
                 }
             },
-            Section {
-                title: qsTr("Cursors Settings")
-                collapsed: true
-                CheckBox { text: qsTr("Cursors On") }
-            },
+
+            // ---- Display Measurements -------------------------------------------------------------
             Section {
                 title: qsTr("Display Measurements")
-                collapsed: true
+                iconName: "ruler"
                 RowLayout {
-                    CheckBox { text: "CH 0"; checked: true }
-                    CheckBox { text: "CH 1" }
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingL
+                    CheckBox {
+                        text: "CH 0"
+                        enabled: root.ch0.enabled
+                        checked: root.ch0.displayMeasurements
+                        onToggled: root.ch0.displayMeasurements = checked
+                    }
+                    CheckBox {
+                        text: "CH 1"
+                        enabled: root.ch1.enabled
+                        checked: root.ch1.displayMeasurements
+                        onToggled: root.ch1.displayMeasurements = checked
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Choose the readouts (RMS, Freq, Vp-p, mean, period, duty, rise/fall…) in Graph Properties › Measurements.")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeS
+                    wrapMode: Text.WordWrap
                 }
             },
+
+            // ---- Math (MYBENCH) -------------------------------------------------------------------
             Section {
                 title: qsTr("Math")
-                accentColor: Theme.math
+                accentColor: root.math.style.lineColor.length > 0 ? root.math.style.lineColor : Theme.math
+                collapsed: !root.math.enabled
+                summary: root.math.enabled ? root.math.functionName : qsTr("Off")
+                headerTools: ToggleSwitch {
+                    accentColor: Theme.math
+                    checked: root.math.enabled
+                    Accessible.name: qsTr("Math trace")
+                    onToggled: root.math.enabled = checked
+                }
+                Field {
+                    label: qsTr("Function")
+                    Layout.fillWidth: true
+                    ScopeCombo {
+                        model: ["CH 0 + CH 1", "CH 0 − CH 1", "CH 0 × CH 1", "−CH 0", "−CH 1", qsTr("FFT of CH 0"), qsTr("FFT of CH 1")]
+                        currentIndex: root.math.operation
+                        onActivated: index => root.math.operation = index
+                    }
+                }
+                RowLayout {
+                    visible: !root.math.fft
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingS
+                    Field {
+                        label: qsTr("Scale (%1/Div)").arg(root.math.unit)
+                        Layout.fillWidth: true
+                        ScopeCombo {
+                            readonly property int last: root.math.scaleLabels.length - 1
+                            model: root.math.scaleLabels.slice().reverse()
+                            currentIndex: last - root.math.scaleIndex
+                            onActivated: index => root.math.scaleIndex = last - index
+                        }
+                    }
+                    Field {
+                        label: qsTr("Position (Div)")
+                        Layout.fillWidth: true
+                        SiField {
+                            Layout.fillWidth: true
+                            engineering: false
+                            decimals: 2
+                            from: -5
+                            to: 5
+                            stepSize: 0.1
+                            value: root.math.position
+                            onValueModified: v => root.math.position = v
+                        }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeS
+                    text: root.math.fft ? qsTr("Magnitude spectrum of the displayed record (Hanning window, dBV RMS) under the graph. For averaging, windows and distortion use the Spectrum Analyzer.")
+                                        : qsTr("Computed on the displayed record; CH 0 and CH 1 must be enabled for + − ×.")
+                }
+            },
+
+            // ---- Reference traces (MYBENCH) -------------------------------------------------------
+            Section {
+                title: qsTr("Reference Traces")
+                accentColor: Theme.ref
                 collapsed: true
-                Text { text: qsTr("Placeholder: CH0 ± CH1, ×, FFT, XY."); color: Theme.textMuted; font.pixelSize: Theme.fontSizeM }
+                summary: (root.controller.refAAvailable ? "A" : "") + (root.controller.refBAvailable ? " B" : "")
+                Repeater {
+                    model: 2
+                    delegate: RowLayout {
+                        id: refRow
+                        required property int index
+                        readonly property bool available: index === 0 ? root.controller.refAAvailable : root.controller.refBAvailable
+                        readonly property bool shown: index === 0 ? root.controller.refAVisible : root.controller.refBVisible
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+                        Text {
+                            Layout.preferredWidth: 44
+                            text: refRow.index === 0 ? "REF A" : "REF B"
+                            color: Theme.ref
+                            font.pixelSize: Theme.fontSizeS
+                            font.weight: Font.DemiBold
+                        }
+                        ActionButton {
+                            text: qsTr("Save")
+                            compact: true
+                            iconName: "save"
+                            enabled: root.controller.hasRecord
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("Freeze a trace of the displayed record as the reference")
+                            onClicked: saveMenu.popup()
+                            Menu {
+                                id: saveMenu
+                                MenuItem { text: "CH 0"; enabled: root.ch0.enabled; onTriggered: root.controller.saveReference(refRow.index, 0) }
+                                MenuItem { text: "CH 1"; enabled: root.ch1.enabled; onTriggered: root.controller.saveReference(refRow.index, 1) }
+                                MenuItem { text: qsTr("Math"); enabled: root.math.enabled && !root.math.fft; onTriggered: root.controller.saveReference(refRow.index, 2) }
+                            }
+                        }
+                        IconButton {
+                            iconName: refRow.shown ? "eye" : "eye-off"
+                            enabled: refRow.available
+                            toolTip: refRow.shown ? qsTr("Hide") : qsTr("Show")
+                            onClicked: {
+                                if (refRow.index === 0)
+                                    root.controller.refAVisible = !refRow.shown
+                                else
+                                    root.controller.refBVisible = !refRow.shown
+                            }
+                        }
+                        IconButton {
+                            iconName: "download"
+                            enabled: refRow.available
+                            toolTip: qsTr("Save the reference to a file…")
+                            onClicked: {
+                                refDialog.slot = refRow.index
+                                refDialog.saving = true
+                                refDialog.selectedFile = DataExport.suggestedFileUrl("scope-ref", "csv")
+                                refDialog.open()
+                            }
+                        }
+                        IconButton {
+                            iconName: "upload"
+                            toolTip: qsTr("Load a reference from a CSV/TSV file…")
+                            onClicked: {
+                                refDialog.slot = refRow.index
+                                refDialog.saving = false
+                                refDialog.open()
+                            }
+                        }
+                        IconButton {
+                            iconName: "trash"
+                            enabled: refRow.available
+                            toolTip: qsTr("Clear")
+                            onClicked: root.controller.clearReference(refRow.index)
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeS
+                    text: root.controller.refAAvailable || root.controller.refBAvailable
+                          ? qsTr("A: %1\nB: %2").arg(root.controller.refAAvailable ? root.controller.refALabel : "—")
+                                                 .arg(root.controller.refBAvailable ? root.controller.refBLabel : "—")
+                          : qsTr("References keep the scale and position of the trace they were saved from.")
+                }
+            },
+
+            // ---- Display (MYBENCH) ----------------------------------------------------------------
+            Section {
+                title: qsTr("Display")
+                iconName: "eye"
+                collapsed: true
+                summary: (root.controller.displayMode === ScopeController.XY ? "XY" : "YT")
+                         + (root.controller.persistence > 0 ? " · " + qsTr("persistence") : "")
+                FieldRow {
+                    Field {
+                        label: qsTr("Mode")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [{ text: "YT", toolTip: qsTr("Voltage versus time") },
+                                    { text: "XY", toolTip: qsTr("CH 1 (Y) versus CH 0 (X)") }]
+                            currentIndex: root.controller.displayMode
+                            onActivated: index => root.controller.displayMode = index
+                        }
+                    }
+                    Field {
+                        label: qsTr("Persistence")
+                        ScopeCombo {
+                            readonly property var values: [0, 100, 250, 500, 1000, 2000, 5000]
+                            model: [qsTr("Off"), "100 ms", "250 ms", "500 ms", "1 s", "2 s", "5 s"]
+                            currentIndex: Math.max(0, values.indexOf(root.controller.persistence))
+                            onActivated: index => root.controller.persistence = values[index]
+                        }
+                    }
+                }
+            },
+
+            ScopeGraphProperties {
+                controller: root.controller
+            },
+
+            // ---- Advanced Settings ----------------------------------------------------------------
+            Section {
+                title: qsTr("Advanced Settings")
+                iconName: "settings"
+                collapsed: true
+                Repeater {
+                    model: 2
+                    delegate: ColumnLayout {
+                        id: advancedChannel
+                        required property int index
+                        readonly property ScopeChannel channel: index === 0 ? root.ch0 : root.ch1
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+                        Text {
+                            text: qsTr("Channel %1 Settings").arg(advancedChannel.index)
+                            color: advancedChannel.index === 0 ? Theme.ch0 : Theme.ch1
+                            font.pixelSize: Theme.fontSizeS
+                            font.weight: Font.DemiBold
+                        }
+                        FieldRow {
+                            Field {
+                                label: qsTr("Input Range")
+                                ScopeCombo {
+                                    enabled: !advancedChannel.channel.audio
+                                    model: [qsTr("Auto (%1)").arg(advancedChannel.channel.audio ? "±2 V"
+                                                                  : advancedChannel.channel.voltsPerDiv >= 0.5 ? "±10 V" : "±2 V"),
+                                            "±10 V", "±2 V"]
+                                    currentIndex: advancedChannel.channel.audio ? 2 : advancedChannel.channel.inputRange
+                                    toolTip: qsTr("Auto: ±10 V from 500 mV/div, ±2 V below (as ELVISmx). Audio inputs are always ±2 V.")
+                                    onActivated: index => advancedChannel.channel.inputRange = index
+                                }
+                            }
+                            Field {
+                                label: qsTr("Vertical Offset (V)")
+                                disabled: true
+                                SiField {
+                                    Layout.fillWidth: true
+                                    enabled: false
+                                    value: 0
+                                    unit: "V"
+                                    toolTip: qsTr("NI ELVIS II+ only")
+                                }
+                            }
+                        }
+                        CheckBox {
+                            text: qsTr("20MHz Filter")
+                            enabled: false
+                            checked: false
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("NI ELVIS II+ only")
+                        }
+                    }
+                }
+                Divider { Layout.fillWidth: true }
+                Text {
+                    text: qsTr("Trigger")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeS
+                    font.weight: Font.DemiBold
+                }
+                FieldRow {
+                    Field {
+                        label: qsTr("Hysteresis (div)")
+                        SiField {
+                            Layout.fillWidth: true
+                            engineering: false
+                            decimals: 2
+                            from: 0
+                            to: 2
+                            stepSize: 0.05
+                            value: root.controller.triggerHysteresis
+                            toolTip: qsTr("0 = ELVISmx (no hysteresis). Larger values ignore noise around the level.")
+                            onValueModified: v => root.controller.triggerHysteresis = v
+                        }
+                    }
+                    Field {
+                        label: qsTr("No trigger")
+                        ScopeCombo {
+                            model: [qsTr("Clear (ELVISmx)"), qsTr("Keep last"), qsTr("Auto")]
+                            currentIndex: root.controller.noTriggerMode
+                            toolTip: qsTr("What an Edge acquisition without crossing shows: an empty graph (ELVISmx), the last triggered trace (dimmed), or the untriggered record")
+                            onActivated: index => root.controller.noTriggerMode = index
+                        }
+                    }
+                }
+                Divider { Layout.fillWidth: true }
+                Text {
+                    text: qsTr("Acquisition and measurements")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeS
+                    font.weight: Font.DemiBold
+                }
+                Field {
+                    label: qsTr("Record length")
+                    Layout.fillWidth: true
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        model: [{ text: qsTr("Standard (2500 points)"), toolTip: qsTr("ELVISmx: at most 2501 samples per screen") },
+                                { text: qsTr("High resolution"), toolTip: qsTr("Up to 100 000 samples per screen (200 kS/s up to 50 ms/div), for zooming and FFT") }]
+                        currentIndex: root.controller.samplingMode
+                        onActivated: index => root.controller.samplingMode = index
+                    }
+                }
+                Field {
+                    label: qsTr("Frequency method")
+                    Layout.fillWidth: true
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        model: [{ text: qsTr("Tone (ELVISmx)"), toolTip: qsTr("FFT single-tone estimate, shown when the tone exceeds 0.2 div") },
+                                { text: qsTr("Edge counting"), toolTip: qsTr("Mid-level crossings with 10 % hysteresis: better for square and pulse signals") }]
+                        currentIndex: root.controller.frequencyMethod
+                        onActivated: index => root.controller.frequencyMethod = index
+                    }
+                }
+                CheckBox {
+                    text: qsTr("Autoscale sets the trigger level")
+                    checked: root.controller.autoscaleSetsLevel
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("With Edge trigger, Autoscale also moves Level (V) to the middle of the trigger channel's signal")
+                    onToggled: root.controller.autoscaleSetsLevel = checked
+                }
             }
         ]
 
-        runBarControls: [
-            ActionButton { text: qsTr("Autoscale"); iconName: "autoscale"; implicitHeight: Theme.controlHeightL }
+        runBarActions: [
+            IconButton {
+                iconName: "log"
+                toolTip: qsTr("Log the displayed record to a text file (ELVISmx TXT layout)…")
+                enabled: root.controller.hasRecord
+                onClicked: {
+                    logDialog.selectedFile = DataExport.suggestedFileUrl("scope", "txt")
+                    logDialog.open()
+                }
+            }
         ]
+        runBarControls: [
+            ActionButton {
+                text: qsTr("Autoscale")
+                iconName: "autoscale"
+                implicitHeight: Theme.controlHeightL
+                enabled: !root.controller.autoscaling && !root.controller.busy
+                         && (root.controller.running || root.controller.canRun)
+                toolTip: qsTr("Set Volts/Div and Time/Div from the signals")
+                onClicked: root.controller.autoscale()
+            }
+        ]
+    }
+
+    FileDialog {
+        id: logDialog
+        title: qsTr("Save Log File")
+        fileMode: FileDialog.SaveFile
+        nameFilters: [qsTr("TXT (*.txt)"), qsTr("All files (*)")]
+        defaultSuffix: "txt"
+        currentFolder: DataExport.lastFolder
+        onAccepted: root.controller.exportElvisText(selectedFile)
+    }
+    FileDialog {
+        id: refDialog
+        property int slot: 0
+        property bool saving: true
+        title: saving ? qsTr("Save reference trace") : qsTr("Load reference trace")
+        fileMode: saving ? FileDialog.SaveFile : FileDialog.OpenFile
+        nameFilters: [qsTr("Data (*.csv *.tsv *.txt)"), qsTr("All files (*)")]
+        defaultSuffix: "csv"
+        currentFolder: DataExport.lastFolder
+        onAccepted: {
+            if (saving)
+                root.controller.exportReference(slot, selectedFile)
+            else
+                root.controller.importReference(slot, selectedFile)
+        }
     }
 }

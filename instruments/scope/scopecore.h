@@ -10,7 +10,8 @@
 //     hysteresis by default, trigger sample at N × H % of the screen);
 //   - measurements RMS / Freq (FFT single tone, shown only above 0.2 × V/div) / Vp-p, and the
 //     ELVISmx number format (3 decimals when |v| ≥ 1, else 2, with SI prefix);
-//   - autoscale (16 000-sample probe, 2.2 × half amplitude, "threshold and round" snapping).
+//   - autoscale (16 000-sample probe, A = 2.2 × half amplitude, Volts/Div and Time/Div = the list
+//     entries nearest to 0.3 × A and 0.5 / f with LabVIEW's "threshold and round").
 #pragma once
 
 #include <mydaq/device.h>
@@ -37,7 +38,8 @@ enum class InputRange { Auto, Range10V, Range2V };      // MYBENCH extension (Ad
 enum class TriggerType { Immediate, Edge };             // ELVISmx "Digital" is ELVIS-only
 enum class TriggerSource { Chan0, Chan1 };              // "Chan 0 Source" / "Chan 1 Source"
 enum class Slope { Rising, Falling };
-enum class SamplingMode { Standard, MaximumRate };      // Standard = ELVISmx policy
+enum class SamplingMode { Standard, HighResolution };   // Standard = ELVISmx policy
+enum class NoTrigger { Clear, KeepLast, Auto };        // Clear = ELVISmx (empty graph)
 enum class MathFunction { Sum, Difference, Product, InvertA, InvertB, FftA, FftB };
 
 bool isAudio(Source source);
@@ -60,8 +62,9 @@ struct RatePlan {
     double rate = 0;        // requested per-channel sample rate, S/s
     int64_t samples = 0;    // record length N (samples + 1: both screen edges carry a sample)
 };
-// Standard: ELVISmx (≤ 2501 samples per screen: full rate up to 1 ms/div). MaximumRate: always
-// maxRate (the 8-Channel Oscilloscope featured app policy), N = round(10 τ × rate) + 1.
+// Standard: ELVISmx (≤ 2501 samples per screen: full rate up to 1 ms/div). HighResolution
+// (MYBENCH): up to 100 000 samples per screen, rate = min(maxRate, 100 000 / Ts) (as the
+// 8-Channel Oscilloscope featured app: full rate up to 50 ms/div), N = round(rate × Ts) + 1.
 RatePlan planRate(double timePerDiv, double maxRate, SamplingMode mode = SamplingMode::Standard);
 
 // Input range (±V) of a channel: audio 2 V; AI Auto: 10 V from 500 mV/div up, else 2 V.
@@ -115,6 +118,8 @@ Measurements measure(const std::vector<double>& x, double sampleRate, double vol
 // ELVISmx measurement text: SI prefix, 3 decimals when |value| ≥ 1 (in base units), else 2;
 // "?" for NaN/infinity ("707.11 mV", "1.000 kHz", "0.00 V", "25.00 µs").
 QString formatMeasurement(double value, const QString& unit);
+// Fixed decimals of the SI mantissa ("50.00 kS/s", "200.00 kS/s": the Sample Rate indicator).
+QString formatFixed(double value, const QString& unit, int decimals);
 
 // ---------------------------------------------------------------------------------------------
 // Autoscale (ELVISmx subMswScopeGetAutoSetupValues + Autoscale TimeBase)
@@ -131,7 +136,8 @@ struct AutoscaleProbe {           // analysis of one channel's 16 000-sample pro
     double toneAmplitude = kNaN;
 };
 struct AutoscaleChannel {
-    double signalRange = kNaN;    // entry of the signal-range table
+    double signalRange = kNaN;    // entry of the signal-range table (tone threshold)
+    double midLevel = kNaN;       // (max + min) / 2 of the probe (MYBENCH: trigger level option)
     double voltsPerDiv = kNaN;    // new Volts/Div
     bool tonePresent = false;
     double frequency = kNaN;      // Hz when tonePresent
@@ -150,8 +156,15 @@ bool isFft(MathFunction f);
 bool needsBothChannels(MathFunction f);
 QString mathName(MathFunction f);   // "CH 0 + CH 1", ..., "FFT CH 0"
 std::vector<double> computeMath(MathFunction f, const std::vector<double>& a, const std::vector<double>& b);
-// Magnitude spectrum in dBV RMS (Hanning window), bins 0 … N/2 spaced sampleRate / N.
-std::vector<double> fftMagnitudeDb(const std::vector<double>& x);
+// Magnitude spectrum in dBV RMS (Hanning window), bins 0 … N/2 spaced sampleRate / N, and its
+// strongest tone.
+struct FftResult {
+    std::vector<double> db;          // dBV RMS per bin
+    double binWidth = 0;             // Hz
+    double peakFrequency = kNaN;     // strongest non-DC tone (interpolated), Hz
+    double peakLevel = kNaN;         // its level, dBV RMS
+};
+FftResult fftAnalyse(const std::vector<double>& x, double sampleRate);
 
 // ---------------------------------------------------------------------------------------------
 // Acquisition
@@ -175,7 +188,7 @@ struct Snapshot {
     double level = 0;
     double horizontalPercent = 50;
     double hysteresisDiv = 0;       // Advanced; 0 = ELVISmx
-    bool autoTrigger = false;       // Advanced; false = ELVISmx (keep the last record)
+    NoTrigger noTrigger = NoTrigger::Clear;   // Advanced; Clear = ELVISmx
     bool mathEnabled = false;
     MathFunction mathFunction = MathFunction::Sum;
 };
@@ -261,6 +274,8 @@ public:
     // The current window as a record (the newest sample is the last one).
     Record record() const;
     int64_t windowLength() const { return m_plan.recordLength; }
+    // True when the running task already acquires what `plan` (from planAcquisition) asks for.
+    bool matches(const AcquisitionPlan& plan) const;
     int64_t filled() const;
     const AcquisitionPlan& plan() const { return m_plan; }
 

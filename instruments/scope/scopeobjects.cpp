@@ -218,6 +218,12 @@ void ScopeChannel::setResults(const scope::Measurements& results)
     emit resultsChanged();
 }
 
+void ScopeChannel::setFrequencyByEdges(bool on)
+{
+    if (assign(m_frequencyByEdges, on))
+        emit resultsChanged();
+}
+
 void ScopeChannel::clearResults()
 {
     m_results = {};
@@ -282,12 +288,33 @@ double ScopeChannel::measurementValue(const scope::Measurements& r, Measurement 
     return scope::kNaN;
 }
 
+QString ScopeChannel::measurementName(Measurement m)
+{
+    switch (m) {
+    case Rms: return tr("RMS Voltage");
+    case Frequency: return tr("Frequency");
+    case PeakToPeak: return tr("Voltage Peak-to-Peak");
+    case Mean: return tr("Mean");
+    case Minimum: return tr("Minimum");
+    case Maximum: return tr("Maximum");
+    case Amplitude: return tr("Amplitude (high − low)");
+    case Period: return tr("Period");
+    case CounterFrequency: return tr("Frequency (counter)");
+    case DutyCycle: return tr("Duty Cycle");
+    case RiseTime: return tr("Rise Time (10–90 %)");
+    case FallTime: return tr("Fall Time (90–10 %)");
+    case PositiveWidth: return tr("Positive Pulse Width");
+    case NegativeWidth: return tr("Negative Pulse Width");
+    }
+    return {};
+}
+
 QVariantList ScopeChannel::measurementCatalog()
 {
     QVariantList list;
     for (int bit = 0; bit < 14; ++bit) {
         const auto m = Measurement(1 << bit);
-        list.append(QVariantMap{{u"flag"_s, int(m)}, {u"label"_s, measurementLabel(m)},
+        list.append(QVariantMap{{u"flag"_s, int(m)}, {u"label"_s, measurementLabel(m)}, {u"name"_s, measurementName(m)},
                                 {u"extension"_s, (int(m) & kElvisMeasurements) == 0}});
     }
     return list;
@@ -304,6 +331,8 @@ QVariantList ScopeChannel::readouts() const
         if (!m_hasResults) {
             // ELVISmx before the first record: "?" except Vp-p "0.00 V".
             text = m == PeakToPeak ? scope::formatMeasurement(0.0, u"V"_s) : u"?"_s;
+        } else if (m == Frequency) {
+            text = scope::formatMeasurement(frequency(), u"Hz"_s);
         } else if (m == DutyCycle) {
             const double d = m_results.dutyCycle;
             text = std::isfinite(d) ? QString::number(d * 100.0, 'f', 1) + u" %"_s : u"?"_s;
@@ -342,10 +371,10 @@ void ScopeMath::setEnabled(bool on)
         emit enabledChanged();
 }
 
-void ScopeMath::setFunction(Function f)
+void ScopeMath::setOperation(Operation operation)
 {
-    if (assign(m_function, f))
-        emit functionChanged();
+    if (assign(m_operation, operation))
+        emit operationChanged();
 }
 
 void ScopeMath::setVoltsPerDiv(double v)
@@ -370,7 +399,7 @@ QString ScopeMath::unit() const
 {
     if (fft())
         return u"dBV"_s;
-    return m_function == Product ? u"V²"_s : u"V"_s;
+    return m_operation == Product ? u"V²"_s : u"V"_s;
 }
 
 QList<double> ScopeMath::scaleValues() const
@@ -385,7 +414,7 @@ QList<double> ScopeMath::scaleValues() const
 QStringList ScopeMath::scaleLabels() const
 {
     QStringList labels;
-    const QString u = m_function == Product ? u"V²"_s : u"V"_s;
+    const QString u = m_operation == Product ? u"V²"_s : u"V"_s;
     for (double v : scaleValues())
         labels.append(scope::divisionLabel(v, u));
     return labels;

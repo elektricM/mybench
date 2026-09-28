@@ -158,7 +158,9 @@ public:
 
     bool hasResults() const { return m_hasResults; }
     double rms() const { return m_results.rms; }
-    double frequency() const { return m_results.frequency; }
+    // Freq readout: the ELVISmx FFT tone, or the counter-style edge frequency (MYBENCH option).
+    double frequency() const { return m_frequencyByEdges ? m_results.counterFrequency : m_results.frequency; }
+    void setFrequencyByEdges(bool on);
     double peakToPeak() const { return m_results.peakToPeak; }
     const scope::Measurements& results() const { return m_results; }
     void setResults(const scope::Measurements& results);   // UI thread
@@ -167,9 +169,10 @@ public:
 
     Q_INVOKABLE bool shows(int measurement) const { return (m_measurementMask & measurement) != 0; }
     Q_INVOKABLE void setShown(int measurement, bool on);
-    // Every measurement: [{ flag, label, extension }], in display order.
+    // Every measurement: [{ flag, label, name, extension }], in display order.
     Q_INVOKABLE static QVariantList measurementCatalog();
-    static QString measurementLabel(Measurement m);
+    static QString measurementLabel(Measurement m);   // short: "RMS", "Freq", "Vp-p"
+    static QString measurementName(Measurement m);    // long: "RMS Voltage"
     static double measurementValue(const scope::Measurements& r, Measurement m);
     static QString measurementUnit(Measurement m);
 
@@ -200,6 +203,7 @@ private:
     int m_measurementMask = kElvisMeasurements;
     ScopeTraceStyle m_style;
     bool m_hasResults = false;
+    bool m_frequencyByEdges = false;
     scope::Measurements m_results;
 };
 
@@ -209,15 +213,15 @@ class ScopeMath : public QObject
     QML_ELEMENT
     QML_UNCREATABLE("Owned by ScopeController")
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
-    Q_PROPERTY(Function function READ function WRITE setFunction NOTIFY functionChanged)
+    Q_PROPERTY(Operation operation READ operation WRITE setOperation NOTIFY operationChanged)
     Q_PROPERTY(double voltsPerDiv READ voltsPerDiv WRITE setVoltsPerDiv NOTIFY voltsPerDivChanged)
     Q_PROPERTY(double position READ position WRITE setPosition NOTIFY positionChanged)
     Q_PROPERTY(mybench::instruments::ScopeTraceStyle* style READ style CONSTANT)
-    Q_PROPERTY(bool fft READ fft NOTIFY functionChanged)
-    Q_PROPERTY(QString functionName READ functionName NOTIFY functionChanged)
-    Q_PROPERTY(QString unit READ unit NOTIFY functionChanged)          // "V", "V²", "dBV"
+    Q_PROPERTY(bool fft READ fft NOTIFY operationChanged)
+    Q_PROPERTY(QString functionName READ functionName NOTIFY operationChanged)
+    Q_PROPERTY(QString unit READ unit NOTIFY operationChanged)          // "V", "V²", "dBV"
     Q_PROPERTY(QList<double> scaleValues READ scaleValues CONSTANT)     // ascending
-    Q_PROPERTY(QStringList scaleLabels READ scaleLabels NOTIFY functionChanged)
+    Q_PROPERTY(QStringList scaleLabels READ scaleLabels NOTIFY operationChanged)
     Q_PROPERTY(int scaleIndex READ scaleIndex WRITE setScaleIndex NOTIFY voltsPerDivChanged STORED false)
     Q_PROPERTY(double rms READ rms NOTIFY resultsChanged)
     Q_PROPERTY(double peakToPeak READ peakToPeak NOTIFY resultsChanged)
@@ -226,15 +230,15 @@ class ScopeMath : public QObject
 
 public:
     // Same order as scope::MathFunction.
-    enum Function { Sum, Difference, Product, InvertA, InvertB, FftA, FftB };
-    Q_ENUM(Function)
+    enum Operation { Sum, Difference, Product, InvertA, InvertB, FftA, FftB };
+    Q_ENUM(Operation)
 
     explicit ScopeMath(QObject* parent = nullptr);
 
     bool enabled() const { return m_enabled; }
     void setEnabled(bool on);
-    Function function() const { return m_function; }
-    void setFunction(Function f);
+    Operation operation() const { return m_operation; }
+    void setOperation(Operation operation);
     double voltsPerDiv() const { return m_voltsPerDiv; }
     void setVoltsPerDiv(double v);
     double position() const { return m_position; }
@@ -253,20 +257,20 @@ public:
     double peakLevel() const { return m_peakLevel; }
     void setResults(double rms, double vpp, double peakFrequency, double peakLevel);
 
-    scope::MathFunction coreFunction() const { return scope::MathFunction(int(m_function)); }
+    scope::MathFunction coreFunction() const { return scope::MathFunction(int(m_operation)); }
     QJsonObject save() const;
     void restore(const QJsonObject& json);
 
 signals:
     void enabledChanged();
-    void functionChanged();
+    void operationChanged();
     void voltsPerDivChanged();
     void positionChanged();
     void resultsChanged();
 
 private:
     bool m_enabled = false;
-    Function m_function = Sum;
+    Operation m_operation = Sum;
     double m_voltsPerDiv = 1.0;
     double m_position = 0.0;
     ScopeTraceStyle m_style;
@@ -285,7 +289,7 @@ class ScopeCursor : public QObject
     Q_PROPERTY(int channel READ channel WRITE setChannel NOTIFY channelChanged)   // 0, 1 (2 = math)
     Q_PROPERTY(double position READ position WRITE setPosition NOTIFY positionChanged)   // s
     Q_PROPERTY(QString color READ color WRITE setColor NOTIFY styleChanged)   // "" = theme
-    Q_PROPERTY(ScopeTraceStyle::LineStyle lineStyle READ lineStyle WRITE setLineStyle NOTIFY styleChanged)
+    Q_PROPERTY(mybench::instruments::ScopeTraceStyle::LineStyle lineStyle READ lineStyle WRITE setLineStyle NOTIFY styleChanged)
     Q_PROPERTY(CursorStyle cursorStyle READ cursorStyle WRITE setCursorStyle NOTIFY styleChanged)
     Q_PROPERTY(bool showValue READ showValue WRITE setShowValue NOTIFY styleChanged)   // "C1 Volts"
 
