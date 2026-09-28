@@ -1,1 +1,8 @@
 ni-local/
+build*/
+compile_commands.json
+.cache/
+__pycache__/
+*.pyc
+.DS_Store
+.devlock/
