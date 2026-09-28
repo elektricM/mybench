@@ -431,6 +431,44 @@ Underflow (host too slow in continuous mode) was not provoked; driver-notes 1.3 
 on 0x0561. Audio out cannot be written on demand (DAQmx -201087: a sample clock is required), so
 audio out is timed-only.
 
+### 7.3 AI and AO at the same time (stream allocation) — **READY for libmydaq** **[N]**
+
+Sources: `aiao-ao0cont-ai0cont-aofirst` (AO continuous running, AI continuous started and stopped
+inside it), `aiao-ai0cont-ao0cont-aifirst` (AI continuous running, AO continuous started and stopped
+inside it), `aiao-ao0cont-ai0finite`, `aiao-ao01stream-ai01cont-10k` (tools/lists/s3-aiao.txt,
+`exp.ps1 -Op aiao`). DAQmx ran all of them without error.
+
+**Streams are allocated per task.** The first hardware-timed task (AI or AO) takes stream 4; a task
+started while stream 4 is busy takes **stream 5** (the capability table in section 3 lists streams
+4..10; 4 and 5 both have 0x800-sized buffers). The stream number S appears in exactly these places;
+everything else is byte-identical to the single-task sequences of 6.1 / 7.2:
+
+| where | single task | second task |
+|---|---|---|
+| `endpoint[S]` (0x02fc instance S): configure (u8 1 = IN / 0 = OUT, u8 0x10), start, stop, flush | 4 | 5 |
+| `stream[S]` (0x0002 instance S, slot 7): credit `08`, AI read-position report `09` | 4 | 5 |
+| AI `in_fifo.configure(0, 0, BURST, 0, 0, u8 S, 0, 0)` | 4 | 5 |
+| AO `out_timing.m0b(u8 S, u8 0)` | 4 | 5 |
+| data: AI bulk IN `0x80 \| S`, AO bulk OUT `S` | 0x84 / 0x04 | 0x85 / 0x05 |
+
+Observed pairs: AO on 4 + AI on 5 (AO first) and AI on 4 + AO on 5 (AI first). Stopping one task
+leaves the other running; each teardown touches only its own `endpoint[S]` (DAQmx deferred the
+second task's `endpoint[5].flush` until the other task's teardown in one capture — ordering only).
+The AI front end (0x0512/0x0550/0x0551 instance 2) and the AO objects (0x0520/0x0560/0x0561) are
+separate, so nothing else is shared. **Native** (`tools/native_aiao_test.py`, builders `ai_timed_frames(..., stream=)` /
+`ao_timed_frames(..., stream=)`): AO continuous on 4 + AI continuous on 5 started inside it (AI 1843
+scans in 2 s, AO kept streaming, no error) and AI on 4 + AO on 5 started inside it (AI 3928 scans in
+4 s, AO 110 buffers) both run cleanly. Negative control `same4` (AI configured on stream 4 while AO
+streams on 4 — what libmydaq did): the AI works but the AO's bulk OUT 0x04 fails with
+LIBUSB_ERROR_IO — exactly libmydaq's symptom.
+
+**AO underflow** (bonus from `aiao-ao01stream-ai01cont-10k`, stream mode, the script stopped writing
+while it read AI): ≈ 0.49 s after the last 1000-byte write at 40 kB/s (≈ 19.5 KB of device FIFO)
+the device raised event `0002` on `0561 0000` (out_fifo) immediately followed by `0001` on
+`0561 0000`, both status 0; DAQmx then reported "generation has stopped to prevent the
+regeneration of old samples" (-200290) and ran its normal AO teardown. libmydaq: treat 0561/2 as
+Underflow (P9).
+
 ## 8. Digital I/O (port0, 8 lines) — **READY for libmydaq**
 
 ```

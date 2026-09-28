@@ -1,0 +1,10 @@
+# capture ctr-pulsetime-freqout-10k: exp.ps1 -Op cimeas -Func pulsetime -Rate 10000
+t_attach 1790630666.698
+t_bound 1790630676.565
+t_script_start 1790630684.598
+23:25:13.862 begin op=cimeas chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=pulsetime count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+23:25:15.502 rep 0
+23:25:24.672 freqout started
+MEAS n=1 5E-05/5E-05
+23:25:26.804 end
+t_script_end 1790630731.333

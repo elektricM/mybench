@@ -1,0 +1,22 @@
+# capture aiao-ao0cont-ai0cont-aofirst: exp.ps1 -Op aiao -Chan ao0 -AiChan ai0 -Rate 1000 -N 100 -Wave sine -Value 0.5 -Order ao-ai
+t_attach 1790628029.762
+t_bound 1790628057.669
+t_script_start 1790628065.790
+22:42:31.953 begin op=aiao chan=ao0 range=10 ranges= rate=1000 n=100 value=0.5 func=dcv count=1 wave=sine regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+22:42:34.314 rep 0
+22:43:05.244 AO started
+22:43:07.980 AI started
+AIREAD 0 n=250 first=-2.0817320896603633
+AIREAD 1 n=250 first=-2.0833576825098135
+AIREAD 2 n=250 first=-2.0820572082302533
+AIREAD 3 n=250 first=-2.0833576825098135
+AIREAD 4 n=250 first=-2.0817320896603633
+AIREAD 5 n=250 first=-2.0840079196495935
+AIREAD 6 n=250 first=-2.0817320896603633
+AIREAD 7 n=250 first=-2.0836828010797035
+22:43:13.245 AI stopped
+22:43:14.666 AO stopped
+ran OK
+22:43:21.025 AO back to 0 V
+22:43:21.093 end
+t_script_end 1790628214.521

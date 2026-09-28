@@ -1,0 +1,10 @@
+# capture ctr-pulsetime-buf50-freqout-10k: exp.ps1 -Op cimeas -Func pulsetime -Buffered 1 -N 50 -Rate 10000
+t_attach 1790631052.545
+t_bound 1790631058.393
+t_script_start 1790631066.445
+23:32:26.284 begin op=cimeas chan=ai0 range=10 ranges= rate=10000 n=50 value=0 func=pulsetime count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+23:32:28.173 rep 0
+23:32:39.402 freqout started
+MEAS failed: Non-buffered hardware-timed operations are not supported for this device and Channel Type.
+23:32:44.512 end
+t_script_end 1790631172.068

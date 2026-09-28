@@ -1,0 +1,21 @@
+# capture aiao-ao01stream-ai01cont-10k: exp.ps1 -Op aiao -Chan ao0,ao1 -AiChan ai0,ai1 -Rate 10000 -N 1000 -Wave sine -Value 0.5 -Regen 0 -Order ao-ai
+t_attach 1790629346.196
+t_bound 1790629375.710
+t_script_start 1790629383.842
+23:03:53.388 begin op=aiao chan=ao0,ao1 range=10 ranges= rate=10000 n=1000 value=0.5 func=dcv count=1 wave=sine regen=0 secs=3 coupling= xfer=0/0 duty=0.5 term=
+23:03:54.286 rep 0
+23:04:00.945 AO started
+23:04:02.056 AI started
+AIREAD 0 n=2500 first=-2.0872591053484939
+AIREAD 1 n=2500 first=-1.1587204697425477
+AIREAD 2 n=2500 first=-1.1720503311080392
+AIREAD 3 n=2500 first=-1.2071631366561633
+AIREAD 4 n=2500 first=-1.2445517721935175
+AIREAD 5 n=2500 first=-1.2799896963115316
+AIREAD 6 n=2500 first=-1.3141271461499855
+AIREAD 7 n=2500 first=-1.344688291719649
+23:04:04.487 AI stopped
+ERROR: The generation has stopped to prevent the regeneration of old samples. Your application was unable to write samples to the background buffer fast enough to prevent old samples from being regenerated.
+23:04:06.855 AO back to 0 V
+23:04:06.876 end
+t_script_end 1790629449.700

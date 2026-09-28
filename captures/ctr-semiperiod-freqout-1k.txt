@@ -1,0 +1,41 @@
+# capture ctr-semiperiod-freqout-1k: exp.ps1 -Op cimeas -Func semiperiod -Rate 1000
+t_attach 1790630013.584
+t_bound 1790630050.988
+t_script_start 1790630059.139
+23:16:45.721 begin op=cimeas chan=ai0 range=10 ranges= rate=1000 n=100 value=0 func=semiperiod count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+23:16:49.118 rep 0
+Exception calling "CreateSemiPeriodChannel" with "5" argument(s): "Selected physical channel does 
+not support the measurement type required by the virtual channel you are creating.
+Create a channel of a measurement type that is supported by the physical channel, or select a 
+physical channel that supports the measurement type.
+Property: NationalInstruments.DAQmx.CIChannel.MeasurementType
+Requested Value: NationalInstruments.DAQmx.CIMeasurementType.SemiPeriod
+Possible Values: NationalInstruments.DAQmx.CIMeasurementType.Frequency, 
+NationalInstruments.DAQmx.CIMeasurementType.Period, 
+NationalInstruments.DAQmx.CIMeasurementType.PulseWidth, 
+NationalInstruments.DAQmx.CIMeasurementType.TwoEdgeSeparation, 
+NationalInstruments.DAQmx.CIMeasurementType.PulseFrequency, 
+NationalInstruments.DAQmx.CIMeasurementType.PulseTime, 
+NationalInstruments.DAQmx.CIMeasurementType.PulseTicks, 
+NationalInstruments.DAQmx.CIMeasurementType.AngularEncoder, 
+NationalInstruments.DAQmx.CIMeasurementType.LinearEncoder, 
+NationalInstruments.DAQmx.CIMeasurementType.CountEdges
+Task Name: _unnamedTask<1>
+Status Code: -200431"
+At C:\setup\exp.ps1:199 char:32
++ ... miperiod' { $c = $t.CIChannels.CreateSemiPeriodChannel("$D/ctr0", "", ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : DaqException
+ 
+The property 'SemiPeriodTerminal' cannot be found on this object. Verify that the property exists 
+and can be set.
+At C:\setup\exp.ps1:199 char:167
++ ... riodUnits]::Seconds); $c.SemiPeriodTerminal = "/$D/FrequencyOutput" }
++                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) [], RuntimeException
+    + FullyQualifiedErrorId : PropertyNotFound
+ 
+MEAS failed: FREQOUT counter cannot generate the desired frequency. The 4-bit FREQOUT counter can divide the 20 MHz, 10 MHz (20 MHz / 2), or 100 kHz (20 MHz / 200) timebase by a number between 1 and 16. Choose a frequency within this range.
+23:17:20.777 end
+t_script_end 1790630252.749
