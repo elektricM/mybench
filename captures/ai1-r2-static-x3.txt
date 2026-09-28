@@ -1,0 +1,13 @@
+# capture ai1-r2-static-x3: exp.ps1 -Op aistatic -Chan ai1 -Range 2 -Count 3
+t_attach 1790551726.188
+t_bound 1790551750.427
+t_script_start 1790551758.453
+01:30:03.300 begin op=aistatic chan=ai1 range=2 rate=1000 n=100 value=0 func=dcv count=3
+01:30:04.150 rep 0
+DATA ch0 -0.90789896804926684
+01:30:10.479 rep 1
+DATA ch0 -0.9833181764188339
+01:30:12.629 rep 2
+DATA ch0 -1.0347341647648136
+01:30:12.768 end
+t_script_end 1790551815.560

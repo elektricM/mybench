@@ -1,0 +1,10 @@
+# capture do-line0-3-writeread-0xa: exp.ps1 -Op dowriteread -Chan port0/line0:3 -Value 10
+t_attach 1790573622.069
+t_bound 1790573636.692
+t_script_start 1790573644.727
+07:34:29.256 begin op=dowriteread chan=port0/line0:3 range=10 ranges= rate=1000 n=100 value=10 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+07:34:29.656 rep 0
+DO wrote 0x0A
+DI 0x00
+07:34:32.328 end
+t_script_end 1790573674.597

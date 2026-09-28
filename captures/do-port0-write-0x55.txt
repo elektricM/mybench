@@ -1,0 +1,9 @@
+# capture do-port0-write-0x55: exp.ps1 -Op dowrite -Chan port0/line0:7 -Value 85
+t_attach 1790551043.139
+t_bound 1790551059.437
+t_script_start 1790551067.479
+01:18:11.516 begin op=dowrite chan=port0/line0:7 range=10 rate=1000 n=100 value=85 func=dcv count=1
+01:18:11.966 rep 0
+DO wrote 0x55
+01:18:14.586 end
+t_script_end 1790551096.983

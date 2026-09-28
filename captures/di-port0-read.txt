@@ -1,0 +1,9 @@
+# capture di-port0-read: exp.ps1 -Op diread -Chan port0/line0:7
+t_attach 1790550946.689
+t_bound 1790550962.822
+t_script_start 1790550970.865
+01:16:35.853 begin op=diread chan=port0/line0:7 range=10 rate=1000 n=100 value=0 func=dcv count=1
+01:16:36.353 rep 0
+DI 0x00
+01:16:39.321 end
+t_script_end 1790551001.978

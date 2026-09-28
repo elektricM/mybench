@@ -1,0 +1,8 @@
+# capture idle-a: exp.ps1 -Op idle
+t_attach 1790549663.708
+t_bound 1790549680.027
+t_script_start 1790549688.076
+00:55:09.508 begin op=idle chan=ai0 range=10 rate=1000 n=100 value=0 func=dcv count=1
+00:55:09.968 rep 0
+00:55:10.038 end
+t_script_end 1790549711.964

@@ -1,0 +1,10 @@
+# capture co-ptrain-1k-d0.5: exp.ps1 -Op coptrain -Rate 1000 -Duty 0.5 -Secs 1
+t_attach 1790574007.440
+t_bound 1790574022.423
+t_script_start 1790574030.472
+07:40:53.904 begin op=coptrain chan=ai0 range=10 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+07:40:54.337 rep 0
+07:40:56.523 started
+07:40:57.675 stopped
+07:40:57.875 end
+t_script_end 1790574059.938

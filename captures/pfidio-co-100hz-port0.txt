@@ -1,0 +1,10 @@
+# capture pfidio-co-100hz-port0: exp.ps1 -Op pfidio -Chan port0/line0:7 -Rate 100 -N 40
+t_attach 1790574565.474
+t_bound 1790574577.851
+t_script_start 1790574585.885
+07:50:05.756 begin op=pfidio chan=port0/line0:7 range=10 ranges= rate=100 n=40 value=0 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+07:50:06.077 rep 0
+07:50:07.566 started
+DI during CO failed: Resource requested by this task has already been reserved by a different task.
+07:50:08.668 end
+t_script_end 1790574610.661

@@ -1,0 +1,9 @@
+# capture di-line4-7-read: exp.ps1 -Op diread -Chan port0/line4:7
+t_attach 1790573715.928
+t_bound 1790573730.066
+t_script_start 1790573738.103
+07:36:00.149 begin op=diread chan=port0/line4:7 range=10 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+07:36:00.539 rep 0
+DI 0x00
+07:36:02.548 end
+t_script_end 1790573764.730

@@ -1,0 +1,24 @@
+# capture ai01-r10-contlong-200k-xfer256k: exp.ps1 -Op aicontlong -Chan ai0:1 -Range 10 -Rate 200000 -N 20000 -Secs 5 -XferSize 262144 -XferCount 16
+t_attach 1790567025.326
+t_bound 1790567071.989
+t_script_start 1790567080.034
+05:45:29.334 begin op=aicontlong chan=ai0:1 range=10 ranges= rate=200000 n=20000 value=0 func=dcv count=1 wave=ramp regen=1 secs=5 coupling= xfer=262144/16 duty=0.5 term=
+05:45:30.165 rep 0
+05:45:36.424 configured, actual rate 200000
+read 1020000 samples/ch OK
+Exception calling "Stop" with "0" argument(s): "Onboard device memory overflow. Because of system 
+and/or bus-bandwidth limitations, the driver could not read data from the device fast enough to 
+keep up with the device throughput.
+Reduce your sample rate. If your data transfer method is interrupts, try using DMA or USB Bulk. 
+You can also use a product with more onboard memory or reduce the number of programs your 
+computer is executing concurrently.
+Task Name: _unnamedTask<0>
+Status Code: -200361"
+At C:\setup\exp.ps1:84 char:13
++             $t.Stop(); $t.Dispose() }
++             ~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : DaqException
+ 
+05:45:45.503 end
+t_script_end 1790567149.460

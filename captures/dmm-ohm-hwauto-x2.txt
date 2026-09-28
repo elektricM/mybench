@@ -1,0 +1,11 @@
+# capture dmm-ohm-hwauto-x2: dmmc.ps1 -Func ohmauto -Range 20000000 -Excit 0.0000001 -Count 2
+t_attach 1790570502.176
+t_bound 1790570518.172
+t_script_start 1790570526.201
+06:42:32.587 begin dmmc func=ohmauto range=20000000 excit=1E-07 count=2
+06:42:33.149 rep 0
+ERROR Exception calling "Ck" with "2" argument(s): "set 0x2FF8 (hw autorange) failed -200233: Property specified is not valid for this function."
+06:42:38.178 rep 1
+ERROR Exception calling "Ck" with "2" argument(s): "set 0x2FF8 (hw autorange) failed -200233: Property specified is not valid for this function."
+06:42:38.269 end
+t_script_end 1790570560.515

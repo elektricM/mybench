@@ -1,0 +1,9 @@
+# capture ctr-countedges-pfi0-1s: exp.ps1 -Op ctr -Secs 1
+t_attach 1790573806.201
+t_bound 1790573820.120
+t_script_start 1790573828.182
+07:37:33.709 begin op=ctr chan=ai0 range=10 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+07:37:34.130 rep 0
+CTR 0
+07:37:37.652 end
+t_script_end 1790573859.971

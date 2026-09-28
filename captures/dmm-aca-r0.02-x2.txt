@@ -1,0 +1,11 @@
+# capture dmm-aca-r0.02-x2: exp.ps1 -Op dmm -Func aca -Range 0.02 -Count 2
+t_attach 1790569399.128
+t_bound 1790569416.906
+t_script_start 1790569424.933
+06:24:14.921 begin op=dmm chan=ai0 range=0.02 ranges= rate=1000 n=100 value=0 func=aca count=2 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+06:24:15.459 rep 0
+DATA ch0 3.4822463931050152E-05
+06:24:22.751 rep 1
+DATA ch0 3.4822463931050152E-05
+06:24:24.128 end
+t_script_end 1790569466.849

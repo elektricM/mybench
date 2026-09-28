@@ -1,0 +1,11 @@
+# capture ai0-r10-finite-1-n2: exp.ps1 -Op aifinite -Chan ai0 -Range 10 -Rate 1 -N 2
+t_attach 1790567906.532
+t_bound 1790567926.621
+t_script_start 1790567934.649
+05:59:23.306 begin op=aifinite chan=ai0 range=10 ranges= rate=1 n=2 value=0 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+05:59:24.029 rep 0
+05:59:27.148 configured, actual rate 1
+DATA ch0 -2.3736885654216167 -2.3733634468517266
+05:59:28.638 read done
+05:59:29.379 end
+t_script_end 1790567972.449

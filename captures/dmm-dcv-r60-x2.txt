@@ -1,0 +1,11 @@
+# capture dmm-dcv-r60-x2: exp.ps1 -Op dmm -Func dcv -Range 60 -Count 2
+t_attach 1790552567.962
+t_bound 1790552598.402
+t_script_start 1790552606.434
+01:44:23.332 begin op=dmm chan=ai0 range=60 rate=1000 n=100 value=0 func=dcv count=2
+01:44:26.244 rep 0
+DATA ch0 -0.019253648817539215
+01:44:40.713 rep 1
+DATA ch0 -0.019253648817539215
+01:44:43.202 end
+t_script_end 1790552689.362

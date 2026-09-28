@@ -1,0 +1,17 @@
+# capture ai0-r10-static-x5: exp.ps1 -Op aistatic -Chan ai0 -Range 10 -Count 5
+t_attach 1790551863.431
+t_bound 1790551888.748
+t_script_start 1790551896.778
+01:32:06.969 begin op=aistatic chan=ai0 range=10 rate=1000 n=100 value=0 func=dcv count=5
+01:32:07.641 rep 0
+DATA ch0 -2.6133009514305741
+01:32:13.611 rep 1
+DATA ch0 -2.6152516628499143
+01:32:15.750 rep 2
+DATA ch0 -2.6165521371294744
+01:32:17.950 rep 3
+DATA ch0 -2.6185028485488147
+01:32:20.110 rep 4
+DATA ch0 -2.6194782042584848
+01:32:20.240 end
+t_script_end 1790551942.962

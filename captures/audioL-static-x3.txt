@@ -1,0 +1,49 @@
+# capture audioL-static-x3: exp.ps1 -Op aistatic -Chan audioInputLeft -Range 2 -Count 3
+t_attach 1790572667.284
+t_bound 1790572680.818
+t_script_start 1790572688.863
+07:18:32.831 begin op=aistatic chan=audioInputLeft range=2 ranges= rate=1000 n=100 value=0 func=dcv count=3 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+07:18:33.249 rep 0
+Exception calling "ReadSingleSample" with "0" argument(s): "Task contains physical channels on 
+one or more devices that require you to specify the Sample Clock rate. Use the Sample Clock 
+Timing function/VI to specify a Sample Clock rate.
+You cannot specify a Sample Clock rate if Mode is set to On Demand.
+Channel Name: myDAQ1/audioInputLeft
+Task Name: _unnamedTask<0>
+Status Code: -201087"
+At C:\setup\exp.ps1:70 char:13
++             Dump ((New-Object "$ns.AnalogMultiChannelReader" $t.Strea ...
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : DaqException
+ 
+07:18:39.792 rep 1
+Exception calling "ReadSingleSample" with "0" argument(s): "Task contains physical channels on 
+one or more devices that require you to specify the Sample Clock rate. Use the Sample Clock 
+Timing function/VI to specify a Sample Clock rate.
+You cannot specify a Sample Clock rate if Mode is set to On Demand.
+Channel Name: myDAQ1/audioInputLeft
+Task Name: _unnamedTask<1>
+Status Code: -201087"
+At C:\setup\exp.ps1:70 char:13
++             Dump ((New-Object "$ns.AnalogMultiChannelReader" $t.Strea ...
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : DaqException
+ 
+07:18:41.871 rep 2
+Exception calling "ReadSingleSample" with "0" argument(s): "Task contains physical channels on 
+one or more devices that require you to specify the Sample Clock rate. Use the Sample Clock 
+Timing function/VI to specify a Sample Clock rate.
+You cannot specify a Sample Clock rate if Mode is set to On Demand.
+Channel Name: myDAQ1/audioInputLeft
+Task Name: _unnamedTask<2>
+Status Code: -201087"
+At C:\setup\exp.ps1:70 char:13
++             Dump ((New-Object "$ns.AnalogMultiChannelReader" $t.Strea ...
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : DaqException
+ 
+07:18:41.950 end
+t_script_end 1790572724.125
