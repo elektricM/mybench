@@ -1,6 +1,8 @@
 #include "usb_device.h"
 
 #include "usb_ai_task.h"
+#include "usb_ao_task.h"
+#include "usb_counter.h"
 
 #include <QLoggingCategory>
 
@@ -182,18 +184,56 @@ std::unique_ptr<AiTask> UsbDevice::createAiTask(const AiConfig& config)
     return std::make_unique<UsbAiTask>(m_handle, config);
 }
 
-std::unique_ptr<AoTask> UsbDevice::createAoTask(const AoConfig&)
+std::unique_ptr<AoTask> UsbDevice::createAoTask(const AoConfig& config)
 {
     m_handle->requireConnected();
-    throw DeviceError(DeviceError::NotSupported,
-                      QStringLiteral("Hardware-timed analog output is not supported by the native myDAQ driver yet"));
+    return std::make_unique<UsbAoTask>(m_handle, config);
 }
+
+std::unique_ptr<CounterInputTask> UsbDevice::createCounterInputTask(const CounterInputConfig& config)
+{
+    m_handle->requireConnected();
+    return std::make_unique<UsbCounterInputTask>(m_handle, config);
+}
+
+std::unique_ptr<CounterOutputTask> UsbDevice::createCounterOutputTask(const PulseOutputConfig& config)
+{
+    m_handle->requireConnected();
+    return std::make_unique<UsbCounterOutputTask>(m_handle, config);
+}
+
+double UsbDevice::coerceCounterFrequency(double requested) const
+{
+    double actual = requested;
+    mydaq_ctr_coerce_pulse(requested, 0.5, nullptr, nullptr, &actual, nullptr);
+    return actual;
+}
+
+double UsbDevice::coerceFrequencyOutput(double requested) const { return mydaq_freqout_coerce(requested); }
+
+double UsbDevice::frequencyOutputStart(double frequency)
+{
+    m_handle->requireConnected();
+    double actual = 0;
+    const int rc = mydaq_freqout_start(m_handle->device, frequency, &actual);
+    if (rc == MYDAQ_ERR_BUSY)
+        throw DeviceError(DeviceError::ResourceBusy, QStringLiteral("FREQOUT is running, or DIO 4 is in use"));
+    check(rc, QStringLiteral("FREQOUT start"));
+    return actual;
+}
+
+void UsbDevice::frequencyOutputStop() { mydaq_freqout_stop(m_handle->device); }
+
+bool UsbDevice::frequencyOutputRunning() const { return mydaq_freqout_running(m_handle->device) != 0; }
 
 double UsbDevice::aiReadStatic(AiChannel channel, double range)
 {
     m_handle->requireConnected();
     const mydaq_ai_channel_config ch{toLib(channel), aiRange(channel, range)};
     double volts = 0;
+    if (isAudio(channel))
+        throw DeviceError(DeviceError::NotSupported,
+                          QStringLiteral("%1 has no on-demand reads: it needs a sample clock (use an AI task)").arg(toString(channel)));
     check(mydaq_ai_read_scan(m_handle->device, &ch, 1, &volts), QStringLiteral("%1 read").arg(toString(channel)));
     return volts;
 }
@@ -201,11 +241,16 @@ double UsbDevice::aiReadStatic(AiChannel channel, double range)
 void UsbDevice::aoWriteStatic(AoChannel channel, double volts)
 {
     m_handle->requireConnected();
-    if (!std::isfinite(volts) || std::abs(volts) > (isAudio(channel) ? 2.0 : 10.0) + 1e-9)
+    if (isAudio(channel))
+        throw DeviceError(DeviceError::NotSupported,
+                          QStringLiteral("%1 has no static writes: it needs a sample clock (use an AO task)").arg(toString(channel)));
+    if (!std::isfinite(volts) || std::abs(volts) > 10.0 + 1e-9)
         throw DeviceError(DeviceError::InvalidConfig,
                           QStringLiteral("%1 V is outside the range of %2").arg(volts).arg(toString(channel)));
-    check(mydaq_ao_write(m_handle->device, toLib(channel), std::clamp(volts, -10.0, 10.0)),
-          QStringLiteral("%1 write").arg(toString(channel)));
+    const int rc = mydaq_ao_write(m_handle->device, toLib(channel), std::clamp(volts, -10.0, 10.0));
+    if (rc == MYDAQ_ERR_BUSY)
+        throw DeviceError(DeviceError::ResourceBusy, QStringLiteral("%1 is driven by a hardware-timed task").arg(toString(channel)));
+    check(rc, QStringLiteral("%1 write").arg(toString(channel)));
 }
 
 std::vector<DmmRange> UsbDevice::dmmRanges(DmmFunction function) const
@@ -240,7 +285,10 @@ DmmReading UsbDevice::dmmRead(DmmFunction function, double rangeMax)
 void UsbDevice::dioSetDirection(uint8_t mask, bool output)
 {
     m_handle->requireConnected();
-    check(mydaq_dio_set_direction(m_handle->device, mask, output ? 1 : 0), QStringLiteral("DIO direction"));
+    const int rc = mydaq_dio_set_direction(m_handle->device, mask, output ? 1 : 0);
+    if (rc == MYDAQ_ERR_BUSY)
+        throw DeviceError(DeviceError::ResourceBusy, QStringLiteral("A counter or FREQOUT uses one of these DIO lines"));
+    check(rc, QStringLiteral("DIO direction"));
 }
 
 uint8_t UsbDevice::dioDirection() const
@@ -253,7 +301,10 @@ uint8_t UsbDevice::dioDirection() const
 void UsbDevice::dioWrite(uint8_t value, uint8_t mask)
 {
     m_handle->requireConnected();
-    check(mydaq_dio_write(m_handle->device, value, mask), QStringLiteral("DIO write"));
+    const int rc = mydaq_dio_write(m_handle->device, value, mask);
+    if (rc == MYDAQ_ERR_BUSY)
+        throw DeviceError(DeviceError::ResourceBusy, QStringLiteral("A counter or FREQOUT uses one of these DIO lines"));
+    check(rc, QStringLiteral("DIO write"));
 }
 
 uint8_t UsbDevice::dioRead()

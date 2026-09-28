@@ -63,6 +63,14 @@ public:
     void dioWrite(uint8_t value, uint8_t mask = 0xFF) override;
     uint8_t dioRead() override;
 
+    std::unique_ptr<CounterInputTask> createCounterInputTask(const CounterInputConfig& config) override;
+    std::unique_ptr<CounterOutputTask> createCounterOutputTask(const PulseOutputConfig& config) override;
+    double coerceCounterFrequency(double requested) const override;
+    double coerceFrequencyOutput(double requested) const override;
+    double frequencyOutputStart(double frequency) override;
+    void frequencyOutputStop() override;
+    bool frequencyOutputRunning() const override;
+
     void reset() override;
 
     // Provider side.

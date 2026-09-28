@@ -73,7 +73,7 @@ int md_cmd(mydaq_device *dev, uint16_t channel, uint8_t op, const md_buf *body,
 
     trace_frame(dev, ">>", dev->tx, out_len);
     md_mutex_lock(&dev->out_lock);
-    rc = dev->ops->write(dev->impl, MD_EP_CMD_OUT, dev->tx, out_len, timeout_ms);
+    rc = dev->ops->write(dev->impl, MD_EP_CMD_OUT, dev->tx, out_len, NULL, timeout_ms);
     md_mutex_unlock(&dev->out_lock);
     if (rc != MYDAQ_OK) {
         /* an unplug is reported once by md_note_error, not per command */
@@ -127,7 +127,7 @@ int md_send_oneway(mydaq_device *dev, uint16_t channel, uint8_t op, const md_buf
     frame[6] = 0;   /* no reply expected */
     trace_frame(dev, ">>", frame, len);
     md_mutex_lock(&dev->out_lock);
-    rc = dev->ops->write(dev->impl, MD_EP_CMD_OUT, frame, len, MD_TIMEOUT_CMD);
+    rc = dev->ops->write(dev->impl, MD_EP_CMD_OUT, frame, len, NULL, MD_TIMEOUT_CMD);
     md_mutex_unlock(&dev->out_lock);
     return md_note_error(dev, rc);
 }

@@ -183,6 +183,8 @@ static void device_free(mydaq_device *dev)
         md_mutex_destroy(&dev->state_lock);
         md_mutex_destroy(&dev->pump_ctl);
         md_mutex_destroy(&dev->pump_lock);
+        md_mutex_destroy(&dev->events_ctl);
+        md_mutex_destroy(&dev->events_lock);
     }
     free(dev);
 }
@@ -214,6 +216,8 @@ int mydaq_open_transport(mydaq_context *ctx, const mydaq_transport_ops *ops, voi
     md_mutex_init(&dev->state_lock);
     md_mutex_init(&dev->pump_ctl);
     md_mutex_init(&dev->pump_lock);
+    md_mutex_init(&dev->events_ctl);
+    md_mutex_init(&dev->events_lock);
     dev->locks_ready = 1;
     if (info)
         dev->tinfo = *info;
@@ -312,13 +316,22 @@ int mydaq_enumerate(mydaq_context *ctx, mydaq_device_desc *list, size_t max, siz
 void mydaq_close(mydaq_device *dev)
 {
     mydaq_ai_task *task;
+    mydaq_ao_task *ao;
+    mydaq_ctr_task *ctr;
     if (!dev)
         return;
     md_mutex_lock(&dev->state_lock);
     task = dev->ai_task;
+    ao = dev->ao_task;
+    ctr = dev->ctr_task;
     md_mutex_unlock(&dev->state_lock);
     if (task)
         md_ai_task_force_destroy(task);
+    if (ao)
+        md_ao_task_force_destroy(ao);
+    if (ctr)
+        mydaq_ctr_task_destroy(ctr);
+    mydaq_freqout_stop(dev);
     device_free(dev);
 }
 
@@ -352,24 +365,39 @@ int32_t mydaq_last_device_status(const mydaq_device *dev)
 int mydaq_reset(mydaq_device *dev)
 {
     mydaq_ai_task *task;
+    mydaq_ao_task *ao;
+    mydaq_ctr_task *ctr;
     int rc;
     if (!dev)
         return MYDAQ_ERR_INVALID_ARG;
     md_mutex_lock(&dev->state_lock);
     task = dev->ai_task;
+    ao = dev->ao_task;
+    ctr = dev->ctr_task;
     md_mutex_unlock(&dev->state_lock);
     if (task)
         md_ai_task_abort(task);
+    if (ao)
+        md_ao_task_abort(ao);
+    if (ctr)
+        mydaq_ctr_task_stop(ctr);
+    mydaq_freqout_stop(dev);
 
     md_cmd_lock(dev);
     rc = md_device_init_sequence(dev);
     md_cmd_unlock(dev);
     if (rc != MYDAQ_OK)
         return rc;
-    rc = mydaq_ao_write(dev, MYDAQ_AO0, 0.0);
+    /* outputs to 0 V (a stopped timed task no longer holds them) */
+    rc = md_ao_write_code_unchecked(dev, MYDAQ_AO0, 0.0);
     if (rc == MYDAQ_OK)
-        rc = mydaq_ao_write(dev, MYDAQ_AO1, 0.0);
-    if (rc == MYDAQ_OK)
-        rc = mydaq_dio_set_direction(dev, 0xff, 0);
+        rc = md_ao_write_code_unchecked(dev, MYDAQ_AO1, 0.0);
+    if (rc == MYDAQ_OK) {
+        uint8_t free_lines;
+        md_mutex_lock(&dev->state_lock);
+        free_lines = (uint8_t)~dev->dio_reserved;   /* lines of an existing counter task stay */
+        md_mutex_unlock(&dev->state_lock);
+        rc = mydaq_dio_set_direction(dev, free_lines, 0);
+    }
     return rc;
 }

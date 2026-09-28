@@ -37,6 +37,19 @@ int md_log_enabled(mydaq_context *ctx, mydaq_log_level level);
 
 /* ---- device ---------------------------------------------------------------------------- */
 
+/* A frame from the event endpoint (0x82), or a transport failure (transport_status != OK). */
+typedef struct md_event {
+    uint16_t id;
+    uint16_t object_class;
+    uint16_t instance;
+    int32_t status;
+    int transport_status;
+} md_event;
+
+typedef void (*md_event_fn)(void *user, const md_event *ev);
+
+#define MD_MAX_LISTENERS 8
+
 struct mydaq_device {
     mydaq_context *ctx;
     const mydaq_transport_ops *ops;
@@ -65,6 +78,22 @@ struct mydaq_device {
     int pump_users;
     int pump_stop;
     md_thread pump_thread;
+
+    /* Event endpoint listeners (events.c). */
+    md_mutex events_ctl;
+    md_mutex events_lock;
+    struct {
+        md_event_fn fn;
+        void *user;
+    } listeners[MD_MAX_LISTENERS];
+    size_t nlisteners;
+    void *event_stream;
+
+    /* Resources reserved by tasks (state_lock). */
+    mydaq_ao_task *ao_task;       /* timed AO: static writes to its channels are refused */
+    mydaq_ctr_task *ctr_task;     /* ctr0 */
+    int freqout_running;
+    uint8_t dio_reserved;         /* DIO lines used by counter/FREQOUT (PFIn = DIOn) */
 
     int locks_ready;              /* all mutexes above initialised */
     mydaq_info info;
@@ -101,6 +130,10 @@ int md_is_connected(mydaq_device *dev);
 /* Reads and discards whatever is pending on an IN endpoint (short timeouts). */
 void md_drain(mydaq_device *dev, uint8_t endpoint, mydaq_endpoint_type type, unsigned max_reads);
 
+/* Event endpoint listeners (events.c): the interrupt stream runs while any is registered. */
+int md_events_add(mydaq_device *dev, md_event_fn fn, void *user);
+void md_events_remove(mydaq_device *dev, md_event_fn fn, void *user);
+
 /* Event thread (reference counted). */
 int md_pump_acquire(mydaq_device *dev);
 void md_pump_release(mydaq_device *dev);
@@ -112,13 +145,17 @@ int md_read_calmem(mydaq_device *dev);            /* caller holds cmd_lock */
 
 void md_ai_task_force_destroy(mydaq_ai_task *task);   /* from mydaq_close */
 int md_ai_task_abort(mydaq_ai_task *task);            /* from mydaq_reset */
+void md_ao_task_force_destroy(mydaq_ao_task *task);
+int md_ao_task_abort(mydaq_ao_task *task);
+int md_ao_channel_in_task(mydaq_device *dev, mydaq_ao_channel ch);
+int md_ao_write_code_unchecked(mydaq_device *dev, mydaq_ao_channel channel, double volts);
 
 /* Sends the scan list (0b/0a/0c on 05 12); caller holds cmd_lock. */
 int md_ai_send_scan_list(mydaq_device *dev, const mydaq_ai_channel_config *ch, size_t n);
 /* AI scan-list entry for a channel (docs/protocol.md section 5). */
 int md_ai_scan_entry(const mydaq_ai_channel_config *ch, int last, uint16_t *entry);
-/* Validates channels (1..2, no duplicates, supported channel/range). */
-int md_ai_validate_channels(const mydaq_ai_channel_config *channels, size_t n);
+/* Validates channels (1..2, no duplicates, no AI/audio mix, audio ±2 V; audio only if timed). */
+int md_ai_validate_channels(const mydaq_ai_channel_config *channels, size_t n, int timed);
 /* Convert-clock period in timebase ticks for a scan of n channels at the given divisor. */
 uint32_t md_ai_convert_ticks(size_t num_channels, uint32_t divisor);
 /* Sample-clock divisor for a per-channel rate (after coercion). */

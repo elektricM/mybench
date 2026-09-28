@@ -315,6 +315,184 @@ static void check_dmm_all(mydaq_device *dev)
     }
 }
 
+/* Timed AO (nothing wired: exercises the protocol; AO stays within ±0.5 V and ends at 0 V). */
+static void check_ao_timed(mydaq_device *dev)
+{
+    static double wave[2 * 2000], zero[2] = {0, 0};
+    mydaq_ao_config cfg;
+    mydaq_ao_task *t = NULL;
+    size_t i;
+    int rc;
+    uint64_t end;
+    for (i = 0; i < 2000; ++i) {
+        wave[i] = 0.5 * sin(6.283185307179586 * (double)i / 200.0);
+        wave[2000 + i] = -wave[i];
+    }
+    memset(&cfg, 0, sizeof cfg);
+    cfg.channels[0] = MYDAQ_AO0;
+    cfg.channels[1] = MYDAQ_AO1;
+    cfg.num_channels = 2;
+    cfg.sample_rate = 20e3;
+    cfg.mode = MYDAQ_FINITE;
+    EXPECT_OK(mydaq_ao_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ao_task_write(t, wave, 2000, MYDAQ_GROUP_BY_CHANNEL, 1000));
+    EXPECT_OK(mydaq_ao_task_start(t));
+    rc = mydaq_ao_task_wait_done(t, 3000);
+    printf("AO finite 2 ch 20 kS/s x 2000: %s\n", mydaq_error_name(rc));
+    EXPECT(rc == MYDAQ_OK, "finite AO");
+    mydaq_ao_task_destroy(t);
+
+    cfg.mode = MYDAQ_CONTINUOUS;
+    cfg.regenerate = 1;
+    EXPECT_OK(mydaq_ao_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ao_task_write(t, wave, 2000, MYDAQ_GROUP_BY_CHANNEL, 1000));
+    EXPECT_OK(mydaq_ao_task_start(t));
+    md_sleep_ms(1000);
+    printf("AO regenerate 2 ch 20 kS/s, 1 s: %llu samples sent, %s\n",
+           (unsigned long long)mydaq_ao_task_samples_sent(t), mydaq_error_name(mydaq_ao_task_error(t)));
+    EXPECT(mydaq_ao_task_error(t) == MYDAQ_OK && mydaq_ao_task_samples_sent(t) >= 20000, "regenerate");
+    EXPECT_OK(mydaq_ao_task_stop(t));
+    mydaq_ao_task_destroy(t);
+
+    cfg.regenerate = 0;   /* streaming at 2 x 100 kS/s for 2 s, 20 ms blocks */
+    cfg.sample_rate = 100e3;
+    cfg.buffer_samples = 50000;
+    EXPECT_OK(mydaq_ao_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ao_task_write(t, wave, 2000, MYDAQ_GROUP_BY_CHANNEL, 1000));
+    EXPECT_OK(mydaq_ao_task_start(t));
+    end = md_now_ms() + 2000;
+    rc = MYDAQ_OK;
+    while (rc == MYDAQ_OK && md_now_ms() < end)
+        rc = mydaq_ao_task_write(t, wave, 2000, MYDAQ_GROUP_BY_CHANNEL, 1000);
+    printf("AO stream 2 ch 100 kS/s, 2 s: %s, %llu samples sent\n", mydaq_error_name(rc),
+           (unsigned long long)mydaq_ao_task_samples_sent(t));
+    EXPECT(rc == MYDAQ_OK, "AO streaming");
+    EXPECT_OK(mydaq_ao_task_stop(t));
+    mydaq_ao_task_destroy(t);
+
+    cfg.channels[0] = MYDAQ_AUDIO_OUT_LEFT;
+    cfg.channels[1] = MYDAQ_AUDIO_OUT_RIGHT;
+    cfg.mode = MYDAQ_FINITE;
+    cfg.sample_rate = 48000.0;
+    EXPECT_OK(mydaq_ao_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ao_task_write(t, wave, 2000, MYDAQ_GROUP_BY_CHANNEL, 1000));
+    EXPECT_OK(mydaq_ao_task_start(t));
+    rc = mydaq_ao_task_wait_done(t, 3000);
+    printf("audio out finite 48 kS/s x 2000: %s\n", mydaq_error_name(rc));
+    EXPECT(rc == MYDAQ_OK, "audio out");
+    EXPECT_OK(mydaq_ao_task_write(t, zero, 1, MYDAQ_GROUP_BY_SCAN, 0));   /* leave audio at 0 */
+    EXPECT_OK(mydaq_ao_task_start(t));
+    mydaq_ao_task_wait_done(t, 1000);
+    mydaq_ao_task_destroy(t);
+    EXPECT_OK(mydaq_ao_write(dev, MYDAQ_AO0, 0.0));
+    EXPECT_OK(mydaq_ao_write(dev, MYDAQ_AO1, 0.0));
+}
+
+static void check_audio_in(mydaq_device *dev)
+{
+    static double v[2 * 4800];
+    mydaq_ai_config cfg;
+    mydaq_ai_task *t = NULL;
+    double mean, sd;
+    int rc;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.channels[0].channel = MYDAQ_AUDIO_IN_LEFT;
+    cfg.channels[1].channel = MYDAQ_AUDIO_IN_RIGHT;
+    cfg.channels[0].range = cfg.channels[1].range = MYDAQ_AI_RANGE_2V;
+    cfg.num_channels = 2;
+    cfg.sample_rate = 48000.0;
+    cfg.mode = MYDAQ_FINITE;
+    cfg.samples_per_channel = 4800;
+    EXPECT_OK(mydaq_ai_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ai_task_start(t));
+    rc = mydaq_ai_task_read(t, v, 4800, MYDAQ_GROUP_BY_CHANNEL, 3000);
+    stats(v, 4800, 1, &mean, &sd);
+    printf("audio in L+R 48 kS/s x 4800: %s, L mean %.6f V sd %.3f mV\n", mydaq_error_name(rc), mean, sd * 1e3);
+    EXPECT(rc == MYDAQ_OK && fabs(mean) < 0.1, "audio in (AC coupled, open: ~0 V)");
+    mydaq_ai_task_destroy(t);
+}
+
+/* Counter and FREQOUT, observed through the DIO read-back of their lines. */
+static void check_counter(mydaq_device *dev)
+{
+    mydaq_ctr_config cfg;
+    mydaq_ctr_task *t = NULL;
+    uint32_t count = 99;
+    double f = 0;
+    int k, seen[2] = {0, 0}, rc;
+    uint8_t v;
+
+    memset(&cfg, 0, sizeof cfg);
+    cfg.kind = MYDAQ_CTR_COUNT_EDGES;
+    EXPECT_OK(mydaq_ctr_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ctr_task_start(t));
+    md_sleep_ms(200);
+    EXPECT_OK(mydaq_ctr_task_read_count(t, &count, 1000));
+    printf("counter: count edges on open DIO0 after 0.2 s: %u\n", count);
+    mydaq_ctr_task_destroy(t);
+
+    cfg.kind = MYDAQ_CTR_FREQUENCY;   /* unverified: nothing on DIO1 -> timeout */
+    EXPECT_OK(mydaq_ctr_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ctr_task_start(t));
+    rc = mydaq_ctr_task_read(t, &f, 500);
+    printf("counter: frequency on open DIO1: %s (expected MYDAQ_ERR_TIMEOUT)\n", mydaq_error_name(rc));
+    EXPECT(rc == MYDAQ_ERR_TIMEOUT, "frequency timeout");
+    mydaq_ctr_task_destroy(t);
+
+    cfg.kind = MYDAQ_CTR_PULSE_TRAIN;   /* 5 Hz on DIO3: sample the line */
+    cfg.frequency = 5.0;
+    cfg.duty_cycle = 0.5;
+    cfg.mode = MYDAQ_CONTINUOUS;
+    EXPECT_OK(mydaq_ctr_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ctr_task_start(t));
+    for (k = 0; k < 20; ++k) {
+        if (mydaq_dio_read(dev, &v) == MYDAQ_OK)
+            seen[(v >> 3) & 1] = 1;
+        md_sleep_ms(30);
+    }
+    printf("counter: 5 Hz pulse train, DIO3 read back low %s / high %s\n", seen[0] ? "yes" : "no",
+           seen[1] ? "yes" : "no");
+    EXPECT(seen[0] && seen[1], "pulse train toggles DIO3");
+    mydaq_ctr_task_destroy(t);
+
+    cfg.mode = MYDAQ_FINITE;
+    cfg.frequency = 1000.0;
+    cfg.pulses = 100;
+    EXPECT_OK(mydaq_ctr_task_create(dev, &cfg, &t));
+    EXPECT_OK(mydaq_ctr_task_start(t));
+    rc = mydaq_ctr_task_wait_done(t, 2000);
+    printf("counter: finite 100 pulses at 1 kHz: %s\n", mydaq_error_name(rc));
+    EXPECT(rc == MYDAQ_OK, "finite pulse train");
+    mydaq_ctr_task_destroy(t);
+
+    seen[0] = seen[1] = 0;
+    EXPECT_OK(mydaq_freqout_start(dev, 6250.0, &f));
+    for (k = 0; k < 40; ++k)
+        if (mydaq_dio_read(dev, &v) == MYDAQ_OK)
+            seen[(v >> 4) & 1] = 1;
+    printf("FREQOUT %.0f Hz: DIO4 read back low %s / high %s\n", f, seen[0] ? "yes" : "no",
+           seen[1] ? "yes" : "no");
+    EXPECT(seen[0] && seen[1], "FREQOUT toggles DIO4");
+    EXPECT_OK(mydaq_freqout_stop(dev));
+}
+
+static void check_dmm_unverified(mydaq_device *dev)
+{
+    static const struct {
+        mydaq_dmm_function f;
+        double range;
+        const char *name;
+    } m[] = {{MYDAQ_DMM_DIODE, 2.0, "diode"}, {MYDAQ_DMM_CONTINUITY, 200.0, "continuity"}};
+    size_t i;
+    for (i = 0; i < 2; ++i) {
+        mydaq_dmm_reading r;
+        const int rc = mydaq_dmm_read(dev, m[i].f, m[i].range, &r);
+        printf("DMM %s (mode byte unverified): %s packet \"%.9s\" -> %.9g%s\n", m[i].name,
+               mydaq_error_name(rc), (const char *)r.packet.raw, r.value, r.overload ? " OVERLOAD" : "");
+        EXPECT(rc == MYDAQ_OK, "dmm %s", m[i].name);
+    }
+}
+
 int main(void)
 {
     mydaq_context *ctx = NULL;
@@ -352,18 +530,27 @@ int main(void)
     }
     if (!only || strstr(only, "ao"))
         check_ao(dev);
+    if (!only || strstr(only, "aotimed"))
+        check_ao_timed(dev);
+    if (!only || strstr(only, "audio"))
+        check_audio_in(dev);
+    if (!only || strstr(only, "ctr"))
+        check_counter(dev);
     if (!only || strstr(only, "dio"))
         check_dio(dev);
     if (!only || (strstr(only, "dmm") && !strstr(only, "dmmall")))
         check_dmm(dev);
-    if (only && strstr(only, "dmmall"))
+    if (only && strstr(only, "dmmall")) {
         check_dmm_all(dev);
+        check_dmm_unverified(dev);
+    }
     if (!only || strstr(only, "reset")) {
         const uint64_t t0 = md_now_us();
         EXPECT_OK(mydaq_reset(dev));
         printf("reset: %.2f s\n", (double)(md_now_us() - t0) / 1e6);
     }
     /* leave the bench as found: outputs at 0 V, DIO as inputs */
+    mydaq_freqout_stop(dev);
     mydaq_ao_write(dev, MYDAQ_AO0, 0.0);
     mydaq_ao_write(dev, MYDAQ_AO1, 0.0);
     mydaq_dio_set_direction(dev, 0xff, 0);

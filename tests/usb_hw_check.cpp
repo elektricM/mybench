@@ -87,16 +87,39 @@ int main(int argc, char** argv)
         }
         device->aoWriteStatic(AoChannel::AO0, 0.25);
         device->aoWriteStatic(AoChannel::AO0, 0.0);
+        {
+            AoConfig ao;
+            ao.channels = {{AoChannel::AO0, 10.0}};
+            ao.sampleRate = 10000.0;
+            ao.mode = SampleMode::Finite;
+            auto task = device->createAoTask(ao);
+            std::vector<double> ramp(1000);
+            for (size_t i = 0; i < ramp.size(); ++i)
+                ramp[i] = 0.5 * double(i) / 1000.0;
+            ramp.back() = 0.0;
+            task->write({ramp});
+            task->start();
+            const bool done = task->waitUntilDone(3000);
+            std::printf("timed AO finite 1000 samples: %s\n", done ? "done" : "NOT done");
+            expect(done, "timed AO");
+        }
+        {
+            PulseOutputConfig co;
+            co.frequency = 1000.0;
+            auto task = device->createCounterOutputTask(co);
+            task->start();
+            std::printf("pulse train %.1f Hz on DIO3 started\n", task->actualFrequency());
+            task->stop();
+        }
+        const double fo = device->frequencyOutputStart(10000.0);
+        std::printf("FREQOUT %.1f Hz on DIO4\n", fo);
+        device->frequencyOutputStop();
         device->dioSetDirection(0xff, false);
         std::printf("DIO levels 0x%02x\n", device->dioRead());
         const DmmReading r = device->dmmRead(DmmFunction::DcVoltage, 20.0);
         std::printf("DMM DC V 20 V: %.9g V%s\n", r.value, r.overload ? " (overload)" : "");
-        try {
-            device->dmmRead(DmmFunction::Resistance, 2e3);
-            expect(false, "resistance should not be supported yet");
-        } catch (const DeviceError& e) {
-            expect(e.code() == DeviceError::NotSupported, "NotSupported for undecoded DMM functions");
-        }
+        const DmmReading ohm = device->dmmRead(DmmFunction::Resistance, 2e3);
+        std::printf("DMM 2 kOhm, open leads: %s\n", ohm.overload ? "overload (expected)" : "value");
     } catch (const DeviceError& e) {
         std::printf("DeviceError %d: %s\n", int(e.code()), e.what());
         ++failures;

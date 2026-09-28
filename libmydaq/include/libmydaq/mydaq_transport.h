@@ -45,8 +45,9 @@ typedef size_t (*mydaq_stream_cb)(void *user, const uint8_t *data, size_t len, s
                                   int status);
 
 typedef struct mydaq_transport_ops {
-    /** Synchronous OUT transfer of the whole buffer. */
-    int (*write)(void *impl, uint8_t endpoint, const uint8_t *data, size_t len,
+    /** Synchronous OUT transfer. *actual (may be NULL) receives the bytes accepted, also on
+     *  MYDAQ_ERR_TIMEOUT (a bulk OUT the device NAKs completes partially). */
+    int (*write)(void *impl, uint8_t endpoint, const uint8_t *data, size_t len, size_t *actual,
                  unsigned timeout_ms);
     /** Synchronous IN transfer; *actual receives the byte count. */
     int (*read)(void *impl, uint8_t endpoint, mydaq_endpoint_type type, uint8_t *buf,

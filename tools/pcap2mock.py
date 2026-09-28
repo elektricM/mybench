@@ -8,6 +8,7 @@ Script format (one entry per line, event order; read by libmydaq/tests/mock/mock
   < hex    response the device returned on EP 0x81
   e hex    event frame on interrupt EP 0x82
   d hex    sample data on bulk EP 0x84
+  o hex    sample data the host sent on bulk OUT EP 0x04 (AO; compared as one byte stream)
   @ text   marker (DAQmx step from the .txt: "@ rep 0", ...)
   = v ...  values DAQmx returned (from the .txt DATA lines), for the tests to compare
   # text   comment
@@ -25,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import usbflow  # noqa: E402
 
 R = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-KIND = {0x03: ">", 0x81: "<", 0x82: "e", 0x84: "d"}
+KIND = {0x03: ">", 0x81: "<", 0x82: "e", 0x84: "d", 0x04: "o"}
 
 
 def rebuild_calmem_response(request, captured, calmem):

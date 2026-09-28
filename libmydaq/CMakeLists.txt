@@ -21,6 +21,8 @@ set(LIBMYDAQ_SOURCES
     src/ai.c
     src/ai_task.c
     src/ao.c
+    src/ao_task.c
+    src/counter.c
     src/calibration.c
     src/command.c
     src/context.c
@@ -29,6 +31,7 @@ set(LIBMYDAQ_SOURCES
     src/dmm.c
     src/error.c
     src/es51981.c
+    src/events.c
     src/frame.c
     src/usb_transport.c
 )

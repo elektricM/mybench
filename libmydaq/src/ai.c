@@ -12,30 +12,39 @@
 #define DIVISOR_MIN 500u          /* 100 MHz / 500 = 200 kS/s per channel */
 #define DIVISOR_MAX 0xffffffffu   /* 32-bit divisor: 0.0233 S/s */
 
-int md_ai_validate_channels(const mydaq_ai_channel_config *channels, size_t n)
+int md_ai_validate_channels(const mydaq_ai_channel_config *channels, size_t n, int timed)
 {
-    size_t i;
+    size_t i, audio = 0;
     if (!channels || n < 1 || n > MYDAQ_AI_MAX_CHANNELS)
         return MYDAQ_ERR_INVALID_ARG;
     for (i = 0; i < n; ++i) {
         const mydaq_ai_channel_config *c = &channels[i];
-        if (c->channel == MYDAQ_AUDIO_IN_LEFT || c->channel == MYDAQ_AUDIO_IN_RIGHT)
-            return MYDAQ_ERR_NOT_SUPPORTED;   /* audio front end not decoded yet */
-        if (c->channel != MYDAQ_AI0 && c->channel != MYDAQ_AI1)
+        if (c->channel != MYDAQ_AI0 && c->channel != MYDAQ_AI1 &&
+            c->channel != MYDAQ_AUDIO_IN_LEFT && c->channel != MYDAQ_AUDIO_IN_RIGHT)
             return MYDAQ_ERR_INVALID_ARG;
         if (c->range != MYDAQ_AI_RANGE_10V && c->range != MYDAQ_AI_RANGE_2V)
             return MYDAQ_ERR_INVALID_ARG;
+        if (c->channel == MYDAQ_AUDIO_IN_LEFT || c->channel == MYDAQ_AUDIO_IN_RIGHT) {
+            if (c->range != MYDAQ_AI_RANGE_2V)
+                return MYDAQ_ERR_INVALID_ARG;   /* audio inputs are ±2 V only */
+            ++audio;
+        }
     }
     if (n == 2 && channels[0].channel == channels[1].channel)
         return MYDAQ_ERR_INVALID_ARG;
+    if (audio && audio != n)
+        return MYDAQ_ERR_INVALID_ARG;   /* AI and audio share the converter */
+    if (audio && !timed)
+        return MYDAQ_ERR_NOT_SUPPORTED; /* audio needs a sample clock (DAQmx -201087) */
     return MYDAQ_OK;
 }
 
 int md_ai_scan_entry(const mydaq_ai_channel_config *ch, int last, uint16_t *entry)
 {
+    /* channel field: 0 ai0, 1 ai1, 2 audio in L, 3 audio in R (audio: range 2 only) */
     const unsigned range_code = ch->range == MYDAQ_AI_RANGE_10V ? 1u : 2u;
-    if (ch->channel != MYDAQ_AI0 && ch->channel != MYDAQ_AI1)
-        return MYDAQ_ERR_NOT_SUPPORTED;
+    if ((unsigned)ch->channel > 3u)
+        return MYDAQ_ERR_INVALID_ARG;
     *entry = (uint16_t)(AI_ENTRY_BASE | range_code << AI_ENTRY_RANGE_SHIFT |
                         (unsigned)ch->channel | (last ? AI_ENTRY_LAST : 0u));
     return MYDAQ_OK;
@@ -171,7 +180,7 @@ int mydaq_ai_read_scan_raw(mydaq_device *dev, const mydaq_ai_channel_config *cha
     int rc, busy;
     if (!dev || !codes)
         return MYDAQ_ERR_INVALID_ARG;
-    rc = md_ai_validate_channels(channels, num_channels);
+    rc = md_ai_validate_channels(channels, num_channels, 0);
     if (rc != MYDAQ_OK)
         return rc;
     /* Checked under the command lock: a task created meanwhile cannot start before we finish. */

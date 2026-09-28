@@ -6,11 +6,19 @@
  *   mydaq-cli [options] ai-stream [-c 0|1|0,1] [-r 10|2] [--rate HZ] [-n SAMPLES] [--csv FILE]
  *             [--cont SECONDS]   continuous: read blocks of SAMPLES for SECONDS, report losses
  *   mydaq-cli [options] ao -c 0|1 --volts V
+ *   mydaq-cli [options] ao-gen [-c 0|1|0,1|L|R|L,R] [--rate HZ] [--amp V] [--n SAMPLES] [--secs S]
+ *             finite sine (one period of n samples), or regenerated for S seconds with --secs
+ *   mydaq-cli [options] ctr edges|freq|period [--secs S]   read once per second (DIO0 / DIO1)
+ *   mydaq-cli [options] ctr pulse --freq HZ [--duty D] [--secs S | --n PULSES]   (DIO3)
+ *   mydaq-cli [options] freqout --freq HZ [--secs S]                              (DIO4)
  *   mydaq-cli [options] dio read | dio write VALUE [--mask M] | dio dir MASK in|out
  *   mydaq-cli [options] dmm [-f dcv] [-r RANGE] [-n COUNT]
  *   mydaq-cli [options] reset
  * options: --serial S (default: first myDAQ), --no-init, -v (debug log), -vv (trace frames)
  */
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L   /* nanosleep */
+#endif
 #include "libmydaq/mydaq.h"
 
 #include <math.h>
@@ -18,6 +26,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
+static void sleep_s(double seconds)
+{
+#if defined(_WIN32)
+    Sleep((DWORD)(seconds * 1000.0));
+#else
+    struct timespec ts;
+    ts.tv_sec = (time_t)seconds;
+    ts.tv_nsec = (long)((seconds - (double)ts.tv_sec) * 1e9);
+    nanosleep(&ts, NULL);
+#endif
+}
 
 typedef struct args {
     int argc;
@@ -246,6 +269,118 @@ static int cmd_ao(mydaq_device *dev, const args *a)
     return 0;
 }
 
+static int cmd_ao_gen(mydaq_device *dev, const args *a)
+{
+    const char *c = opt(a, "-c", "0");
+    const double amp = atof(opt(a, "--amp", "0.5"));
+    const size_t n = (size_t)atol(opt(a, "--n", "1000"));
+    const double secs = atof(opt(a, "--secs", "0"));
+    mydaq_ao_config cfg;
+    mydaq_ao_task *t = NULL;
+    double *v;
+    size_t i, ch;
+    int rc;
+    memset(&cfg, 0, sizeof cfg);
+    for (; *c && cfg.num_channels < 2; ++c) {
+        if (*c == '0' || *c == '1')
+            cfg.channels[cfg.num_channels++] = *c == '0' ? MYDAQ_AO0 : MYDAQ_AO1;
+        else if (*c == 'L' || *c == 'R')
+            cfg.channels[cfg.num_channels++] = *c == 'L' ? MYDAQ_AUDIO_OUT_LEFT : MYDAQ_AUDIO_OUT_RIGHT;
+    }
+    cfg.sample_rate = atof(opt(a, "--rate", "10000"));
+    cfg.mode = secs > 0 ? MYDAQ_CONTINUOUS : MYDAQ_FINITE;
+    cfg.regenerate = 1;
+    if (n == 0 || cfg.num_channels == 0)
+        return fail("arguments", MYDAQ_ERR_INVALID_ARG);
+    v = malloc(sizeof *v * n * cfg.num_channels);
+    if (!v)
+        return 1;
+    for (ch = 0; ch < cfg.num_channels; ++ch)
+        for (i = 0; i < n; ++i)
+            v[ch * n + i] = amp * sin(6.283185307179586 * (double)i / (double)n);
+    rc = mydaq_ao_task_create(dev, &cfg, &t);
+    if (rc == MYDAQ_OK)
+        rc = mydaq_ao_task_write(t, v, n, MYDAQ_GROUP_BY_CHANNEL, 1000);
+    if (rc == MYDAQ_OK)
+        rc = mydaq_ao_task_start(t);
+    if (rc == MYDAQ_OK && secs > 0) {
+        const long ms = (long)(secs * 1000.0);
+        long k;
+        for (k = 0; k < ms && mydaq_ao_task_error(t) == MYDAQ_OK; k += 100)
+            sleep_s(0.1);
+        rc = mydaq_ao_task_error(t);
+        printf("%llu samples/channel sent\n", (unsigned long long)mydaq_ao_task_samples_sent(t));
+    } else if (rc == MYDAQ_OK) {
+        rc = mydaq_ao_task_wait_done(t, (int)(5000 + 1000.0 * (double)n / mydaq_ao_task_rate(t)));
+    }
+    printf("AO %s at %.6g S/s: %s\n", secs > 0 ? "regenerated sine" : "finite sine",
+           mydaq_ao_task_rate(t), mydaq_error_name(rc));
+    mydaq_ao_task_destroy(t);
+    free(v);
+    return rc == MYDAQ_OK ? 0 : 1;
+}
+
+static int cmd_ctr(mydaq_device *dev, const args *a, int at)
+{
+    const char *what = at < a->argc ? a->argv[at] : "edges";
+    const double secs = atof(opt(a, "--secs", "3"));
+    mydaq_ctr_config cfg;
+    mydaq_ctr_task *t = NULL;
+    int rc, k;
+    memset(&cfg, 0, sizeof cfg);
+    if (strcmp(what, "pulse") == 0) {
+        cfg.kind = MYDAQ_CTR_PULSE_TRAIN;
+        cfg.frequency = atof(opt(a, "--freq", "1000"));
+        cfg.duty_cycle = atof(opt(a, "--duty", "0.5"));
+        cfg.pulses = (uint64_t)atoll(opt(a, "--n", "0"));
+        cfg.mode = cfg.pulses ? MYDAQ_FINITE : MYDAQ_CONTINUOUS;
+    } else {
+        cfg.kind = strcmp(what, "freq") == 0     ? MYDAQ_CTR_FREQUENCY
+                   : strcmp(what, "period") == 0 ? MYDAQ_CTR_PERIOD
+                                                 : MYDAQ_CTR_COUNT_EDGES;
+    }
+    rc = mydaq_ctr_task_create(dev, &cfg, &t);
+    if (rc == MYDAQ_OK)
+        rc = mydaq_ctr_task_start(t);
+    if (rc != MYDAQ_OK) {
+        mydaq_ctr_task_destroy(t);
+        return fail("counter", rc);
+    }
+    if (cfg.kind == MYDAQ_CTR_PULSE_TRAIN) {
+        double f, d;
+        mydaq_ctr_task_pulse(t, &f, &d);
+        printf("pulse train on DIO3: %.9g Hz, duty %.6g\n", f, d);
+        if (cfg.mode == MYDAQ_FINITE) {
+            rc = mydaq_ctr_task_wait_done(t, (int)(5000 + 1000.0 * (double)cfg.pulses / f));
+            printf("%llu pulses: %s\n", (unsigned long long)cfg.pulses, mydaq_error_name(rc));
+        } else {
+            sleep_s(secs);
+        }
+    } else {
+        for (k = 0; k < (int)secs && rc != MYDAQ_ERR_NO_DEVICE; ++k) {
+            double v = 0;
+            sleep_s(1.0);
+            rc = mydaq_ctr_task_read(t, &v, 1000);
+            printf("%s: %.9g (%s)\n", what, v, mydaq_error_name(rc));
+        }
+    }
+    mydaq_ctr_task_destroy(t);
+    return 0;
+}
+
+static int cmd_freqout(mydaq_device *dev, const args *a)
+{
+    const double secs = atof(opt(a, "--secs", "3"));
+    double f = 0;
+    const int rc = mydaq_freqout_start(dev, atof(opt(a, "--freq", "10000")), &f);
+    if (rc != MYDAQ_OK)
+        return fail("freqout", rc);
+    printf("FREQOUT on DIO4: %.9g Hz for %g s\n", f, secs);
+    sleep_s(secs);
+    mydaq_freqout_stop(dev);
+    return 0;
+}
+
 static int cmd_dio(mydaq_device *dev, const args *a, int at)
 {
     const char *what = at < a->argc ? a->argv[at] : "read";
@@ -331,7 +466,7 @@ int main(int argc, char **argv)
         level = MYDAQ_LOG_TRACE;
     if (!cmd || flag(&a, "-h") || flag(&a, "--help")) {
         fprintf(stderr, "usage: mydaq-cli [--serial S] [--no-init] [-v|-vv] "
-                        "list|info|ai|ai-stream|ao|dio|dmm|reset ...\n");
+                        "list|info|ai|ai-stream|ao|ao-gen|dio|dmm|ctr|freqout|reset ...\n");
         return 2;
     }
     rc = mydaq_context_new(&ctx);
@@ -357,6 +492,12 @@ int main(int argc, char **argv)
         rc = cmd_ai_stream(dev, ctx, &a);
     else if (strcmp(cmd, "ao") == 0)
         rc = cmd_ao(dev, &a);
+    else if (strcmp(cmd, "ao-gen") == 0)
+        rc = cmd_ao_gen(dev, &a);
+    else if (strcmp(cmd, "ctr") == 0)
+        rc = cmd_ctr(dev, &a, at);
+    else if (strcmp(cmd, "freqout") == 0)
+        rc = cmd_freqout(dev, &a);
     else if (strcmp(cmd, "dio") == 0)
         rc = cmd_dio(dev, &a, at);
     else if (strcmp(cmd, "dmm") == 0)

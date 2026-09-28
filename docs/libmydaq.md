@@ -16,12 +16,15 @@ on the real device.
 | `src/platform.h`, `platform_posix.c`, `platform_win32.c` | mutex, condition variable, thread, monotonic clock |
 | `src/frame.[ch]`, `src/proto.h` | frame encoding/parsing, object/method constants |
 | `src/command.c` | command channel (one request, one reply), one-way frames, event thread |
+| `src/events.c` | event endpoint (0x82) dispatcher shared by all running tasks |
 | `src/context.c`, `src/error.c` | context, logging, error strings |
 | `src/usb_transport.c` | libusb transport: enumeration, open/claim, sync + async (streaming) transfers |
 | `src/device.c` | open/close/reset, init sequence (with hwverify retry), calibration memory read |
 | `src/calibration.c` | calibration memory parser (directory, CRC-16, all tables), AI/AO conversions |
-| `src/ai.c`, `src/ai_task.c` | on-demand AI, scan list, sample clock; hardware-timed AI (finite, continuous) |
-| `src/ao.c`, `src/dio.c` | static AO, static DIO |
+| `src/ai.c`, `src/ai_task.c` | on-demand AI, scan list, sample clock; hardware-timed AI and audio in (finite, continuous) |
+| `src/ao.c`, `src/ao_task.c` | static AO; hardware-timed AO and audio out (finite, regenerated, streamed) |
+| `src/counter.c` | ctr0 (edge count, frequency, period, pulse train) and FREQOUT |
+| `src/dio.c` | static DIO (with counter/FREQOUT line reservations) |
 | `src/dmm.c`, `src/es51981.c` | DMM ranges, reading, NI-exact conversion; ES51981 packet parser |
 | `tests/` | unit, replay and emulator tests (`libmydaq_tests`), hardware test (`libmydaq_hwtest`) |
 | `tests/mock/` | mock transport: capture replay + myDAQ emulator (also used by the C++ backend tests) |
@@ -67,6 +70,23 @@ double *buf = malloc(sizeof *buf * 2 * 10000);
 while (running)
     mydaq_ai_task_read(task, buf, 10000, MYDAQ_GROUP_BY_CHANNEL, 1000);   /* blocks, volts */
 mydaq_ai_task_destroy(task);
+
+/* hardware-timed output: finite / continuous regenerated / continuous streamed */
+mydaq_ao_config ao = {0};
+ao.channels[0] = MYDAQ_AO0; ao.num_channels = 1; ao.sample_rate = 10e3;
+ao.mode = MYDAQ_CONTINUOUS; ao.regenerate = 1;
+mydaq_ao_task *gen;
+mydaq_ao_task_create(dev, &ao, &gen);          /* reserves timed AO; static writes to AO0 -> BUSY */
+mydaq_ao_task_write(gen, wave, 1000, MYDAQ_GROUP_BY_CHANNEL, 1000);   /* the buffer */
+mydaq_ao_task_start(gen);  /* ... */  mydaq_ao_task_destroy(gen);      /* outputs keep last value */
+
+/* counter, FREQOUT (PFI n = DIO n) */
+mydaq_ctr_config cc = {0};
+cc.kind = MYDAQ_CTR_PULSE_TRAIN; cc.frequency = 1000; cc.duty_cycle = 0.25; cc.mode = MYDAQ_CONTINUOUS;
+mydaq_ctr_task *ctr;
+mydaq_ctr_task_create(dev, &cc, &ctr);         /* reserves ctr0 and DIO3 */
+mydaq_ctr_task_start(ctr);  /* ... */  mydaq_ctr_task_destroy(ctr);
+double hz;  mydaq_freqout_start(dev, 10e3, &hz);  mydaq_freqout_stop(dev);   /* DIO4 */
 mydaq_close(dev);  mydaq_context_free(ctx);
 ```
 
@@ -74,8 +94,12 @@ Other entry points: `mydaq_get_info` (serial, location, identity words, init tim
 `mydaq_get_calibration` / `mydaq_parse_calibration` (pure) / `mydaq_get_calibration_memory`,
 `mydaq_ai_code_to_volts`, `mydaq_ao_volts_to_code`, `mydaq_ai_coerce_rate`,
 `mydaq_ai_task_{available,remaining,is_running,rate,channel_skew,read_raw,stop}`,
-`mydaq_dmm_ranges`, `mydaq_es51981_parse`, `mydaq_dmm_convert`, `mydaq_dmm_cal_slot`,
-`mydaq_reset`, `mydaq_is_connected`, `mydaq_last_device_status`, `mydaq_open_transport`.
+`mydaq_ao_task_{write_raw,wait_done,space_available,error,samples_sent,volts_to_code}`,
+`mydaq_ctr_task_{read,read_count,wait_done,pulse,dio_lines}`, `mydaq_ctr_coerce_pulse`,
+`mydaq_freqout_{coerce,running}`, `mydaq_dmm_ranges` (with `supported`/`verified` flags),
+`mydaq_dmm_read_ex` (hardware autorange), `mydaq_es51981_parse`, `mydaq_dmm_convert`,
+`mydaq_dmm_cal_slot`, `mydaq_reset`, `mydaq_is_connected`, `mydaq_last_device_status`,
+`mydaq_open_transport`.
 
 **Errors**: functions return `MYDAQ_OK` (0) or a negative `mydaq_error`: `INVALID_ARG`,
 `NO_MEM`, `NOT_FOUND`, `NO_DEVICE` (unplugged; sticky per handle), `ACCESS`, `BUSY` (another
@@ -93,13 +117,15 @@ program holds the device, or the subsystem is reserved), `TIMEOUT`, `OVERFLOW`, 
   other calls on the same device wait meanwhile; running acquisitions are unaffected (samples
   flow on EP 0x84, and the continuous read-position reports are one-way frames sent without the
   command lock).
-- An **AI task** is read from one thread at a time; `mydaq_ai_task_stop()` and
-  `mydaq_ai_task_available()` may be called from any thread (stop wakes a blocked read, which
-  then returns `MYDAQ_ERR_STATE`).
+- A **task** is used from one thread at a time; `*_stop()`, `*_available()`,
+  `*_space_available()` and `*_is_running()` may be called from any thread (stop wakes a blocked
+  read/write/wait, which then returns `MYDAQ_ERR_STATE`). AI, AO, counter and FREQOUT run
+  concurrently (one task per subsystem).
 - While a task runs, the device has an internal event thread calling the transport's
-  `handle_events()`; stream callbacks and log callbacks may run on it. Stream callbacks never
-  send commands (libusb forbids synchronous transfers inside callbacks); the hardware cleanup of
-  a finished acquisition runs in the reader's thread.
+  `handle_events()`; stream callbacks, event listeners and log callbacks may run on it. They
+  never send commands (libusb forbids synchronous transfers inside callbacks); the hardware
+  cleanup of a finished acquisition runs in the reader's thread. Each running AO task has a
+  writer thread feeding bulk OUT 0x04.
 - Destroy tasks before `mydaq_close()` (it destroys leftovers). `mydaq_close()` /
   `mydaq_context_free()` must not race with other calls on the same object.
 - Lock order inside the library: task `op_lock` → device `cmd_lock` → `out_lock`; task `lock` is
@@ -133,9 +159,39 @@ program holds the device, or the subsystem is reserved), `TIMEOUT`, `OVERFLOW`, 
   -225229, as for NI), then the host transfers are cancelled and EP 0x84 drained.
 - **Host buffer**: finite = the whole acquisition; continuous = `buffer_samples` if given, else
   the device is told `samples_per_channel` (as DAQmx) and the host keeps at least 2 s of data.
-- **DMM**: `set_mode(mode, 0)` then `read(1, 10000 ms)`; the 11-byte ES51981 packet is converted
-  exactly like NI's driver (digit arithmetic order, scale table per function byte and range
-  digit, calibration slot per requested function); overload → `overload = ±1`, `value = ±range`.
+- **Events** (`events.c`): one interrupt transfer on 0x82 is kept pending while any task runs;
+  frames are dispatched to every registered task (AI: in_timing/in_fifo; AO: out_timing 1 = done,
+  out_fifo while continuous = underflow [H], power 0x0c91 negative = abort; ctr0: event 9 =
+  finite pulse train done). Stale frames are drained when the stream opens.
+- **Audio in**: scan-list channels 2/3, ±2 V calibration record; timed tasks only (DAQmx refuses
+  on-demand audio, no device traffic); not mixable with AI0/AI1.
+- **Timed AO** (`ao_task.c`, protocol.md 7.2): per-DAC `ao_dac.configure` (SEL/AUD 5/1 for
+  audio), out_timing.configure (finite: 1, N, 4, divisor, 0 + flags; continuous: 0xfffffffe ×3 +
+  flags with byte 11 = 1), out_fifo.configure on slot 2, endpoint (OUT) configure/start, one-way
+  output credit on slot 7 (finite: exact bytes; continuous: 0x7fffffff, topped up by 1 GiB when
+  less than 256 MiB remain [H]), up to 16 KiB of samples before `out_timing.start`, then a writer
+  thread with synchronous 8 KiB bulk writes (100 ms timeouts; the device NAKs while its ~20 KB
+  FIFO is full, partial writes are accounted). Codes: `round(offset + gain·V)` with ±10 V (AO)
+  or ±2 V (audio) records. Regeneration = the host re-sends the buffer (as NI). Streaming: host
+  ring (`buffer_samples`, default 1 s); `MYDAQ_ERR_UNDERFLOW` when the ring is empty and the
+  sample clock has run past the samples sent (2 ms + 200 ppm margin), or on an out_fifo event.
+  Stop: stop, status, (finite: m18), m17, fifo disable, endpoint stop, disarm, flush (-225229),
+  unconfigure, `ao_dac.update` per channel (outputs keep the last sample).
+- **Counter** (`counter.c`, protocol.md 10, driver-notes 7): route.connect for source/gate/
+  output, then the captured ctr0 skeleton (reset, configure, m0a–m12, commit, arm/start) with
+  the task parameters: pulse train low/high ticks of 100 MHz (low phase first), finite count 2N;
+  frequency/period = one-counter method (source 100 MHz, gate PFI1, read = ticks per period, app
+  code 3/2 — period **unverified**); edge count on PFI0. Reads: `ctr.1d` (device-side timeout;
+  status -200474 → `MYDAQ_ERR_TIMEOUT`). Lines are reserved: DIO0 (edges), DIO1 (frequency/
+  period), DIO3 (pulse train), DIO4 (FREQOUT); DIO calls on them return `MYDAQ_ERR_BUSY`, and a
+  line driven as DIO output cannot be taken. Finite pulse trains: the finite-only loads
+  (U6..U8 = low, low, high) are [H]. FREQOUT = 100 kHz / n (n = 1..16), the only timebase seen.
+- **DMM**: `set_mode(mode, autorange)` then `read(1, 10000 ms)`; the 11-byte ES51981 packet is
+  converted exactly like NI's driver (digit arithmetic order, scale table per function byte and
+  range digit, calibration slot per requested function); overload → `overload = ±1`,
+  `value = ±range` (DAQmx returns NaN). Mode bytes 0–15 are captured; Ω 20 k–20 M (16–19),
+  diode (20), continuity (21) and hardware autorange (2nd byte 1) come from the driver's
+  capability table and are **unverified** (`mydaq_dmm_range_info.verified = 0`).
 
 ## Transport, mock and how to add a subsystem
 
@@ -173,7 +229,13 @@ Adding a subsystem once the USB agent marks it READY in `docs/protocol.md`:
   map to `DeviceError`: `NO_DEVICE` → `NotConnected`, `BUSY` → `ResourceBusy`, `INVALID_ARG` →
   `InvalidConfig`, `TIMEOUT`, `OVERFLOW`, `UNDERFLOW`, `NOT_SUPPORTED` map by name, transport /
   protocol / device errors → `UsbError`. `UsbAiTask` wraps `mydaq_ai_task` (finite and
-  continuous). Library logs go to the Qt category `mybench.libmydaq` (debug with
+  continuous, AI and audio in), `UsbAoTask` wraps `mydaq_ao_task` (finite, regenerate,
+  streaming; a regenerated task refuses rewrites while running with `NotSupported`; streaming
+  buffer 2 s), `UsbCounterInputTask` (CountEdges up from 0, Frequency, Period; other
+  measurements, falling edges, buffered input → `NotSupported`), `UsbCounterOutputTask` (pulse
+  train, continuous/finite; `update()` restarts the task; idle-high and initial delay →
+  `NotSupported`); FREQOUT through `frequencyOutputStart/Stop`. Audio channels have no
+  on-demand read/write (`NotSupported`: the device needs a sample clock). Library logs go to the Qt category `mybench.libmydaq` (debug with
   `QT_LOGGING_RULES="mybench.*.debug=true"`, every frame with `MYBENCH_USB_TRACE=1`).
 - `UsbProvider` (registered by `DeviceManager` when built with USB): a monitor thread enumerates
   the bus every second **without opening devices**; a newly attached myDAQ is opened (and
@@ -210,8 +272,11 @@ The C tests also pass under AddressSanitizer + UndefinedBehaviorSanitizer and Th
 `mydaq-cli` (built in `build-usb/libmydaq/cli/`), for manual tests — always through devlock on
 the shared bench: `tools/devlock.sh native me -- build-usb/libmydaq/cli/mydaq-cli info`; commands
 `list`, `info [--dump F]`, `ai [-c 0,1] [-r 10|2] [-n N]`, `ai-stream [-c ..] [--rate R] [-n N]
-[--csv F]`, `ao -c 0|1 --volts V`, `dio read|write V [--mask M]|dir MASK in|out`,
-`dmm [-f dcv] [-r RANGE] [-n N]`, `reset`; `-v`/`-vv` for debug/frame logs.
+[--csv F] [--cont SECONDS]`, `ao -c 0|1 --volts V`, `ao-gen [-c 0|1|0,1|L|R|L,R] [--rate R]
+[--amp V] [--n N] [--secs S]`, `dio read|write V [--mask M]|dir MASK in|out`,
+`dmm [-f dcv|acv|dca|aca|ohm|diode|cont] [-r RANGE] [-n N]`, `ctr edges|freq|period [--secs S]`,
+`ctr pulse --freq F [--duty D] [--secs S | --n PULSES]`, `freqout --freq F [--secs S]`, `reset`;
+`-v`/`-vv` for debug/frame logs.
 
 ## Platforms
 
@@ -226,9 +291,10 @@ the shared bench: `tools/devlock.sh native me -- build-usb/libmydaq/cli/mydaq-cl
 
 ## Status per subsystem
 
-"Replay" = byte-exact command sequence against NI's capture and bit-exact values against DAQmx's
-output (mock transport, runs in every `ctest`). "HW" = verified natively on the real myDAQ
-(036CD1C6) through devlock, 2026-09-28 (`libmydaq_hwtest`, `usb_hw_check`, `mydaq-cli`).
+"Replay" = byte-exact command sequence (and AO sample stream) against NI's capture and
+bit-exact values against DAQmx's output (mock transport, runs in every `ctest`). "HW" = verified
+natively on the real myDAQ (036CD1C6) through devlock, 2026-09-28 (`libmydaq_hwtest`,
+`usb_hw_check`, `mydaq-cli`). The device was unplugged for everything added after that run.
 
 | Subsystem | libmydaq | Replay | HW |
 |---|---|---|---|
@@ -239,30 +305,54 @@ output (mock transport, runs in every `ctest`). "HW" = verified natively on the 
 | AI finite, 1–2 ch, mixed ranges, either order, ≤200 kS/s | implemented | 6 captures, 1,800 values | yes: 1 k–200 kS/s × 1–2 ch, abort + restart |
 | AI continuous (credit, read-position reports, overflow events) | implemented | 1 capture, 30,000 values | yes: 1 k, 2×10 k, 2×100 k, 2×200 kS/s for 3 s without loss; 50 kS/s through the C++ backend |
 | AI channel skew | implemented (`min(1500 \| 1250, divisor/n)` ticks) | via the configure frames | — |
-| Audio in | NOT_SUPPORTED | captures exist, protocol not READY | — |
+| Audio in L/R (±2 V, timed) | implemented | 2 captures, 1,440 values | pending |
 | AO static ao0/ao1 (±10 V cal) | implemented | 3 captures | yes: codes = DAQmx (output voltage not measured) |
-| AO hardware timed, audio out | pending protocol | — | — |
-| DIO static (direction, read, write, line subsets) | implemented | 6 captures | yes: 0x55/0xAA/0x0F/0xF0 read back |
+| AO timed finite (1–2 ch, 1 k–200 kS/s) | implemented | 5 captures (commands + sample stream) | pending |
+| AO timed continuous, regenerated / streamed | implemented | 4 captures | pending |
+| AO underflow detection | implemented (timing + out_fifo event [H]) | emulator only | pending |
+| Audio out L/R (±2 V, timed) | implemented | 1 capture | pending |
+| AO ±2 V range on AO0/AO1 | NOT_SUPPORTED | not captured | — |
+| DIO static (direction, read, write, line subsets) | implemented | 9 captures | yes: 0x55/0xAA/0x0F/0xF0 read back |
 | DMM DC V 60/20/2/0.2 V | implemented | 7 readings | yes (values = DAQmx) |
 | DMM AC V 20/2/0.2 V | implemented | 6 readings | yes (2 V range) |
-| DMM DC/AC current 1 A/200 mA/20 mA | implemented | 12 readings | no |
-| DMM resistance 200 Ω, 2 kΩ | implemented | 4 readings (overload) | no |
-| DMM resistance 20 kΩ–20 MΩ (modes 16–19 [H]) | implemented | — | no |
-| DMM diode, continuity | NOT_SUPPORTED | not reachable via DAQmx | — |
+| DMM DC/AC current 1 A/200 mA/20 mA | implemented | 12 readings | pending |
+| DMM resistance 200 Ω, 2 kΩ | implemented | 4 readings (overload) | pending |
+| DMM resistance 20 kΩ–20 MΩ (modes 16–19) | implemented, **unverified** | — | pending |
+| DMM diode (mode 20), continuity (mode 21), HW autorange | implemented, **unverified** | not reachable via DAQmx | pending |
 | ES51981 parsing, overload with sign | implemented | overload packets from Ω captures | no provoked overload |
-| Counter / FREQOUT / PFI | pending protocol (captures exist) | — | — |
-| Power-fault event 0x0c91/0xdead | logged only | — | — |
+| Counter edge count (DIO0) | implemented | 1 capture | pending |
+| Counter frequency (DIO1) | implemented (M) | 1 capture (timeout path) | pending |
+| Counter period (DIO1) | implemented, **unverified** (app code 2) | — | pending |
+| Pulse train continuous (DIO3) | implemented | 2 captures | pending |
+| Pulse train finite | implemented (U6..U8 order [H]) | 1 capture (50 % duty) | pending |
+| Pulse-train update while running | restart (stop + start) | — | — |
+| FREQOUT 100 kHz / n (DIO4) | implemented | 2 captures | pending |
+| FREQOUT 20/10 MHz timebases | not offered | not captured | — |
+| Counter pulse width, semi-period, two-edge, encoders, buffered input | NOT_SUPPORTED | not captured | — |
+| Power-fault event 0x0c91/0xdead | aborts a timed AO task | — | — |
 | Abort of an in-flight command (vendor control) | not used | — | — |
+| AI and AO (stream 4 IN and OUT) at the same time | allowed | emulator only | **pending** (both use `endpoint[4]`) |
 
 ### Hardware verifications still pending (need the device)
 
-1. DMM DC/AC current on all three ranges, and resistance on all six ranges (modes 16–19 are
-   [H]): `MYDAQ_HW_ONLY=dmmall MYDAQ_HW_TESTS=1 ctest --test-dir build-usb -R libmydaq_hw -V`
-   (one reading each, ~30 s); ideally a known resistor/current for the value.
-2. DMM overload with sign (e.g. 200 Ω range with open leads → `+OVERLOAD`).
-3. A run of the updated build (quiet logging, claim-before-serial, DMM table, DIO direction sync
-   at open) through `MYDAQ_HW_TESTS=1 ctest -L hw`.
-4. Hot-plug in the app: unplug during an acquisition → `NotConnected`, device removed from the
-   list; re-plug → listed again within ~5 s.
-5. Continuous AI beyond the 2^31-byte initial credit (> 44 min at 2 × 200 kS/s): not tested.
-6. AO voltages with a wired loopback (AO0 → AI0) to confirm the static AO levels.
+1. Re-run the full hardware suite on the current build: `MYDAQ_HW_TESTS=1 ctest --test-dir
+   build-usb -L hw -V` (adds timed AO finite/regenerate/2×100 kS/s streaming, audio in/out,
+   counter edge count, frequency timeout, 5 Hz pulse train seen on DIO3, finite pulse train,
+   FREQOUT seen on DIO4).
+2. **AI and AO running at the same time** (Bode, scope + generator): both use stream object
+   `endpoint[4]` (IN 0x84 / OUT 0x04); check that stopping one does not stop the other.
+3. DMM current (3 ranges each, DC and AC), resistance (6 ranges; 16–19 [H]), diode (20),
+   continuity (21): `MYDAQ_HW_ONLY=dmmall MYDAQ_HW_TESTS=1 ctest --test-dir build-usb -R
+   libmydaq_hw -V` (~35 s); ideally with a known resistor/diode/current. Hardware autorange with
+   `mydaq-cli dmm` after adding the flag, or a small test.
+4. DMM overload with sign (e.g. 200 Ω range with open leads → `+OVERLOAD`).
+5. Counter frequency and period with a real signal: wire DIO4 (FREQOUT 10 kHz) to DIO1 and run
+   `mydaq-cli ctr freq` / `ctr period` (period app code 2 is unverified); edge count with DIO4 →
+   DIO0 (`mydaq-cli ctr edges`, expect 10,000 per second); finite pulse train with duty ≠ 50 % to
+   confirm the U6..U8 order.
+6. AO voltages and waveforms with a loopback (AO0 → AI0, AO1 → AI1), incl. audio out → audio in.
+7. AO underflow in streaming mode, and the out_fifo event ids the device sends then.
+8. Hot-plug in the app: unplug during an acquisition → `NotConnected`, device removed; re-plug
+   → listed again within ~5 s.
+9. Continuous AI/AO beyond the initial 2^31-byte credit (> 44 min at 2 × 200 kS/s; the AO credit
+   top-up is [H]).

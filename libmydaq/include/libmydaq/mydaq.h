@@ -8,7 +8,11 @@
  *   mydaq_context   one per application or plugin; owns the libusb context and the log settings.
  *   mydaq_device    one opened myDAQ. Opening runs the device initialisation (about 2 s) and reads
  *                   the calibration memory; every conversion uses the device's own constants.
- *   mydaq_ai_task   a hardware-timed analog-input acquisition (finite or continuous).
+ *   mydaq_ai_task   a hardware-timed analog-input acquisition (finite or continuous; AI0/AI1
+ *                   or the audio inputs).
+ *   mydaq_ao_task   a hardware-timed generation (finite, regenerated, streamed; AO0/AO1 or the
+ *                   audio outputs).
+ *   mydaq_ctr_task  a ctr0 task (edge count, frequency, period, pulse train); FREQOUT is a call.
  *   Everything else (on-demand AI, static AO, DIO, DMM) is a plain call on the device.
  *
  * Errors
@@ -21,10 +25,11 @@
  *     serialised on the device's command channel, which is strictly one request / one response.
  *     A long call (a DMM reading takes 1-3 s) therefore delays other calls on the same device;
  *     running acquisitions are not affected (their data flows on separate endpoints).
- *   - An AI task is read from one thread at a time; mydaq_ai_task_stop() and
- *     mydaq_ai_task_available() may be called from any thread (stop wakes a blocked read).
- *   - Streaming uses an internal event thread per device while a task runs; log callbacks can be
- *     invoked from it.
+ *   - A task is used from one thread at a time, except that *_stop(), *_available(),
+ *     *_space_available() and *_is_running() may be called from any thread (stop wakes a blocked
+ *     read/write/wait). Tasks of different subsystems run concurrently.
+ *   - While tasks run, the device has an internal event thread (stream completions, event frames)
+ *     and each running AO task a writer thread; log callbacks can be invoked from them.
  *   - Destroy tasks before closing their device; mydaq_close() destroys any that are left.
  *   - mydaq_close() and mydaq_context_free() must not race with other calls on the same object.
  */
@@ -215,8 +220,8 @@ int mydaq_get_calibration_memory(const mydaq_device *dev, uint8_t *buf, size_t l
 typedef enum mydaq_ai_channel {
     MYDAQ_AI0 = 0,
     MYDAQ_AI1 = 1,
-    MYDAQ_AUDIO_IN_LEFT = 2,    /**< not decoded yet: MYDAQ_ERR_NOT_SUPPORTED */
-    MYDAQ_AUDIO_IN_RIGHT = 3    /**< not decoded yet: MYDAQ_ERR_NOT_SUPPORTED */
+    MYDAQ_AUDIO_IN_LEFT = 2,    /**< ±2 V, AC coupled, timed tasks only (not with AI0/AI1) */
+    MYDAQ_AUDIO_IN_RIGHT = 3
 } mydaq_ai_channel;
 
 typedef enum mydaq_ai_range {
@@ -238,7 +243,8 @@ typedef struct mydaq_ai_channel_config {
 /** Converts an ADC code with the calibration (bit-exact with NI-DAQmx). NaN for a bad range. */
 double mydaq_ai_code_to_volts(const mydaq_calibration *cal, mydaq_ai_range range, int16_t code);
 
-/** One on-demand scan (software timed, ~30 ms): one value per channel, in the given order. */
+/** One on-demand scan (software timed, ~30 ms): one value per channel, in the given order.
+ *  AI0/AI1 only: audio inputs need a sample clock (MYDAQ_ERR_NOT_SUPPORTED). */
 int mydaq_ai_read_scan(mydaq_device *dev, const mydaq_ai_channel_config *channels,
                        size_t num_channels, double *volts);
 /** Same, returning raw ADC codes. */
@@ -263,6 +269,8 @@ typedef struct mydaq_ai_config {
 } mydaq_ai_config;
 
 typedef struct mydaq_ai_task mydaq_ai_task;
+typedef struct mydaq_ao_task mydaq_ao_task;
+typedef struct mydaq_ctr_task mydaq_ctr_task;
 
 /** Achievable per-channel rate as NI-DAQmx coerces it: 100 MHz / floor(100 MHz / requested),
  *  within 0.0233 S/s .. 200 kS/s. */
@@ -311,8 +319,8 @@ int mydaq_ai_task_read_raw(mydaq_ai_task *task, int16_t *codes, size_t samples_p
 typedef enum mydaq_ao_channel {
     MYDAQ_AO0 = 0,
     MYDAQ_AO1 = 1,
-    MYDAQ_AUDIO_OUT_LEFT = 2,   /**< not decoded yet: MYDAQ_ERR_NOT_SUPPORTED */
-    MYDAQ_AUDIO_OUT_RIGHT = 3   /**< not decoded yet: MYDAQ_ERR_NOT_SUPPORTED */
+    MYDAQ_AUDIO_OUT_LEFT = 2,   /**< ±2 V; timed tasks only (not with AO0/AO1) */
+    MYDAQ_AUDIO_OUT_RIGHT = 3
 } mydaq_ao_channel;
 
 /** Converts volts to a DAC code with the ±10 V calibration of AO0/AO1 (round to nearest, ties to
@@ -324,10 +332,57 @@ int mydaq_ao_write(mydaq_device *dev, mydaq_ao_channel channel, double volts);
 /** Same with a raw DAC code. */
 int mydaq_ao_write_raw(mydaq_device *dev, mydaq_ao_channel channel, int16_t code);
 
+/** Hardware-timed output (AO0/AO1 ±10 V, or the audio outputs ±2 V; not mixed). */
+typedef struct mydaq_ao_config {
+    mydaq_ao_channel channels[2];
+    size_t num_channels;     /**< 1 or 2, no duplicates */
+    double sample_rate;      /**< per channel, S/s; coerced like AI (100 MHz / floor divisor) */
+    mydaq_sample_mode mode;
+    /** Continuous only. 1: the buffer written before start repeats until stop (the host
+     *  re-sends it). 0: streaming, the application keeps appending with mydaq_ao_task_write. */
+    int regenerate;
+    size_t buffer_samples;   /**< streaming: host buffer per channel (0 = 1 s, at least 4096) */
+} mydaq_ao_config;
+
+/** Code for a DAC channel in a timed task (AO: ±10 V record, audio: ±2 V record). */
+int mydaq_ao_task_volts_to_code(const mydaq_calibration *cal, mydaq_ao_channel channel,
+                                double volts, int16_t *code);
+/** Creates a task and reserves the timed output (MYDAQ_ERR_BUSY if another task has it);
+ *  static writes to its channels are refused while it exists. */
+int mydaq_ao_task_create(mydaq_device *dev, const mydaq_ao_config *config, mydaq_ao_task **task);
+/** Stops the task if needed (outputs keep their last value) and releases it. NULL allowed. */
+void mydaq_ao_task_destroy(mydaq_ao_task *task);
+/**
+ * Finite or regenerated: sets the buffer (replacing the previous one; before start only,
+ * MYDAQ_ERR_STATE while generating). Streaming: appends, blocking up to timeout_ms (negative =
+ * forever) until the host buffer has room for the whole block; before start it pre-fills.
+ * Returns MYDAQ_ERR_UNDERFLOW once the output ran out of data.
+ */
+int mydaq_ao_task_write(mydaq_ao_task *task, const double *volts, size_t samples_per_channel,
+                        mydaq_layout layout, int timeout_ms);
+/** Same with DAC codes, interleaved by scan. */
+int mydaq_ao_task_write_raw(mydaq_ao_task *task, const int16_t *codes, size_t samples_per_channel,
+                            int timeout_ms);
+/** Starts generating (the buffer, or the pre-filled stream, must not be empty). */
+int mydaq_ao_task_start(mydaq_ao_task *task);
+/** Stops; outputs keep their last value; unsent streaming data is discarded. Idempotent. */
+int mydaq_ao_task_stop(mydaq_ao_task *task);
+/** Finite: waits until the last sample was output (MYDAQ_ERR_TIMEOUT otherwise). */
+int mydaq_ao_task_wait_done(mydaq_ao_task *task, int timeout_ms);
+int mydaq_ao_task_is_running(const mydaq_ao_task *task);
+/** Streaming: samples per channel that can be written without blocking. */
+size_t mydaq_ao_task_space_available(const mydaq_ao_task *task);
+/** The error that ended the generation (MYDAQ_ERR_UNDERFLOW, MYDAQ_ERR_NO_DEVICE, ...), or OK. */
+int mydaq_ao_task_error(const mydaq_ao_task *task);
+double mydaq_ao_task_rate(const mydaq_ao_task *task);
+/** Samples per channel sent to the device since start. */
+uint64_t mydaq_ao_task_samples_sent(const mydaq_ao_task *task);
+
 /* ------------------------------------------------------------------------------------------ */
 /* Digital I/O (port0, lines DIO0..7, static)                                                 */
 
-/** Lines with a 1 in `mask` become outputs (output != 0) or inputs (output == 0). */
+/** Lines with a 1 in `mask` become outputs (output != 0) or inputs (output == 0).
+ *  MYDAQ_ERR_BUSY if the mask includes a line a counter/FREQOUT task uses. */
 int mydaq_dio_set_direction(mydaq_device *dev, uint8_t mask, int output);
 /** Current direction (1 = output), as last set through this handle. The device cannot report
  *  it: the cache starts as all inputs (power-up state), so a program that finds the device left
@@ -360,6 +415,7 @@ typedef struct mydaq_dmm_range_info {
     const char *label;         /**< "20 V", "200 mA", "2 MOhm" (ASCII) */
     double resolution;         /**< display LSB in base units */
     int supported;             /**< 1 if this library can measure it (protocol decoded) */
+    int verified;              /**< 1 if its mode byte was confirmed by a capture of NI-DAQmx */
 } mydaq_dmm_range_info;
 
 /** The ranges of a function, largest first (static table). */
@@ -401,11 +457,71 @@ int mydaq_dmm_cal_slot(mydaq_dmm_function function, const mydaq_es51981 *packet)
 int mydaq_dmm_convert(const mydaq_calibration *cal, mydaq_dmm_function function,
                       const mydaq_es51981 *packet, double full_scale, mydaq_dmm_reading *reading);
 
+/** mydaq_dmm_read_ex() flag: let the meter chip choose the range (not with continuity).
+ *  Unverified on hardware. */
+#define MYDAQ_DMM_HW_AUTORANGE 0x1u
+
+/** Like mydaq_dmm_read() with flags (MYDAQ_DMM_HW_AUTORANGE). */
+int mydaq_dmm_read_ex(mydaq_device *dev, mydaq_dmm_function function, double range,
+                      unsigned flags, mydaq_dmm_reading *reading);
+
 /** One blocking DMM reading (1-3 s: selects the function/range, waits for a fresh packet).
  *  `range` is a full_scale from mydaq_dmm_ranges(). MYDAQ_ERR_NOT_SUPPORTED for functions whose
  *  protocol is not decoded yet. */
 int mydaq_dmm_read(mydaq_device *dev, mydaq_dmm_function function, double range,
                    mydaq_dmm_reading *reading);
+
+/* ------------------------------------------------------------------------------------------ */
+/* Counter ctr0 and FREQOUT (their signals use the DIO lines: PFI n = DIO n)                  */
+
+typedef enum mydaq_ctr_kind {
+    MYDAQ_CTR_COUNT_EDGES = 0,   /**< rising edges on DIO0, counting up from 0 */
+    MYDAQ_CTR_PULSE_TRAIN = 1,   /**< pulse train on DIO3 (idle low, low phase first) */
+    MYDAQ_CTR_FREQUENCY = 2,     /**< frequency of the signal on DIO1 (100 MHz ticks per period;
+                                      unverified on hardware) */
+    MYDAQ_CTR_PERIOD = 3,        /**< period of the signal on DIO1 (unverified on hardware) */
+    MYDAQ_CTR_PULSE_WIDTH = 4    /**< not decoded yet: MYDAQ_ERR_NOT_SUPPORTED (semi-period,
+                                      two-edge separation and encoders likewise) */
+} mydaq_ctr_kind;
+
+typedef struct mydaq_ctr_config {
+    mydaq_ctr_kind kind;
+    double frequency;        /**< pulse train, Hz (100 MHz / whole ticks) */
+    double duty_cycle;       /**< pulse train, 0 < duty < 1 (high and low >= 2 ticks) */
+    mydaq_sample_mode mode;  /**< pulse train: finite or continuous */
+    uint64_t pulses;         /**< finite pulse train: number of pulses */
+} mydaq_ctr_config;
+
+/** Low/high times in 100 MHz ticks for a pulse train, and the resulting frequency/duty. */
+int mydaq_ctr_coerce_pulse(double frequency, double duty, uint32_t *low_ticks,
+                           uint32_t *high_ticks, double *actual_frequency, double *actual_duty);
+/** Creates a ctr0 task, reserving ctr0 and its DIO line (MYDAQ_ERR_BUSY if ctr0 is in use, or
+ *  the line is reserved or configured as a DIO output). */
+int mydaq_ctr_task_create(mydaq_device *dev, const mydaq_ctr_config *config, mydaq_ctr_task **task);
+void mydaq_ctr_task_destroy(mydaq_ctr_task *task);
+int mydaq_ctr_task_start(mydaq_ctr_task *task);
+int mydaq_ctr_task_stop(mydaq_ctr_task *task);
+int mydaq_ctr_task_is_running(const mydaq_ctr_task *task);
+/** Raw value on demand: edge count since start, or 100 MHz ticks of the last period
+ *  (frequency/period). The device waits up to timeout_ms for a value (MYDAQ_ERR_TIMEOUT: no
+ *  complete period, e.g. no signal). */
+int mydaq_ctr_task_read_count(mydaq_ctr_task *task, uint32_t *count, int timeout_ms);
+/** Same, in the measurement's unit: edges, Hz (frequency) or s (period). */
+int mydaq_ctr_task_read(mydaq_ctr_task *task, double *value, int timeout_ms);
+/** Finite pulse train: waits for the last pulse (MYDAQ_ERR_TIMEOUT otherwise). */
+int mydaq_ctr_task_wait_done(mydaq_ctr_task *task, int timeout_ms);
+/** Actual pulse-train frequency and duty cycle. */
+int mydaq_ctr_task_pulse(const mydaq_ctr_task *task, double *frequency, double *duty_cycle);
+/** DIO lines the task reserves (bit n = DIOn). */
+uint8_t mydaq_ctr_task_dio_lines(const mydaq_ctr_task *task);
+
+/** FREQOUT (square wave on DIO4): 100 kHz / n, n = 1..16 (the 20/10 MHz timebases are not
+ *  decoded yet). Nearest achievable frequency. */
+double mydaq_freqout_coerce(double hz);
+/** Starts FREQOUT, reserving DIO4; *actual (may be NULL) receives the frequency. */
+int mydaq_freqout_start(mydaq_device *dev, double hz, double *actual);
+int mydaq_freqout_stop(mydaq_device *dev);
+int mydaq_freqout_running(const mydaq_device *dev);
 
 /* ------------------------------------------------------------------------------------------ */
 /* Diagnostics                                                                                */

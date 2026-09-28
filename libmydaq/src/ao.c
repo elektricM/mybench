@@ -2,7 +2,23 @@
 #include "internal.h"
 #include "proto.h"
 
+static int write_raw(mydaq_device *dev, mydaq_ao_channel channel, int16_t code);
+
 int mydaq_ao_write_raw(mydaq_device *dev, mydaq_ao_channel channel, int16_t code)
+{
+    if (dev && (channel == MYDAQ_AO0 || channel == MYDAQ_AO1) && md_ao_channel_in_task(dev, channel))
+        return MYDAQ_ERR_BUSY;   /* a timed task drives this output */
+    return write_raw(dev, channel, code);
+}
+
+int md_ao_write_code_unchecked(mydaq_device *dev, mydaq_ao_channel channel, double volts)
+{
+    int16_t code;
+    const int rc = mydaq_ao_volts_to_code(&dev->cal, channel, volts, &code);
+    return rc == MYDAQ_OK ? write_raw(dev, channel, code) : rc;
+}
+
+static int write_raw(mydaq_device *dev, mydaq_ao_channel channel, int16_t code)
 {
     md_buf b;
     int rc;

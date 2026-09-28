@@ -13,6 +13,7 @@
 #define EP_CMD_IN 0x81u
 #define EP_EVENT 0x82u
 #define EP_AI 0x84u
+#define EP_AO_OUT 0x04u
 
 /* ---- small containers ------------------------------------------------------------------ */
 
@@ -150,6 +151,21 @@ struct mydaq_mock {
     int ai_streaming;
     uint64_t ai_t0_us, ai_sent_scans, ai_index;
     unsigned hwverify_busy;     /* hwverify answers -225270 this many more times */
+    /* AO (bulk OUT 0x04) */
+    bytes ao_expected;          /* replay: the captured OUT stream */
+    uint64_t ao_offset;         /* bytes received */
+    uint64_t ao_extra;          /* replay: bytes beyond the captured stream */
+    unsigned ao_nch;
+    uint8_t ao_chans[4];
+    uint32_t ao_divisor, ao_n;
+    int ao_started, ao_done_sent;
+    uint64_t ao_t0_us, ao_written, ao_output;   /* bytes accepted / scans output */
+    int16_t ao_last[4];         /* last code output per DAC channel */
+    bytes ao_capture;           /* emulator: everything received (first 4 MiB) */
+    /* counter / FREQOUT */
+    uint32_t ctr_count;
+    int ctr_started;
+    int freqout_divider, freqout_running;
     unsigned oneway_frames;     /* one-way frames received (stream read-position reports) */
     unsigned oneway_extra;      /* replay: one-way frames not in the script */
     uint32_t last_read_pos;
@@ -203,6 +219,8 @@ void mydaq_mock_free(mydaq_mock *m)
     queue_clear(&m->responses);
     queue_clear(&m->events);
     free(m->ai_data.p);
+    free(m->ao_expected.p);
+    free(m->ao_capture.p);
     md_cond_destroy(&m->cond);
     md_mutex_destroy(&m->lock);
     free(m);
@@ -293,6 +311,10 @@ mydaq_mock *mydaq_mock_new_replay(const char *path)
         if (e.kind == '=') {
             if (!parse_values(line + 2, &e))
                 goto bad;
+        } else if (e.kind == 'o') {   /* host OUT stream: one byte string, compared as a whole */
+            if (!parse_hex(line + 2, &m->ao_expected))
+                goto bad;
+            continue;
         } else if (e.kind == '>' || e.kind == '<' || e.kind == 'e' || e.kind == 'd') {
             bytes b = {NULL, 0, 0};
             if (!parse_hex(line + 2, &b)) {
@@ -367,7 +389,12 @@ static void replay_queue_following(mydaq_mock *m)
     }
 }
 
-static int is_oneway(const uint8_t *frame, size_t len) { return len >= 8 && frame[6] == 0; }
+/* Stream read-position reports (one-way, method 09 on the stream object): their cadence depends
+ * on the host's read timing. Other one-way frames (the AO output credit) are compared strictly. */
+static int is_oneway(const uint8_t *frame, size_t len)
+{
+    return len >= 8 && frame[6] == 0 && frame[7] == 0x09;
+}
 
 /* One-way frames (stream read-position reports) depend on the host's read timing, so they are
  * matched loosely: a report the library sends is consumed if it is next in the script and
@@ -644,6 +671,55 @@ static void emulate(mydaq_mock *m, const uint8_t *f, size_t len)
             (uint8_t)((m->dio_latch & m->dio_dir) | (m->dio_inputs & (uint8_t)~m->dio_dir));
         const uint8_t p[4] = {0, 0, 0xff, levels};
         respond(m, ch, 2, 0, p, 4);
+    } else if (obj == 0x05600000u && op == 0x0a && blen >= 24) {   /* out_timing.configure */
+        m->ao_n = be32(b + 4) == 1 ? be32(b + 8) : 0;
+        m->ao_divisor = be32(b + 16);
+        m->ao_started = 0;
+        m->ao_done_sent = 0;
+        m->ao_written = m->ao_output = 0;
+        ack(m, ch);
+    } else if (obj == 0x05610000u && op == 0x09 && blen >= 6) {    /* out_fifo.configure */
+        const unsigned n = be16(b + 4) - 2u;
+        unsigned i;
+        m->ao_nch = n > 4 ? 4 : n;
+        for (i = 0; i < m->ao_nch; ++i)
+            m->ao_chans[i] = b[6 + i];
+        ack(m, ch);
+    } else if (obj == 0x05600000u && op == 0x0c) {                  /* out_timing.start */
+        m->ao_started = 1;
+        m->ao_t0_us = md_now_us();
+        ack(m, ch);
+    } else if (obj == 0x05600000u && op == 0x0d) {                  /* out_timing stop */
+        m->ao_started = 0;
+        ack(m, ch);
+    } else if (obj == 0x05600000u && op == 0x13) {
+        const uint32_t w[3] = {0, 0, 0x01000000u};
+        ack_words(m, ch, w, 3);
+    } else if (obj == 0x05600000u && op == 0x17) {
+        const uint32_t w[1] = {m->ao_n ? 1u : 0u};
+        ack_words(m, ch, w, 1);
+    } else if (obj == 0x0c410000u && op == 0x1d) {                  /* ctr0 read */
+        uint8_t p[8];
+        put32(p, 6);
+        put32(p + 4, m->ctr_count);
+        respond(m, ch, 6, 0, p, 8);
+    } else if (obj == 0x0c410000u && op == 0x14 && blen >= 15) {    /* ctr0 start */
+        m->ctr_started = 1;
+        if (b[14] == 0x0b)   /* finite pulse train: done at once */
+            push_event(m, 0x0c41, 9, 0);
+        ack(m, ch);
+    } else if (obj == 0x0c410000u && op == 0x15) {
+        m->ctr_started = 0;
+        ack(m, ch);
+    } else if (obj == 0x0c400000u && op == 0x08 && blen >= 6) {
+        m->freqout_divider = be16(b + 4);
+        ack(m, ch);
+    } else if (obj == 0x0c400000u && op == 0x09) {
+        m->freqout_running = 1;
+        ack(m, ch);
+    } else if (obj == 0x0c400000u && op == 0x0a) {
+        m->freqout_running = 0;
+        ack(m, ch);
     } else if (obj == 0x0c900000u && op == 0x09 && blen >= 5) {
         m->dmm_mode = b[4];
         ack(m, ch);
@@ -685,13 +761,107 @@ static void emulator_generate(mydaq_mock *m)
     }
 }
 
+/* ---- AO stream (bulk OUT 0x04) ------------------------------------------------------------ */
+
+#define AO_FIFO_BYTES 20000u   /* the device accepts ~20 KB ahead of the output */
+
+/* Advances the emulated output; lock held. */
+static void ao_update(mydaq_mock *m)
+{
+    uint64_t due, have;
+    const size_t scan = m->ao_nch ? 2u * m->ao_nch : 2u;
+    if (!m->ao_started)
+        return;
+    have = m->ao_written / scan;
+    due = have;
+    if (m->realtime && m->ao_divisor) {
+        const double n = (double)(md_now_us() - m->ao_t0_us) / 1e6 * 100e6 / (double)m->ao_divisor;
+        due = n < (double)have ? (uint64_t)n : have;
+    }
+    if (due > m->ao_output)
+        m->ao_output = due;
+    if (m->ao_n && !m->ao_done_sent && m->ao_output >= m->ao_n) {
+        m->ao_done_sent = 1;
+        push_event(m, 0x0560, 1, 0);   /* finite generation complete */
+    }
+}
+
+static int ao_write(mydaq_mock *m, const uint8_t *data, size_t len, size_t *actual,
+                    unsigned timeout_ms)
+{
+    size_t accept = len;
+    md_mutex_lock(&m->lock);
+    if (m->unplugged) {
+        md_mutex_unlock(&m->lock);
+        return MYDAQ_ERR_NO_DEVICE;
+    }
+    if (m->replay) {
+        /* compare with the captured stream; extra data (regeneration, timing) is accepted */
+        const uint64_t exp_len = m->ao_expected.len;
+        const size_t n = m->ao_offset >= exp_len ? 0 : (size_t)(exp_len - m->ao_offset) < len
+                                                          ? (size_t)(exp_len - m->ao_offset)
+                                                          : len;
+        if (n && memcmp(m->ao_expected.p + m->ao_offset, data, n) != 0) {
+            char what[96];
+            snprintf(what, sizeof what, "AO stream differs from the capture at byte %llu:",
+                     (unsigned long long)m->ao_offset);
+            set_error(m, what, data, n < 32 ? n : 32, m->ao_expected.p + m->ao_offset, n < 32 ? n : 32);
+            md_mutex_unlock(&m->lock);
+            return MYDAQ_ERR_USB;
+        }
+        m->ao_offset += len;
+        if (len > n) {
+            m->ao_extra += len - n;
+            md_mutex_unlock(&m->lock);
+            md_sleep_ms(1);   /* throttle an endless regeneration */
+            if (actual)
+                *actual = len;
+            return MYDAQ_OK;
+        }
+    } else {
+        const size_t scan = m->ao_nch ? 2u * m->ao_nch : 2u;
+        uint64_t fifo;
+        ao_update(m);
+        fifo = m->ao_written - m->ao_output * scan;
+        if (!m->ao_started && m->realtime == 0 && fifo >= AO_FIFO_BYTES)
+            fifo = AO_FIFO_BYTES;
+        accept = fifo >= AO_FIFO_BYTES ? 0 : AO_FIFO_BYTES - (size_t)fifo;
+        if (accept > len)
+            accept = len;
+        if (accept >= scan) {
+            const size_t last = (accept / scan - 1) * scan;
+            unsigned i;
+            for (i = 0; i < m->ao_nch; ++i)
+                m->ao_last[m->ao_chans[i] & 3] =
+                    (int16_t)(uint16_t)(data[last + 2 * i] | data[last + 2 * i + 1] << 8);
+        }
+        if (m->ao_capture.len < (4u << 20))
+            bytes_append(&m->ao_capture, data, accept);
+        m->ao_written += accept;
+        m->ao_offset += accept;
+        ao_update(m);
+    }
+    md_mutex_unlock(&m->lock);
+    if (actual)
+        *actual = accept;
+    if (accept < len) {
+        md_sleep_ms(timeout_ms < 2 ? timeout_ms : 2);
+        return MYDAQ_ERR_TIMEOUT;
+    }
+    return MYDAQ_OK;
+}
+
 /* ---- transport ops --------------------------------------------------------------------- */
 
-static int mock_write(void *impl, uint8_t ep, const uint8_t *data, size_t len, unsigned timeout_ms)
+static int mock_write(void *impl, uint8_t ep, const uint8_t *data, size_t len, size_t *actual,
+                      unsigned timeout_ms)
 {
     mydaq_mock *m = impl;
     int rc = MYDAQ_OK;
-    (void)timeout_ms;
+    if (actual)
+        *actual = 0;
+    if (ep == EP_AO_OUT)
+        return ao_write(m, data, len, actual, timeout_ms);
     md_mutex_lock(&m->lock);
     if (m->unplugged) {
         rc = MYDAQ_ERR_NO_DEVICE;
@@ -705,6 +875,8 @@ static int mock_write(void *impl, uint8_t ep, const uint8_t *data, size_t len, u
             rc = replay_write(m, data, len);
         else
             emulate(m, data, len);
+        if (rc == MYDAQ_OK && actual)
+            *actual = len;
     }
     md_mutex_unlock(&m->lock);
     return rc;
@@ -869,6 +1041,10 @@ static int deliver(mydaq_mock *m)
 static int mock_handle_events(void *impl, unsigned timeout_ms)
 {
     mydaq_mock *m = impl;
+    md_mutex_lock(&m->lock);
+    if (!m->replay)
+        ao_update(m);
+    md_mutex_unlock(&m->lock);
     if (deliver(m) == 0)
         md_sleep_ms(timeout_ms < 1 ? timeout_ms : 1);
     return MYDAQ_OK;
@@ -991,3 +1167,26 @@ GETTER(int, mydaq_mock_ai_streaming, m->ai_streaming)
 GETTER(unsigned, mydaq_mock_oneway_frames, m->oneway_frames)
 GETTER(unsigned, mydaq_mock_oneway_extra, m->oneway_extra)
 GETTER(uint32_t, mydaq_mock_last_read_pos, m->last_read_pos)
+GETTER(uint64_t, mydaq_mock_ao_bytes, m->ao_offset)
+GETTER(uint64_t, mydaq_mock_ao_extra, m->ao_extra)
+GETTER(uint64_t, mydaq_mock_ao_expected, (uint64_t)m->ao_expected.len)
+GETTER(uint64_t, mydaq_mock_ao_output_scans, m->ao_output)
+GETTER(int, mydaq_mock_ctr_started, m->ctr_started)
+GETTER(int, mydaq_mock_freqout_divider, m->freqout_running ? m->freqout_divider : 0)
+
+int16_t mydaq_mock_ao_last(const mydaq_mock *cm, int dac)
+{
+    mydaq_mock *m = (mydaq_mock *)(uintptr_t)cm;
+    int16_t v;
+    md_mutex_lock(&m->lock);
+    v = m->ao_last[dac & 3];
+    md_mutex_unlock(&m->lock);
+    return v;
+}
+
+void mydaq_mock_set_counter(mydaq_mock *m, uint32_t count)
+{
+    md_mutex_lock(&m->lock);
+    m->ctr_count = count;
+    md_mutex_unlock(&m->lock);
+}

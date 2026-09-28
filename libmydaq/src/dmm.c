@@ -10,41 +10,42 @@
 
 /* Largest first per function (contiguous per function: mydaq_dmm_ranges returns a slice). */
 static const mydaq_dmm_range_info ranges[] = {
-    {MYDAQ_DMM_DC_VOLTS, 60.0, "60 V", 0.1, 1},
-    {MYDAQ_DMM_DC_VOLTS, 20.0, "20 V", 0.01, 1},
-    {MYDAQ_DMM_DC_VOLTS, 2.0, "2 V", 0.001, 1},
-    {MYDAQ_DMM_DC_VOLTS, 0.2, "200 mV", 0.0001, 1},
-    {MYDAQ_DMM_AC_VOLTS, 20.0, "20 V", 0.01, 1},
-    {MYDAQ_DMM_AC_VOLTS, 2.0, "2 V", 0.001, 1},
-    {MYDAQ_DMM_AC_VOLTS, 0.2, "200 mV", 0.0001, 1},
-    {MYDAQ_DMM_DC_CURRENT, 1.0, "1 A", 0.001, 1},
-    {MYDAQ_DMM_DC_CURRENT, 0.2, "200 mA", 0.0001, 1},
-    {MYDAQ_DMM_DC_CURRENT, 0.02, "20 mA", 0.00001, 1},
-    {MYDAQ_DMM_AC_CURRENT, 1.0, "1 A", 0.001, 1},
-    {MYDAQ_DMM_AC_CURRENT, 0.2, "200 mA", 0.0001, 1},
-    {MYDAQ_DMM_AC_CURRENT, 0.02, "20 mA", 0.00001, 1},
-    {MYDAQ_DMM_RESISTANCE, 20e6, "20 MOhm", 1e4, 1},
-    {MYDAQ_DMM_RESISTANCE, 2e6, "2 MOhm", 1e3, 1},
-    {MYDAQ_DMM_RESISTANCE, 200e3, "200 kOhm", 100.0, 1},
-    {MYDAQ_DMM_RESISTANCE, 20e3, "20 kOhm", 10.0, 1},
-    {MYDAQ_DMM_RESISTANCE, 2e3, "2 kOhm", 1.0, 1},
-    {MYDAQ_DMM_RESISTANCE, 200.0, "200 Ohm", 0.1, 1},
-    {MYDAQ_DMM_DIODE, 2.0, "2 V", 0.001, 0},
-    {MYDAQ_DMM_CONTINUITY, 200.0, "200 Ohm", 1.0, 0},
+    {MYDAQ_DMM_DC_VOLTS, 60.0, "60 V", 0.1, 1, 1},
+    {MYDAQ_DMM_DC_VOLTS, 20.0, "20 V", 0.01, 1, 1},
+    {MYDAQ_DMM_DC_VOLTS, 2.0, "2 V", 0.001, 1, 1},
+    {MYDAQ_DMM_DC_VOLTS, 0.2, "200 mV", 0.0001, 1, 1},
+    {MYDAQ_DMM_AC_VOLTS, 20.0, "20 V", 0.01, 1, 1},
+    {MYDAQ_DMM_AC_VOLTS, 2.0, "2 V", 0.001, 1, 1},
+    {MYDAQ_DMM_AC_VOLTS, 0.2, "200 mV", 0.0001, 1, 1},
+    {MYDAQ_DMM_DC_CURRENT, 1.0, "1 A", 0.001, 1, 1},
+    {MYDAQ_DMM_DC_CURRENT, 0.2, "200 mA", 0.0001, 1, 1},
+    {MYDAQ_DMM_DC_CURRENT, 0.02, "20 mA", 0.00001, 1, 1},
+    {MYDAQ_DMM_AC_CURRENT, 1.0, "1 A", 0.001, 1, 1},
+    {MYDAQ_DMM_AC_CURRENT, 0.2, "200 mA", 0.0001, 1, 1},
+    {MYDAQ_DMM_AC_CURRENT, 0.02, "20 mA", 0.00001, 1, 1},
+    {MYDAQ_DMM_RESISTANCE, 20e6, "20 MOhm", 1e4, 1, 0},
+    {MYDAQ_DMM_RESISTANCE, 2e6, "2 MOhm", 1e3, 1, 0},
+    {MYDAQ_DMM_RESISTANCE, 200e3, "200 kOhm", 100.0, 1, 0},
+    {MYDAQ_DMM_RESISTANCE, 20e3, "20 kOhm", 10.0, 1, 0},
+    {MYDAQ_DMM_RESISTANCE, 2e3, "2 kOhm", 1.0, 1, 1},
+    {MYDAQ_DMM_RESISTANCE, 200.0, "200 Ohm", 0.1, 1, 1},
+    {MYDAQ_DMM_DIODE, 2.0, "2 V", 0.001, 1, 0},
+    {MYDAQ_DMM_CONTINUITY, 200.0, "200 Ohm", 1.0, 1, 0},
 };
 
 #define RANGE_COUNT (sizeof ranges / sizeof ranges[0])
 
 /* dmm.set_mode byte per entry of `ranges` (docs/protocol.md 9.2; -1 = not decoded yet).
- * Captured: DC V, AC V, DC/AC A, 200 Ohm, 2 kOhm. 20 kOhm .. 20 MOhm = 16..19 follow the
- * driver's range order [H]. Diode and continuity are not reachable through DAQmx. */
+ * Captured: DC V, AC V, DC/AC A, 200 Ohm, 2 kOhm. 20 kOhm .. 20 MOhm = 16..19, diode = 20 and
+ * continuity = 21 come from the driver's capability table (docs/driver-notes.md 8), not yet
+ * confirmed by a capture (`verified` = 0). */
 static const int range_modes[RANGE_COUNT] = {
     2, 1, 0, 3,                 /* DC V 60, 20, 2, 0.2 */
     5, 4, 7,                    /* AC V 20, 2, 0.2 */
     10, 9, 8,                   /* DC A 1, 0.2, 0.02 */
     13, 12, 11,                 /* AC A 1, 0.2, 0.02 */
     19, 18, 17, 16, 15, 14,     /* resistance 20M .. 200 */
-    -1, -1,                     /* diode, continuity */
+    20, 21,                     /* diode, continuity (driver capability table; unverified) */
 };
 
 int mydaq_dmm_ranges(mydaq_dmm_function function, const mydaq_dmm_range_info **out, size_t *count)
@@ -201,6 +202,12 @@ static int expected_function(mydaq_dmm_function f, int es_function)
 int mydaq_dmm_read(mydaq_device *dev, mydaq_dmm_function function, double range,
                    mydaq_dmm_reading *reading)
 {
+    return mydaq_dmm_read_ex(dev, function, range, 0, reading);
+}
+
+int mydaq_dmm_read_ex(mydaq_device *dev, mydaq_dmm_function function, double range,
+                      unsigned flags, mydaq_dmm_reading *reading)
+{
     const uint32_t read_args[2] = {1, 10000 /* ms: device-side timeout */};
     int r;
     const uint8_t *pkt;
@@ -218,10 +225,13 @@ int mydaq_dmm_read(mydaq_device *dev, mydaq_dmm_function function, double range,
     if (!ranges[r].supported || range_modes[r] < 0)
         return MYDAQ_ERR_NOT_SUPPORTED;
 
+    if ((flags & MYDAQ_DMM_HW_AUTORANGE) && function == MYDAQ_DMM_CONTINUITY)
+        return MYDAQ_ERR_INVALID_ARG;   /* NI rejects continuity with autorange too */
     md_buf_init(&b);
     md_put_u32(&b, MD_OBJ_DMM);
     md_put_u8(&b, (uint8_t)range_modes[r]);
-    md_put_hex(&b, "000000");
+    md_put_u8(&b, (flags & MYDAQ_DMM_HW_AUTORANGE) ? 1u : 0u);   /* set_mode(mode, autorange) */
+    md_put_hex(&b, "0000");
     md_cmd_lock(dev);
     rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_WRITE, &b, MD_TIMEOUT_LONG, 0, NULL);   /* ~0.5-2 s */
     if (rc == MYDAQ_OK)

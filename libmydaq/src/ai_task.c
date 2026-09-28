@@ -46,7 +46,7 @@ struct mydaq_ai_task {
     md_mutex op_lock;
     int hw_active;           /* device configured and started; cleanup pending (op_lock) */
     void *data_stream;       /* (op_lock) */
-    void *event_stream;      /* (op_lock) */
+    int events_on;           /* registered with the event dispatcher (op_lock) */
 
     md_mutex lock;
     md_cond cond;
@@ -147,57 +147,43 @@ static size_t on_data(void *user, const uint8_t *data, size_t len, size_t reques
     return next;
 }
 
-/* Event frame (driver-notes 1.3): u16 slot, u16 total, u16 length, u16 event id, u16 class,
- * u16 instance, i32 status, payload. */
+/* Events (docs/protocol.md 6.5), dispatched by events.c. */
 #define EV_TIMING_CLASS 0x0550u
 #define EV_FIFO_CLASS 0x0551u
 
-static size_t on_event(void *user, const uint8_t *data, size_t len, size_t requested, int status)
+static void on_event(void *user, const md_event *ev)
 {
     mydaq_ai_task *t = user;
-    uint16_t id = 0, cls = 0;
-    int32_t st = 0;
-    int err = MYDAQ_OK, parsed = 0, applied = 0;
-    size_t next;
-    (void)requested;
+    int err = MYDAQ_OK, applied = 0;
 
-    if (data && status == MYDAQ_OK && len >= 16) {
-        id = md_get_u16(data + 6);
-        cls = md_get_u16(data + 8);
-        st = (int32_t)md_get_u32(data + 12);
-        parsed = 1;
-        if (cls == EV_FIFO_CLASS && id == 2)
-            err = MYDAQ_ERR_OVERFLOW;   /* device FIFO overflow: the stream was not read in time */
-        else if (cls == EV_TIMING_CLASS && id == 7)
-            err = MYDAQ_ERR_OVERFLOW;   /* stopped because of an error: follows the overflow event */
-        else if ((cls == EV_FIFO_CLASS && id == 3) || (cls == EV_TIMING_CLASS && (id == 3 || id == 8)))
-            err = MYDAQ_ERR_DEVICE;     /* FIFO / timing engine error */
-        else if (cls == EV_TIMING_CLASS && id == 5 && t->total_bytes == 0)
-            err = MYDAQ_ERR_DEVICE;     /* "stopped": an error only if we did not stop it */
-    } else if (data && status == MYDAQ_ERR_NO_DEVICE) {
-        err = status;
-    }
+    if (ev->transport_status == MYDAQ_ERR_NO_DEVICE)
+        err = MYDAQ_ERR_NO_DEVICE;
+    else if (ev->transport_status != MYDAQ_OK)
+        return;
+    else if (ev->object_class == EV_FIFO_CLASS && ev->id == 2)
+        err = MYDAQ_ERR_OVERFLOW;   /* device FIFO overflow: the stream was not read in time */
+    else if (ev->object_class == EV_TIMING_CLASS && ev->id == 7)
+        err = MYDAQ_ERR_OVERFLOW;   /* stopped because of an error: follows the overflow event */
+    else if ((ev->object_class == EV_FIFO_CLASS && ev->id == 3) ||
+             (ev->object_class == EV_TIMING_CLASS && (ev->id == 3 || ev->id == 8)))
+        err = MYDAQ_ERR_DEVICE;     /* FIFO / timing engine error */
+    else if (ev->object_class == EV_TIMING_CLASS && ev->id == 5 && t->total_bytes == 0)
+        err = MYDAQ_ERR_DEVICE;     /* "stopped": an error only if we did not stop it */
+    else if (ev->object_class != EV_TIMING_CLASS && ev->object_class != EV_FIFO_CLASS)
+        return;                     /* another task's event */
 
     md_mutex_lock(&t->lock);
-    if (parsed) {
-        ++t->events;
-        t->last_event_status = st;
-    }
+    ++t->events;
+    t->last_event_status = ev->status;
     if (err && !t->error && t->state == TASK_RUNNING) {
         t->error = err;
         applied = 1;
         md_cond_broadcast(&t->cond);
     }
-    next = (t->state == TASK_RUNNING || t->state == TASK_COMPLETE) && status == MYDAQ_OK
-               ? MD_EVENT_SIZE
-               : 0;
     md_mutex_unlock(&t->lock);
-
-    if (parsed)
-        md_log(t->dev->ctx, applied ? MYDAQ_LOG_WARNING : MYDAQ_LOG_DEBUG,
-               "AI event %u on object %04x: status %ld%s", (unsigned)id, (unsigned)cls, (long)st,
-               applied ? (err == MYDAQ_ERR_OVERFLOW ? " (overflow)" : " (error)") : "");
-    return next;
+    if (applied)
+        MD_WARN(t->dev->ctx, "AI event %u on %04x: status %ld (%s)", (unsigned)ev->id,
+                (unsigned)ev->object_class, (long)ev->status, mydaq_error_name(err));
 }
 
 /* ---- device sequences ------------------------------------------------------------------ */
@@ -281,14 +267,14 @@ static int release_hw(mydaq_ai_task *t)
 static void close_streams(mydaq_ai_task *t)
 {
     mydaq_device *dev = t->dev;
-    if (t->data_stream)
+    if (t->data_stream) {
         dev->ops->stream_close(dev->impl, t->data_stream);
-    if (t->event_stream)
-        dev->ops->stream_close(dev->impl, t->event_stream);
-    if (t->data_stream || t->event_stream)
         md_pump_release(dev);
+    }
+    if (t->events_on)
+        md_events_remove(dev, on_event, t);
     t->data_stream = NULL;
-    t->event_stream = NULL;
+    t->events_on = 0;
 }
 
 /* Ends the acquisition on the device and host side. op_lock held. */
@@ -364,7 +350,7 @@ int mydaq_ai_task_create(mydaq_device *dev, const mydaq_ai_config *config, mydaq
     *out = NULL;
     if (!dev || !config)
         return MYDAQ_ERR_INVALID_ARG;
-    rc = md_ai_validate_channels(config->channels, config->num_channels);
+    rc = md_ai_validate_channels(config->channels, config->num_channels, 1);
     if (rc != MYDAQ_OK)
         return rc;
     if (!(config->sample_rate > 0.0) || config->sample_rate > MYDAQ_AI_MAX_RATE * (1.0 + 1e-9))
@@ -472,7 +458,7 @@ int mydaq_ai_task_start(mydaq_ai_task *t)
         return MYDAQ_ERR_INVALID_ARG;
     dev = t->dev;
     md_mutex_lock(&t->op_lock);
-    if (t->hw_active || t->data_stream)
+    if (t->hw_active || t->data_stream || t->events_on)
         finish_hw(t);
     if (!md_is_connected(dev)) {
         md_mutex_unlock(&t->op_lock);
@@ -489,20 +475,20 @@ int mydaq_ai_task_start(mydaq_ai_task *t)
     t->state = TASK_RUNNING;
     md_mutex_unlock(&t->lock);
 
-    md_drain(dev, MD_EP_EVENT_IN, MYDAQ_EP_INTERRUPT, 4);
     md_cmd_lock(dev);
     t->hw_active = 1;
     rc = configure_and_arm(t);
     md_cmd_unlock(dev);
+    if (rc == MYDAQ_OK) {
+        rc = md_events_add(dev, on_event, t);
+        t->events_on = rc == MYDAQ_OK;
+    }
     if (rc == MYDAQ_OK)
         rc = md_pump_acquire(dev);
     if (rc == MYDAQ_OK) {
         rc = dev->ops->stream_open(dev->impl, MD_EP_AI_IN, MYDAQ_EP_BULK, t->transfer_size,
                                    TRANSFER_COUNT, on_data, t, &t->data_stream);
-        if (rc == MYDAQ_OK)
-            rc = dev->ops->stream_open(dev->impl, MD_EP_EVENT_IN, MYDAQ_EP_INTERRUPT,
-                                       MD_EVENT_SIZE, 1, on_event, t, &t->event_stream);
-        if (!t->data_stream && !t->event_stream)
+        if (!t->data_stream)
             md_pump_release(dev);
     }
     if (rc == MYDAQ_OK) {
@@ -536,7 +522,7 @@ int mydaq_ai_task_stop(mydaq_ai_task *t)
     if (!t)
         return MYDAQ_ERR_INVALID_ARG;
     md_mutex_lock(&t->op_lock);
-    if (t->hw_active || t->data_stream)
+    if (t->hw_active || t->data_stream || t->events_on)
         rc = finish_hw(t);
     md_mutex_lock(&t->lock);
     t->state = TASK_IDLE;
@@ -674,7 +660,7 @@ static int read_scans(mydaq_ai_task *t, size_t n, int timeout_ms, int16_t *codes
 
     if (finished) {
         md_mutex_lock(&t->op_lock);
-        if (t->hw_active || t->data_stream)
+        if (t->hw_active || t->data_stream || t->events_on)
             finish_hw(t);
         md_mutex_lock(&t->lock);
         t->state = TASK_IDLE;

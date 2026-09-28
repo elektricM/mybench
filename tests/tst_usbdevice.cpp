@@ -211,12 +211,28 @@ private slots:
         QVERIFY(mydaq_mock_oneway_frames(e.mock) >= 2);   // read-position reports
     }
 
+    void audioIn()
+    {
+        Emulated e;
+        AiConfig config;
+        config.channels = {{AiChannel::AudioInLeft, 2.0}, {AiChannel::AudioInRight, 2.0}};
+        config.sampleRate = 48000.0;
+        config.samplesPerChannel = 480;
+        auto task = e.device->createAiTask(config);
+        task->start();
+        QCOMPARE(task->read(480, 2000)[1].size(), size_t(480));
+        task.reset();
+        QCOMPARE(errorOf([&] { e.device->aiReadStatic(AiChannel::AudioInLeft, 2.0); }), DeviceError::NotSupported);
+        config.channels = {{AiChannel::AudioInLeft, 10.0}};
+        QCOMPARE(errorOf([&] { e.device->createAiTask(config); }), DeviceError::InvalidConfig);
+        config.channels = {{AiChannel::AudioInLeft, 2.0}, {AiChannel::AI0, 2.0}};
+        QCOMPARE(errorOf([&] { e.device->createAiTask(config); }), DeviceError::InvalidConfig);
+    }
+
     void unsupportedAi()
     {
         Emulated e;
         AiConfig config;
-        config.channels = {{AiChannel::AudioInLeft, 2.0}};
-        QCOMPARE(errorOf([&] { e.device->createAiTask(config); }), DeviceError::NotSupported);
         config.channels = {{AiChannel::AI0, 10.0}, {AiChannel::AI0, 10.0}};
         QCOMPARE(errorOf([&] { e.device->createAiTask(config); }), DeviceError::InvalidConfig);
         config.channels = {{AiChannel::AI0, 10.0}};
@@ -234,8 +250,69 @@ private slots:
         QCOMPARE(errorOf([&] { e.device->aoWriteStatic(AoChannel::AO0, 12.0); }), DeviceError::InvalidConfig);
         QCOMPARE(errorOf([&] { e.device->aoWriteStatic(AoChannel::AudioOutLeft, 0.1); }), DeviceError::NotSupported);
         AoConfig config;
-        config.channels = {{AoChannel::AO0, 10.0}};
+        config.channels = {{AoChannel::AO0, 2.0}};   // ±2 V AO range: not captured yet
         QCOMPARE(errorOf([&] { e.device->createAoTask(config); }), DeviceError::NotSupported);
+    }
+
+    void timedAo()
+    {
+        Emulated e;
+        mydaq_mock_set_realtime(e.mock, 1);
+        AoConfig config;
+        config.channels = {{AoChannel::AO0, 10.0}, {AoChannel::AO1, 10.0}};
+        config.sampleRate = 20000.0;
+        config.mode = SampleMode::Finite;
+        std::vector<std::vector<double>> wave(2, std::vector<double>(2000, 0.25));
+        wave[1].assign(2000, -0.5);
+        {
+            auto task = e.device->createAoTask(config);
+            QCOMPARE(errorOf([&] { e.device->aoWriteStatic(AoChannel::AO0, 0.0); }), DeviceError::ResourceBusy);
+            QCOMPARE(errorOf([&] { e.device->createAoTask(config); }), DeviceError::ResourceBusy);
+            task->write(wave);
+            task->start();
+            QVERIFY(task->waitUntilDone(3000));
+            QVERIFY(!task->isRunning());
+            QCOMPARE(mydaq_mock_ao_output_scans(e.mock), uint64_t(2000));
+            int16_t code = 0;
+            mydaq_ao_task_volts_to_code(mydaq_get_calibration(e.device->handle()), MYDAQ_AO1, -0.5, &code);
+            QCOMPARE(mydaq_mock_ao_last(e.mock, 1), code);
+        }
+        e.device->aoWriteStatic(AoChannel::AO0, 0.0);   // released
+
+        // continuous, regenerated: no rewrite while running
+        config.mode = SampleMode::Continuous;
+        config.regenerate = true;
+        {
+            auto task = e.device->createAoTask(config);
+            task->write(wave);
+            task->start();
+            QTest::qWait(150);
+            QVERIFY(task->isRunning());
+            QCOMPARE(errorOf([&] { task->write(wave); }), DeviceError::NotSupported);
+            task->stop();
+        }
+
+        // streaming: the application stops feeding -> Underflow
+        config.regenerate = false;
+        {
+            auto task = e.device->createAoTask(config);
+            task->write(wave);
+            task->start();
+            QVERIFY(task->spaceAvailable() > 0);
+            QTest::qWait(600);   // 2000 samples at 20 kS/s = 0.1 s
+            QCOMPARE(errorOf([&] { task->write(wave, 100); }), DeviceError::Underflow);
+            task->stop();
+        }
+
+        // audio out: ±2 V, timed only
+        AoConfig audio;
+        audio.channels = {{AoChannel::AudioOutLeft, 2.0}};
+        audio.sampleRate = 48000.0;
+        audio.mode = SampleMode::Finite;
+        auto task = e.device->createAoTask(audio);
+        task->write({std::vector<double>(480, 0.1)});
+        task->start();
+        QVERIFY(task->waitUntilDone(3000));
     }
 
     void dmm()
@@ -259,7 +336,6 @@ private slots:
         const DmmReading over = e.device->dmmRead(DmmFunction::DcVoltage, 20.0);
         QVERIFY(over.overload);
         QVERIFY(over.value < 0);
-        QCOMPARE(errorOf([&] { e.device->dmmRead(DmmFunction::Diode, 2.0); }), DeviceError::NotSupported);
         mydaq_mock_set_dmm_packet(e.mock, "10003;804\r\n");   // captures/dmm-acv-r20-x2
         QCOMPARE(e.device->dmmRead(DmmFunction::AcVoltage, 20.0).value, 0.051250171922147272);
         QCOMPARE(errorOf([&] { e.device->dmmRead(DmmFunction::DcVoltage, 3.0); }), DeviceError::InvalidConfig);
@@ -279,12 +355,70 @@ private slots:
         QCOMPARE(mydaq_mock_dio_direction(e.mock), uint8_t(0));
     }
 
-    void counterDefaultsNotSupported()
+    void counters()
     {
         Emulated e;
-        QCOMPARE(errorOf([&] { e.device->createCounterInputTask({}); }), DeviceError::NotSupported);
-        QCOMPARE(errorOf([&] { e.device->frequencyOutputStart(1000.0); }), DeviceError::NotSupported);
+        CounterInputConfig in;   // CountEdges on DIO0
+        {
+            auto task = e.device->createCounterInputTask(in);
+            QCOMPARE(task->dioLinesUsed(), uint8_t(0x01));
+            QCOMPARE(errorOf([&] { e.device->dioSetDirection(0x01, true); }), DeviceError::ResourceBusy);
+            QCOMPARE(errorOf([&] { e.device->createCounterInputTask(in); }), DeviceError::ResourceBusy);
+            task->start();
+            mydaq_mock_set_counter(e.mock, 1234);
+            QCOMPARE(task->readScalar(1000), 1234.0);
+            QCOMPARE(errorOf([&] { task->readBuffered(10, 100); }), DeviceError::NotSupported);
+            task->stop();
+        }
+        in.measurement = CounterMeasurement::Frequency;
+        {
+            auto task = e.device->createCounterInputTask(in);
+            QCOMPARE(task->dioLinesUsed(), uint8_t(0x02));
+            task->start();
+            mydaq_mock_set_counter(e.mock, 100000);   // ticks per period
+            QCOMPARE(task->readScalar(1000), 1000.0);
+            mydaq_mock_set_counter(e.mock, 0);
+            QCOMPARE(errorOf([&] { task->readScalar(100); }), DeviceError::Timeout);
+        }
+        in.measurement = CounterMeasurement::PulseWidth;
+        QCOMPARE(errorOf([&] { e.device->createCounterInputTask(in); }), DeviceError::NotSupported);
+        in.measurement = CounterMeasurement::CountEdges;
+        in.direction = CounterInputConfig::Direction::Down;
+        QCOMPARE(errorOf([&] { e.device->createCounterInputTask(in); }), DeviceError::NotSupported);
+
+        PulseOutputConfig out;
+        out.frequency = 10000.0;
+        out.dutyCycle = 0.25;
+        {
+            auto task = e.device->createCounterOutputTask(out);
+            QCOMPARE(task->actualFrequency(), 10000.0);
+            QCOMPARE(task->actualDutyCycle(), 0.25);
+            task->start();
+            QVERIFY(mydaq_mock_ctr_started(e.mock));
+            task->update(1000.0, 0.5);
+            QVERIFY(task->isRunning());
+            QCOMPARE(task->actualFrequency(), 1000.0);
+            task->stop();
+        }
+        out.mode = SampleMode::Finite;
+        out.pulseCount = 10;
+        {
+            auto task = e.device->createCounterOutputTask(out);
+            task->start();
+            QVERIFY(task->waitUntilDone(1000));
+        }
+        out.idleHigh = true;
+        QCOMPARE(errorOf([&] { e.device->createCounterOutputTask(out); }), DeviceError::NotSupported);
+        QCOMPARE(e.device->coerceCounterFrequency(3000.0), 1e8 / 33333.0);
+
+        QCOMPARE(e.device->coerceFrequencyOutput(30000.0), 100e3 / 3.0);
+        QCOMPARE(e.device->frequencyOutputStart(10000.0), 10000.0);
+        QVERIFY(e.device->frequencyOutputRunning());
+        QCOMPARE(mydaq_mock_freqout_divider(e.mock), 10);
+        QCOMPARE(errorOf([&] { e.device->dioWrite(0x10, 0x10); }), DeviceError::ResourceBusy);
+        e.device->frequencyOutputStop();
         QVERIFY(!e.device->frequencyOutputRunning());
+        e.device->dioWrite(0x10, 0x10);
     }
 
     void unplug()

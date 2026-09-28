@@ -78,6 +78,18 @@ int mydaq_mock_ai_streaming(const mydaq_mock *m);
 unsigned mydaq_mock_oneway_frames(const mydaq_mock *m);
 unsigned mydaq_mock_oneway_extra(const mydaq_mock *m);
 uint32_t mydaq_mock_last_read_pos(const mydaq_mock *m);
+/** AO stream (bulk OUT 0x04): bytes received; replay: bytes beyond the captured stream and the
+ *  captured length (a finite replay must match exactly: received == expected, extra == 0). */
+uint64_t mydaq_mock_ao_bytes(const mydaq_mock *m);
+uint64_t mydaq_mock_ao_extra(const mydaq_mock *m);
+uint64_t mydaq_mock_ao_expected(const mydaq_mock *m);
+/** Emulator: scans the emulated DACs have output, and the last code per DAC channel (0..3). */
+uint64_t mydaq_mock_ao_output_scans(const mydaq_mock *m);
+int16_t mydaq_mock_ao_last(const mydaq_mock *m, int dac);
+/** Emulator: ctr0 edge count returned by reads; ctr0 running; FREQOUT divider (0 = off). */
+void mydaq_mock_set_counter(mydaq_mock *m, uint32_t count);
+int mydaq_mock_ctr_started(const mydaq_mock *m);
+int mydaq_mock_freqout_divider(const mydaq_mock *m);
 
 #ifdef __cplusplus
 }

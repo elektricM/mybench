@@ -62,15 +62,20 @@ static int transfer_status_error(enum libusb_transfer_status s)
 
 /* ---- synchronous transfers ------------------------------------------------------------- */
 
-static int usb_write(void *impl, uint8_t ep, const uint8_t *data, size_t len, unsigned timeout_ms)
+static int usb_write(void *impl, uint8_t ep, const uint8_t *data, size_t len, size_t *actual,
+                     unsigned timeout_ms)
 {
     usb_transport *t = impl;
     int done = 0;
     int rc;
+    if (actual)
+        *actual = 0;
     if (len > 0x7fffffffu)
         return MYDAQ_ERR_INVALID_ARG;
     rc = libusb_bulk_transfer(t->handle, ep, (unsigned char *)(uintptr_t)data, (int)len, &done,
                               timeout_ms);
+    if (actual)
+        *actual = done > 0 ? (size_t)done : 0;
     if (rc != LIBUSB_SUCCESS)
         return md_usb_error(rc);
     return (size_t)done == len ? MYDAQ_OK : MYDAQ_ERR_USB;

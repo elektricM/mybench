@@ -29,8 +29,6 @@ UsbAiTask::UsbAiTask(HandlePtr handle, const AiConfig& config) : m_handle(std::m
 
     // Continuous: samplesPerChannel is the buffer hint; libmydaq keeps at least 2 s on the host.
     const int rc = mydaq_ai_task_create(m_handle->device, &c, &m_task);
-    if (rc == MYDAQ_ERR_NOT_SUPPORTED)
-        throw DeviceError(DeviceError::NotSupported, QStringLiteral("Audio input is not supported by the native myDAQ driver yet"));
     if (rc == MYDAQ_ERR_BUSY)
         throw DeviceError(DeviceError::ResourceBusy, QStringLiteral("Analog input is in use by another task"));
     if (rc == MYDAQ_ERR_INVALID_ARG)

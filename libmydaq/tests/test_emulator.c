@@ -263,8 +263,8 @@ static void test_ai_invalid_config(void)
     cfg.mode = (mydaq_sample_mode)5;
     E_RC(e, mydaq_ai_task_create(e.dev, &cfg, &t), MYDAQ_ERR_INVALID_ARG);
     cfg = finite_config(1, 1000.0, 10);
-    cfg.channels[0].channel = MYDAQ_AUDIO_IN_LEFT;
-    E_RC(e, mydaq_ai_task_create(e.dev, &cfg, &t), MYDAQ_ERR_NOT_SUPPORTED);
+    cfg.channels[0].channel = MYDAQ_AUDIO_IN_LEFT;   /* ±10 V is not an audio range */
+    E_RC(e, mydaq_ai_task_create(e.dev, &cfg, &t), MYDAQ_ERR_INVALID_ARG);
     E_CHECK(e, t == NULL);
     emu_close(&e);
 }
@@ -367,6 +367,241 @@ static void test_ai_host_overflow(void)
     emu_close(&e);
 }
 
+static mydaq_ao_config ao_config(size_t nch, double rate, mydaq_sample_mode mode, int regen)
+{
+    mydaq_ao_config c;
+    memset(&c, 0, sizeof c);
+    c.channels[0] = MYDAQ_AO0;
+    c.channels[1] = MYDAQ_AO1;
+    c.num_channels = nch;
+    c.sample_rate = rate;
+    c.mode = mode;
+    c.regenerate = regen;
+    return c;
+}
+
+static void test_ao_finite(void)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(2, 20e3, MYDAQ_FINITE, 0);
+    mydaq_ao_task *t = NULL;
+    static double wave[2 * 4000];
+    int16_t last0, last1;
+    size_t i;
+    EMU_OPEN(e);
+    mydaq_mock_set_realtime(e.mock, 1);
+    for (i = 0; i < 4000; ++i) {
+        wave[i] = 0.5 * (double)i / 4000.0;
+        wave[4000 + i] = -0.25;
+    }
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_ERR_STATE);   /* no buffer yet */
+    E_RC(e, mydaq_ao_task_write(t, wave, 4000, MYDAQ_GROUP_BY_CHANNEL, 0), MYDAQ_OK);
+    E_RC(e, mydaq_ao_write(e.dev, MYDAQ_AO1, 0.0), MYDAQ_ERR_BUSY);   /* the task owns AO1 */
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_OK);   /* 16 KB (4096 bytes > buffer? no: 16000) */
+    E_CHECK(e, mydaq_ao_task_is_running(t));
+    E_RC(e, mydaq_ao_task_write(t, wave, 4000, MYDAQ_GROUP_BY_CHANNEL, 0), MYDAQ_ERR_STATE);
+    E_RC(e, mydaq_ao_task_wait_done(t, 3000), MYDAQ_OK);   /* 0.2 s */
+    E_CHECK(e, !mydaq_ao_task_is_running(t));
+    E_CHECK(e, mydaq_mock_ao_output_scans(e.mock) == 4000);
+    mydaq_ao_task_volts_to_code(mydaq_get_calibration(e.dev), MYDAQ_AO0, wave[3999], &last0);
+    mydaq_ao_task_volts_to_code(mydaq_get_calibration(e.dev), MYDAQ_AO1, -0.25, &last1);
+    E_CHECK(e, mydaq_mock_ao_last(e.mock, 0) == last0 && mydaq_mock_ao_last(e.mock, 1) == last1);
+    mydaq_ao_task_destroy(t);
+    E_RC(e, mydaq_ao_write(e.dev, MYDAQ_AO1, 0.0), MYDAQ_OK);
+    emu_close(&e);
+}
+
+static void test_ao_regenerate(void)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(1, 50e3, MYDAQ_CONTINUOUS, 1);
+    mydaq_ao_task *t = NULL, *t2 = NULL;
+    double wave[100];
+    size_t i;
+    EMU_OPEN(e);
+    mydaq_mock_set_realtime(e.mock, 1);
+    for (i = 0; i < 100; ++i)
+        wave[i] = 0.1 * sin(2 * 3.14159265358979 * (double)i / 100.0);
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t2), MYDAQ_ERR_BUSY);
+    E_RC(e, mydaq_ao_task_write(t, wave, 100, MYDAQ_GROUP_BY_SCAN, 0), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_OK);
+    md_sleep_ms(300);   /* 15000 samples from a 100-sample buffer */
+    E_CHECK(e, mydaq_ao_task_is_running(t));
+    E_CHECK(e, mydaq_mock_ao_output_scans(e.mock) > 10000);
+    E_CHECK(e, mydaq_ao_task_error(t) == MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_stop(t), MYDAQ_OK);
+    E_CHECK(e, !mydaq_ao_task_is_running(t));
+    mydaq_ao_task_destroy(t);
+    emu_close(&e);
+}
+
+static void test_ao_stream_and_underflow(void)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(1, 20e3, MYDAQ_CONTINUOUS, 0);
+    mydaq_ao_task *t = NULL;
+    static double block[1000];
+    uint64_t end;
+    int k = 0, rc = MYDAQ_OK;
+    EMU_OPEN(e);
+    mydaq_mock_set_realtime(e.mock, 1);
+    cfg.buffer_samples = 10000;
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_ERR_STATE);   /* streaming needs a pre-fill */
+    E_RC(e, mydaq_ao_task_write(t, block, 1000, MYDAQ_GROUP_BY_SCAN, 0), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_OK);
+    end = md_now_ms() + 300;   /* keep up for 0.3 s: 50 ms blocks */
+    while (md_now_ms() < end && rc == MYDAQ_OK) {
+        rc = mydaq_ao_task_write(t, block, 1000, MYDAQ_GROUP_BY_SCAN, 2000);
+        ++k;
+    }
+    E_RC(e, rc, MYDAQ_OK);
+    E_CHECK(e, mydaq_ao_task_is_running(t));
+    md_sleep_ms(1500);   /* stop feeding: the output runs dry */
+    E_RC(e, mydaq_ao_task_write(t, block, 1000, MYDAQ_GROUP_BY_SCAN, 100), MYDAQ_ERR_UNDERFLOW);
+    E_CHECK(e, mydaq_ao_task_error(t) == MYDAQ_ERR_UNDERFLOW);
+    E_RC(e, mydaq_ao_task_stop(t), MYDAQ_OK);
+    mydaq_ao_task_destroy(t);
+    (void)k;
+    emu_close(&e);
+}
+
+static void test_ao_invalid(void)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(2, 1000.0, MYDAQ_FINITE, 0);
+    mydaq_ao_task *t = NULL;
+    double v = 11.0;
+    EMU_OPEN(e);
+    cfg.channels[1] = MYDAQ_AUDIO_OUT_LEFT;   /* AO and audio cannot be mixed */
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_ERR_INVALID_ARG);
+    cfg = ao_config(1, 300e3, MYDAQ_FINITE, 0);
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_ERR_INVALID_ARG);
+    cfg = ao_config(1, 1000.0, MYDAQ_FINITE, 0);
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_write(t, &v, 1, MYDAQ_GROUP_BY_SCAN, 0), MYDAQ_ERR_INVALID_ARG);
+    mydaq_ao_task_destroy(t);
+    cfg.channels[0] = MYDAQ_AUDIO_OUT_RIGHT;
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    v = 2.5;   /* audio is ±2 V */
+    E_RC(e, mydaq_ao_task_write(t, &v, 1, MYDAQ_GROUP_BY_SCAN, 0), MYDAQ_ERR_INVALID_ARG);
+    mydaq_ao_task_destroy(t);
+    emu_close(&e);
+}
+
+static void test_ao_unplug(void)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(1, 1000.0, MYDAQ_CONTINUOUS, 1);
+    mydaq_ao_task *t = NULL;
+    double v[10] = {0};
+    EMU_OPEN(e);
+    mydaq_mock_set_realtime(e.mock, 1);
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_write(t, v, 10, MYDAQ_GROUP_BY_SCAN, 0), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_OK);
+    mydaq_mock_unplug(e.mock);
+    md_sleep_ms(200);
+    E_CHECK(e, mydaq_ao_task_error(t) == MYDAQ_ERR_NO_DEVICE);
+    E_CHECK(e, !mydaq_is_connected(e.dev));
+    E_RC(e, mydaq_ao_task_stop(t), MYDAQ_OK);
+    mydaq_ao_task_destroy(t);
+    emu_close(&e);
+}
+
+static void test_ai_and_ao_together(void)
+{
+    /* the event dispatcher serves both tasks */
+    emu e;
+    mydaq_ai_config ai = finite_config(1, 10e3, 2000);
+    mydaq_ao_config ao = ao_config(1, 10e3, MYDAQ_FINITE, 0);
+    mydaq_ai_task *ta = NULL;
+    mydaq_ao_task *to = NULL;
+    static double buf[2000];
+    EMU_OPEN(e);
+    mydaq_mock_set_realtime(e.mock, 1);
+    E_RC(e, mydaq_ai_task_create(e.dev, &ai, &ta), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_create(e.dev, &ao, &to), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_write(to, buf, 2000, MYDAQ_GROUP_BY_SCAN, 0), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_start(to), MYDAQ_OK);
+    E_RC(e, mydaq_ai_task_start(ta), MYDAQ_OK);
+    E_RC(e, mydaq_ai_task_read(ta, buf, 2000, MYDAQ_GROUP_BY_SCAN, 3000), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_wait_done(to, 3000), MYDAQ_OK);
+    mydaq_ai_task_destroy(ta);
+    mydaq_ao_task_destroy(to);
+    emu_close(&e);
+}
+
+static void test_counter_and_freqout(void)
+{
+    emu e;
+    mydaq_ctr_config cfg;
+    mydaq_ctr_task *t = NULL, *t2 = NULL;
+    uint32_t count = 0;
+    double f = 0, duty = 0;
+    EMU_OPEN(e);
+    memset(&cfg, 0, sizeof cfg);
+    cfg.kind = MYDAQ_CTR_COUNT_EDGES;
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_CHECK(e, mydaq_ctr_task_dio_lines(t) == 0x01);
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t2), MYDAQ_ERR_BUSY);
+    E_RC(e, mydaq_dio_set_direction(e.dev, 0x01, 1), MYDAQ_ERR_BUSY);   /* DIO0 = counter input */
+    E_RC(e, mydaq_dio_set_direction(e.dev, 0x02, 1), MYDAQ_OK);
+    E_RC(e, mydaq_dio_set_direction(e.dev, 0x02, 0), MYDAQ_OK);
+    E_RC(e, mydaq_ctr_task_read_count(t, &count, 1000), MYDAQ_ERR_STATE);   /* not started */
+    E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
+    mydaq_mock_set_counter(e.mock, 10567);
+    E_RC(e, mydaq_ctr_task_read_count(t, &count, 1000), MYDAQ_OK);
+    E_CHECK(e, count == 10567);
+    mydaq_ctr_task_destroy(t);
+    E_RC(e, mydaq_dio_set_direction(e.dev, 0x01, 1), MYDAQ_OK);   /* released */
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_ERR_BUSY);   /* DIO0 driven by DIO */
+    E_RC(e, mydaq_dio_set_direction(e.dev, 0x01, 0), MYDAQ_OK);
+
+    cfg.kind = MYDAQ_CTR_PULSE_TRAIN;
+    cfg.frequency = 3000.0;
+    cfg.duty_cycle = 0.3;
+    cfg.mode = MYDAQ_FINITE;
+    cfg.pulses = 10;
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ctr_task_pulse(t, &f, &duty), MYDAQ_OK);
+    E_CHECK(e, fabs(f - 1e8 / 33333.0) < 1e-6 && fabs(duty - 10000.0 / 33333.0) < 1e-12);
+    E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
+    E_RC(e, mydaq_ctr_task_wait_done(t, 1000), MYDAQ_OK);
+    mydaq_ctr_task_destroy(t);
+    cfg.kind = MYDAQ_CTR_PULSE_WIDTH;
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_ERR_NOT_SUPPORTED);
+    cfg.kind = MYDAQ_CTR_FREQUENCY;   /* 100 MHz ticks per period on DIO1 */
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_CHECK(e, mydaq_ctr_task_dio_lines(t) == 0x02);
+    E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
+    mydaq_mock_set_counter(e.mock, 0);
+    E_RC(e, mydaq_ctr_task_read(t, &f, 100), MYDAQ_ERR_TIMEOUT);   /* no period yet */
+    mydaq_mock_set_counter(e.mock, 10000);
+    E_RC(e, mydaq_ctr_task_read(t, &f, 100), MYDAQ_OK);
+    E_CHECK(e, f == 10000.0);
+    mydaq_ctr_task_destroy(t);
+    cfg.kind = MYDAQ_CTR_PERIOD;
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
+    E_RC(e, mydaq_ctr_task_read(t, &f, 100), MYDAQ_OK);
+    E_CHECK(e, f == 1e-4);
+    mydaq_ctr_task_destroy(t);
+
+    E_CHECK(e, mydaq_freqout_coerce(33000.0) == 100e3 / 3.0);
+    E_CHECK(e, mydaq_freqout_coerce(1e6) == 100e3 && mydaq_freqout_coerce(1.0) == 6250.0);
+    E_RC(e, mydaq_freqout_start(e.dev, 20e3, &f), MYDAQ_OK);
+    E_CHECK(e, f == 20e3 && mydaq_mock_freqout_divider(e.mock) == 5 && mydaq_freqout_running(e.dev));
+    E_RC(e, mydaq_freqout_start(e.dev, 20e3, &f), MYDAQ_ERR_BUSY);
+    E_RC(e, mydaq_dio_write(e.dev, 0x10, 0x10), MYDAQ_ERR_BUSY);   /* DIO4 = FREQOUT */
+    E_RC(e, mydaq_freqout_stop(e.dev), MYDAQ_OK);
+    E_CHECK(e, !mydaq_freqout_running(e.dev) && mydaq_mock_freqout_divider(e.mock) == 0);
+    E_RC(e, mydaq_dio_write(e.dev, 0x10, 0x10), MYDAQ_OK);
+    emu_close(&e);
+}
+
 static void test_close_with_task(void)
 {
     emu e;
@@ -432,7 +667,14 @@ static void test_dmm(void)
     E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_DC_VOLTS, 60.0, &r), MYDAQ_OK);
     E_CHECK(e, r.overload == 1 && r.value == 60.0);
     E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_DC_VOLTS, 5.0, &r), MYDAQ_ERR_INVALID_ARG);
-    E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_DIODE, 2.0, &r), MYDAQ_ERR_NOT_SUPPORTED);
+    mydaq_mock_set_dmm_packet(e.mock, "005121808\r\n");   /* diode 0.512 V (format per driver) */
+    E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_DIODE, 2.0, &r), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_dmm_mode(e.mock) == 20 && fabs(r.value - 0.512) < 1e-12);
+    mydaq_mock_set_dmm_packet(e.mock, "001235808\r\n");   /* continuity: last digit dropped */
+    E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_CONTINUITY, 200.0, &r), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_dmm_mode(e.mock) == 21 && fabs(r.value - 12.0) < 1e-9);
+    E_RC(e, mydaq_dmm_read_ex(e.dev, MYDAQ_DMM_CONTINUITY, 200.0, MYDAQ_DMM_HW_AUTORANGE, &r),
+         MYDAQ_ERR_INVALID_ARG);
     mydaq_mock_set_dmm_packet(e.mock, "41705;804\r\n");   /* captures/dmm-acv-r0.2-x2 */
     E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_AC_VOLTS, 0.2, &r), MYDAQ_OK);
     E_CHECK(e, r.value == 0.21825235477124808 && mydaq_mock_dmm_mode(e.mock) == 7);
@@ -595,6 +837,13 @@ const test_case emulator_tests[] = {
     {"emu.ai_overflow_event", test_ai_overflow_event},
     {"emu.ai_continuous", test_ai_continuous},
     {"emu.ai_host_overflow", test_ai_host_overflow},
+    {"emu.ao_finite", test_ao_finite},
+    {"emu.ao_regenerate", test_ao_regenerate},
+    {"emu.ao_stream_underflow", test_ao_stream_and_underflow},
+    {"emu.ao_invalid", test_ao_invalid},
+    {"emu.ao_unplug", test_ao_unplug},
+    {"emu.ai_and_ao_together", test_ai_and_ao_together},
+    {"emu.counter_freqout", test_counter_and_freqout},
     {"emu.close_with_task", test_close_with_task},
     {"emu.ao", test_ao},
     {"emu.dio", test_dio},

@@ -250,13 +250,21 @@ static void test_scan_list(void)
     c[0].range = MYDAQ_AI_RANGE_2V;
     CHECK_RC(md_ai_scan_entry(&c[0], 1, &e));
     CHECK_INT(e, 0x6c40);
-    CHECK_RC(md_ai_validate_channels(c, 2));
+    CHECK_RC(md_ai_validate_channels(c, 2, 0));
     c[1].channel = MYDAQ_AI0;
-    CHECK_ERR(md_ai_validate_channels(c, 2), MYDAQ_ERR_INVALID_ARG);
+    CHECK_ERR(md_ai_validate_channels(c, 2, 1), MYDAQ_ERR_INVALID_ARG);
     c[1].channel = MYDAQ_AUDIO_IN_LEFT;
-    CHECK_ERR(md_ai_validate_channels(c, 2), MYDAQ_ERR_NOT_SUPPORTED);
-    CHECK_ERR(md_ai_validate_channels(c, 3), MYDAQ_ERR_INVALID_ARG);
-    CHECK_ERR(md_ai_validate_channels(c, 0), MYDAQ_ERR_INVALID_ARG);
+    CHECK_ERR(md_ai_validate_channels(c, 2, 1), MYDAQ_ERR_INVALID_ARG);   /* AI + audio */
+    c[0].channel = MYDAQ_AUDIO_IN_RIGHT;
+    c[1].range = MYDAQ_AI_RANGE_2V;
+    CHECK_RC(md_ai_validate_channels(c, 2, 1));
+    CHECK_ERR(md_ai_validate_channels(c, 2, 0), MYDAQ_ERR_NOT_SUPPORTED);  /* on demand */
+    CHECK_RC(md_ai_scan_entry(&c[1], 0, &e));
+    CHECK_INT(e, 0x2c42);   /* captures/audioLR-finite-48k-n480 */
+    c[1].range = MYDAQ_AI_RANGE_10V;
+    CHECK_ERR(md_ai_validate_channels(c, 2, 1), MYDAQ_ERR_INVALID_ARG);   /* audio is ±2 V */
+    CHECK_ERR(md_ai_validate_channels(c, 3, 1), MYDAQ_ERR_INVALID_ARG);
+    CHECK_ERR(md_ai_validate_channels(c, 0, 1), MYDAQ_ERR_INVALID_ARG);
 }
 
 static void test_errors(void)

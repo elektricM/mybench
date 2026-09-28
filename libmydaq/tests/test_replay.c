@@ -4,6 +4,7 @@
 #include "test.h"
 
 #include "mock/mydaq_mock.h"
+#include "platform.h"
 
 #include <stdlib.h>
 
@@ -274,6 +275,215 @@ static void test_ai01_continuous(void)
     ai_timed("ai01-r10-cont-10k-n5000.mock", ai01_r10, 2, 10e3, MYDAQ_CONTINUOUS, 5000, 3);
 }
 
+static void test_audio_in_lr(void)
+{
+    const mydaq_ai_channel_config c[2] = {{MYDAQ_AUDIO_IN_LEFT, MYDAQ_AI_RANGE_2V},
+                                          {MYDAQ_AUDIO_IN_RIGHT, MYDAQ_AI_RANGE_2V}};
+    ai_timed("audioLR-finite-48k-n480.mock", c, 2, 48000.0, MYDAQ_FINITE, 480, 1);
+}
+
+static void test_audio_in_l(void)
+{
+    const mydaq_ai_channel_config c[1] = {{MYDAQ_AUDIO_IN_LEFT, MYDAQ_AI_RANGE_2V}};
+    ai_timed("audioL-finite-48k-n480-ac.mock", c, 1, 48000.0, MYDAQ_FINITE, 480, 1);
+}
+
+/* Timed AO replay: writes DAQmx's waveform ("=" lines 0.., one per channel), starts, then
+ * finite: waits for completion; continuous: runs `run_ms` (streaming: keeps appending the
+ * waveform in quarter blocks) and stops. The mock compares every command and the OUT stream. */
+static void ao_timed(const char *script, const mydaq_ao_channel *ch, size_t nch, double rate,
+                     mydaq_sample_mode mode, int regenerate, size_t n, int run_ms)
+{
+    replay r;
+    mydaq_ao_config cfg;
+    mydaq_ao_task *task = NULL;
+    double *wave = malloc(sizeof *wave * n * nch);
+    size_t c;
+    int rc;
+    memset(&cfg, 0, sizeof cfg);
+    for (c = 0; c < nch; ++c)
+        cfg.channels[c] = ch[c];
+    cfg.num_channels = nch;
+    cfg.sample_rate = rate;
+    cfg.mode = mode;
+    cfg.regenerate = regenerate;
+    cfg.buffer_samples = 4 * n;
+    if (!wave) {
+        test_fail(__FILE__, __LINE__, "no memory");
+        return;
+    }
+    if (!replay_open(&r, script)) {
+        test_fail(__FILE__, __LINE__, "replay of %s could not start", script);
+        replay_close(&r);
+        free(wave);
+        return;
+    }
+    for (c = 0; c < nch; ++c) {
+        if (mydaq_mock_script_values(r.mock, c, wave + c * n, n) != n) {
+            test_fail(__FILE__, __LINE__, "no waveform for channel %zu in %s", c, script);
+            goto done;
+        }
+    }
+    rc = mydaq_ao_task_create(r.dev, &cfg, &task);
+    if (rc == MYDAQ_OK)
+        rc = mydaq_ao_task_write(task, wave, n, MYDAQ_GROUP_BY_CHANNEL, 1000);
+    if (rc == MYDAQ_OK)
+        rc = mydaq_ao_task_start(task);
+    if (rc != MYDAQ_OK) {
+        test_fail(__FILE__, __LINE__, "AO create/write/start: %s", mydaq_error_name(rc));
+        goto done;
+    }
+    if (mode == MYDAQ_FINITE) {
+        rc = mydaq_ao_task_wait_done(task, 5000);
+        if (rc != MYDAQ_OK) {
+            test_fail(__FILE__, __LINE__, "wait_done: %s", mydaq_error_name(rc));
+            goto done;
+        }
+        if (mydaq_mock_ao_bytes(r.mock) != mydaq_mock_ao_expected(r.mock) ||
+            mydaq_mock_ao_extra(r.mock) != 0) {
+            test_fail(__FILE__, __LINE__, "AO stream: sent %llu bytes, capture %llu",
+                      (unsigned long long)mydaq_mock_ao_bytes(r.mock),
+                      (unsigned long long)mydaq_mock_ao_expected(r.mock));
+            goto done;
+        }
+    } else {
+        const uint64_t end = md_now_ms() + (uint64_t)run_ms;
+        while (md_now_ms() < end) {
+            if (!regenerate) {   /* keep streaming the waveform, a quarter at a time */
+                size_t q;
+                for (q = 0; q < 4; ++q) {
+                    double *block = malloc(sizeof *block * (n / 4) * nch);
+                    size_t k;
+                    for (c = 0; c < nch && block; ++c)
+                        for (k = 0; k < n / 4; ++k)
+                            block[c * (n / 4) + k] = wave[c * n + q * (n / 4) + k];
+                    rc = block ? mydaq_ao_task_write(task, block, n / 4, MYDAQ_GROUP_BY_CHANNEL, 1000)
+                               : MYDAQ_ERR_NO_MEM;
+                    free(block);
+                    if (rc != MYDAQ_OK) {
+                        test_fail(__FILE__, __LINE__, "stream write: %s", mydaq_error_name(rc));
+                        goto done;
+                    }
+                }
+            } else {
+                md_sleep_ms(5);
+            }
+        }
+        if (mydaq_mock_ao_bytes(r.mock) < mydaq_mock_ao_expected(r.mock) / 4) {
+            test_fail(__FILE__, __LINE__, "AO stream: only %llu bytes sent",
+                      (unsigned long long)mydaq_mock_ao_bytes(r.mock));
+            goto done;
+        }
+        rc = mydaq_ao_task_stop(task);
+        if (rc != MYDAQ_OK) {
+            test_fail(__FILE__, __LINE__, "stop: %s", mydaq_error_name(rc));
+            goto done;
+        }
+    }
+done:
+    mydaq_ao_task_destroy(task);
+    if (!test_failed && !replay_close(&r))
+        test_fail(__FILE__, __LINE__, "replay of %s incomplete", script);
+    else if (test_failed)
+        replay_close(&r);
+    free(wave);
+}
+
+static const mydaq_ao_channel ao0[1] = {MYDAQ_AO0};
+static const mydaq_ao_channel ao1[1] = {MYDAQ_AO1};
+static const mydaq_ao_channel ao01[2] = {MYDAQ_AO0, MYDAQ_AO1};
+static const mydaq_ao_channel audio_lr[2] = {MYDAQ_AUDIO_OUT_LEFT, MYDAQ_AUDIO_OUT_RIGHT};
+
+static void test_ao0_finite(void) { ao_timed("ao0-finite-1k-n100-ramp.mock", ao0, 1, 1000.0, MYDAQ_FINITE, 0, 100, 0); }
+static void test_ao1_finite(void) { ao_timed("ao1-finite-1k-n100-ramp.mock", ao1, 1, 1000.0, MYDAQ_FINITE, 0, 100, 0); }
+static void test_ao01_finite(void) { ao_timed("ao01-finite-1k-n100-ramp.mock", ao01, 2, 1000.0, MYDAQ_FINITE, 0, 100, 0); }
+static void test_ao0_finite_10k(void) { ao_timed("ao0-finite-10k-n1000-sine.mock", ao0, 1, 10e3, MYDAQ_FINITE, 0, 1000, 0); }
+static void test_ao0_finite_200k(void) { ao_timed("ao0-finite-200k-n2000-sine.mock", ao0, 1, 200e3, MYDAQ_FINITE, 0, 2000, 0); }
+static void test_audio_out_finite(void) { ao_timed("audiooutLR-finite-48k-n480-sine.mock", audio_lr, 2, 48000.0, MYDAQ_FINITE, 0, 480, 0); }
+static void test_ao0_regen(void) { ao_timed("ao0-cont-1k-n100-regen.mock", ao0, 1, 1000.0, MYDAQ_CONTINUOUS, 1, 100, 100); }
+static void test_ao01_regen(void) { ao_timed("ao01-cont-10k-n1000-regen.mock", ao01, 2, 10e3, MYDAQ_CONTINUOUS, 1, 1000, 100); }
+static void test_ao0_stream(void) { ao_timed("ao0-cont-10k-n1000-stream.mock", ao0, 1, 10e3, MYDAQ_CONTINUOUS, 0, 1000, 100); }
+static void test_ao01_stream(void) { ao_timed("ao01-cont-10k-n1000-stream.mock", ao01, 2, 10e3, MYDAQ_CONTINUOUS, 0, 1000, 100); }
+
+/* ---- counter / FREQOUT ---- */
+
+static void test_ctr_count_edges(void)
+{
+    replay r;
+    mydaq_ctr_config cfg;
+    mydaq_ctr_task *t = NULL;
+    uint32_t count = 99;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.kind = MYDAQ_CTR_COUNT_EDGES;
+    REPLAY_OPEN(r, "ctr-countedges-pfi0-1s.mock");
+    REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, &cfg, &t));
+    REPLAY_STEP(r, mydaq_ctr_task_start(t));
+    REPLAY_STEP(r, mydaq_ctr_task_read_count(t, &count, 10015));
+    REPLAY_CHECK(r, count == 0);   /* nothing connected to DIO0 */
+    REPLAY_STEP(r, mydaq_ctr_task_stop(t));
+    mydaq_ctr_task_destroy(t);
+    CHECK(replay_close(&r));
+}
+
+static void test_ctr_frequency_timeout(void)
+{
+    /* nothing on DIO1: the device answers the read with its timeout status after 10 s */
+    replay r;
+    mydaq_ctr_config cfg;
+    mydaq_ctr_task *t = NULL;
+    double f = 0;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.kind = MYDAQ_CTR_FREQUENCY;
+    REPLAY_OPEN(r, "ctr-cifreq-pfi1-timeout.mock");
+    REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, &cfg, &t));
+    REPLAY_STEP(r, mydaq_ctr_task_start(t));
+    REPLAY_CHECK(r, mydaq_ctr_task_read(t, &f, 10015) == MYDAQ_ERR_TIMEOUT);
+    REPLAY_STEP(r, mydaq_ctr_task_stop(t));
+    mydaq_ctr_task_destroy(t);
+    CHECK(replay_close(&r));
+}
+
+static void pulse_train(const char *script, double f, double duty, mydaq_sample_mode mode,
+                        uint64_t pulses)
+{
+    replay r;
+    mydaq_ctr_config cfg;
+    mydaq_ctr_task *t = NULL;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.kind = MYDAQ_CTR_PULSE_TRAIN;
+    cfg.frequency = f;
+    cfg.duty_cycle = duty;
+    cfg.mode = mode;
+    cfg.pulses = pulses;
+    REPLAY_OPEN(r, script);
+    REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, &cfg, &t));
+    REPLAY_STEP(r, mydaq_ctr_task_start(t));
+    if (mode == MYDAQ_FINITE)
+        REPLAY_STEP(r, mydaq_ctr_task_wait_done(t, 5000));
+    else
+        REPLAY_STEP(r, mydaq_ctr_task_stop(t));
+    mydaq_ctr_task_destroy(t);
+    CHECK(replay_close(&r));
+}
+
+static void test_co_1k(void) { pulse_train("co-ptrain-1k-d0.5.mock", 1000.0, 0.5, MYDAQ_CONTINUOUS, 0); }
+static void test_co_10k(void) { pulse_train("co-ptrain-10k-d0.25.mock", 10e3, 0.25, MYDAQ_CONTINUOUS, 0); }
+static void test_co_finite(void) { pulse_train("co-finite-100-1k.mock", 1000.0, 0.5, MYDAQ_FINITE, 100); }
+
+static void freqout(const char *script, double hz)
+{
+    replay r;
+    double actual = 0;
+    REPLAY_OPEN(r, script);
+    REPLAY_STEP(r, mydaq_freqout_start(r.dev, hz, &actual));
+    REPLAY_CHECK(r, actual == hz);
+    REPLAY_STEP(r, mydaq_freqout_stop(r.dev));
+    CHECK(replay_close(&r));
+}
+
+static void test_freqout_10k(void) { freqout("freqout-10k.mock", 10e3); }
+static void test_freqout_100k(void) { freqout("freqout-100k.mock", 100e3); }
+
 static void ao_static(const char *script, mydaq_ao_channel ch, double volts)
 {
     replay r;
@@ -427,6 +637,25 @@ const test_case replay_tests[] = {
     {"replay.ai01_mixed_ranges", test_ai01_mixed_ranges},
     {"replay.ai01_finite_200k", test_ai01_finite_200k},
     {"replay.ai01_continuous", test_ai01_continuous},
+    {"replay.audio_in_lr", test_audio_in_lr},
+    {"replay.audio_in_l", test_audio_in_l},
+    {"replay.ao0_finite", test_ao0_finite},
+    {"replay.ao1_finite", test_ao1_finite},
+    {"replay.ao01_finite", test_ao01_finite},
+    {"replay.ao0_finite_10k", test_ao0_finite_10k},
+    {"replay.ao0_finite_200k", test_ao0_finite_200k},
+    {"replay.audio_out_finite", test_audio_out_finite},
+    {"replay.ao0_regen", test_ao0_regen},
+    {"replay.ao01_regen", test_ao01_regen},
+    {"replay.ao0_stream", test_ao0_stream},
+    {"replay.ao01_stream", test_ao01_stream},
+    {"replay.ctr_count_edges", test_ctr_count_edges},
+    {"replay.ctr_frequency_timeout", test_ctr_frequency_timeout},
+    {"replay.co_ptrain_1k", test_co_1k},
+    {"replay.co_ptrain_10k_d0.25", test_co_10k},
+    {"replay.co_finite", test_co_finite},
+    {"replay.freqout_10k", test_freqout_10k},
+    {"replay.freqout_100k", test_freqout_100k},
     {"replay.ao0_p0.5", test_ao0_p05},
     {"replay.ao0_m0.5", test_ao0_m05},
     {"replay.ao1_p0.5", test_ao1_p05},
