@@ -5,7 +5,7 @@ protocol description). This file records what NI's driver binaries tell us about
 our own words: message formats, object and method ids, argument layouts, constants, formulas,
 sequences. No NI code or data is reproduced; the binaries stay in `ni-local/` (gitignored).
 
-Sources (all DAQmx 25.8, x64): `ni-local/allk/niraptrk.dll` (kernel device driver for the
+Sources (all DAQmx 25.8, x64; nistc3ru.dll added for the counter experts): `ni-local/allk/niraptrk.dll` (kernel device driver for the
 "Raptor" family: X-series and myDAQ), `nifslk.dll` (the "Fusion" RPC transport over USB),
 `nistc3rk.dll` (counter/PLL/filter objects), `nipalusbed.sys`; `ni-local/user/niraptru.dll`
 (user-mode part: DAQmx attribute "experts", calibration and DMM conversion; copied from the
@@ -18,8 +18,8 @@ Verification scripts (all run against every capture in `captures/`):
 
 | script | checks | result |
 |---|---|---|
-| `tools/drv_fusion.py` | method table below (argument and reply types) against every command frame | **1616/1616 requests, 1476/1476 replies decode exactly** (every capture in captures/ as of 2026-09-28) |
-| `tools/drv_dmm.py` | DMM packet → value conversion + calibration slots | **8/8 DMM readings bit-exact** |
+| `tools/drv_fusion.py` | method table below (argument and reply types) against every command frame | **3565/3565 requests, 3361/3361 replies decode exactly** (every capture in captures/, 91 files, incl. counter/FREQOUT) |
+| `tools/drv_dmm.py` | DMM packet → value conversion + calibration slots + set_mode table | **30/30 DMM readings bit-exact** (DC/AC V, DC/AC A, Ω overload) |
 | `tools/drv_calmem.py` | calibration memory map (directory, section CRCs, timestamps, all tables) + AI/AO formulas on every capture | **all 6 CRCs OK; 87441/87441 AI values (on-demand + streamed, 1–2 channels, mixed ranges, finite + continuous) and 4/4 AO codes bit-exact** |
 
 ---
@@ -169,12 +169,12 @@ the channel list); DIO port0 = instance 1; stream endpoint objects use the strea
 | 0x0551 | input FIFO | 08 configure(5 × u32, 3 × u8) · 09 · 0a |
 | 0x0560 | output timing | 08 (u8, u8) · 09 (u32[]) · 0a configure(5 × u32, 22 × u8) · 0b (u8, u8) · 0c (u8) · 0d–0f · 10 (u8) · 11 · 12 (u32) · 13 status → u32, u32, u8 · 14 (u32) · 15 (u32) · 17 → u32 · 18 |
 | 0x0561 | output FIFO | 08 (u8) · 09 configure(u8[] one byte per output channel (DAC order list, not sample data), u8, u8) · 0a (u8[]) · 0b |
-| 0x0c40 | frequency output (nistc3rk) | 08 (u16, u8, u8) · 09 · 0a · 0b |
-| 0x0c41 | counter (nistc3rk `tSTC3CtrResource`) | 30 methods 08..22; e.g. 09 (9 × u32, 2 × u16, 4 × u8), 0b (16 × u16), 12 (12 × u8), 1d read(u32, u32, u32, u32, u16, u8) → u32[] |
+| 0x0c40 | frequency output (nistc3rk) | 08 configure(u16 divider, u8, u8) · 09 start · 0a stop · 0b release (§7) |
+| 0x0c41 | counter ctr0 (nistc3rk `tSTC3CtrResource`) | 27 methods 08..22, full table in §7.1; 09 configure, 14 arm, 1d read → u32[] |
 | 0x0c42 | digital input filter | 09 (u8[], u8) |
 | 0x0c43 | trigger filter | 08 (u16, u8[]) |
 | 0x0c44 | PLL | 08 · 09 (u16, u16, u32) · 0a · 0b |
-| 0x0c90 | DMM (`tDMMControl`) | 08 init · 09 set_mode(u8 mode, u8) · 0a read(u32 1, u32 timeout ms) → u8[] packet |
+| 0x0c90 | DMM (`tDMMControl`) | 08 init · 09 set_mode(u8 mode, u8 hw_autorange) · 0a read(u32 1, u32 timeout ms) → u8[] packet (§8) |
 | 0x0c92 | power task status | 09 () — sent when an output task starts, together with a subscription to event 0xdead of class 0x0c91 (power fault) |
 
 The complete machine-readable table is `M` in `tools/drv_fusion.py` (the counter/PLL/filter
@@ -398,16 +398,10 @@ Rate coercion: divisor = 100e6 / rate rounded to an integer, actual rate = 100e6
 the formula: 12345 S/s → 8100 → 12345.679 S/s; floor vs round not yet distinguished — needs a
 rate whose ideal divisor has a fraction ≥ .5, e.g. 7 kS/s → 14285.7).
 
-### 6.2 Counters (H for classes/signatures, from nistc3rk.dll stubs)
-ctr0 is a Fusion object of class **0x0c41** (30 methods), with frequency output 0x0c40, digital
-input filter 0x0c42, trigger filter 0x0c43, PLL 0x0c44. Signatures (request args; replies not
-typed yet): 08 (); 09 (9 u32, 2 u16, 4 u8) → status; 0a (u16); 0b (16 u16) → status; 0c (u16);
-0d (u16, u16); 0e (); 0f (6 u16) → status; 10 (7 u16, u8) → status; 11 (5 u16); 12 (12 u8) →
-status; 13 (); 14 (u32, u32, u16, 4 u8); 15–17 (); 18 (u32, u32); 19 (u16); 1a–1c (); 1d read
-(u32, u32, u32, u32, u16, u8) → status, u32[]; 1e (); 1f (u8, u8); 20 (); 21 (5 u8) → status;
-22 (u32, u32, u16, u8, u8). Semantics need captures (edge count, period, pulse width, pulse
-train); by analogy with the STC3 counter the u16 groups are input-select / gate / aux routing and
-the u32 pairs are load registers A/B (L).
+### 6.2 Counters and FREQOUT
+
+See section 7 for the full counter/FREQOUT description (method tables, sequences, routing,
+measurement modes).
 
 ### 6.3 Routing ids (H: they are constants in niraptrk, not hashes of names)
 `route.connect` takes u32 route ids. They come from a fixed map (niraptrk 0x1800f1a90) from the
@@ -419,9 +413,131 @@ Examples: 0x2800002e → 0x416a2b93 (set to 1 at init), 0x2000002e → 0x80d0b3e
 in STC3 routing muxes, M). Replay the init values verbatim; counter/PFI tasks will add their own
 ids (capture them).
 
-## 7. (reserved: counter method semantics once captured)
+## 7. Counter (ctr0) and FREQOUT
 
-## 8. DMM (H — niraptru tES51981DMMUserSupervisor 0x18048c2b0; 8/8 bit-exact)
+Sources: nistc3rk.dll request stubs (class ids, method ids, argument types: **H**), nistc3ru.dll
+(user-mode counter "experts": measurement-type table **H**), niraptrk.dll routing maps (**H** for
+the ids), captures `ctr-countedges-pfi0-1s`, `ctr-cifreq-pfi1-timeout`, `co-ptrain-1k-d0.5`,
+`co-ptrain-10k-d0.25`, `co-finite-100-1k`, `pfidio-co-100hz-port0`, `freqout-10k`,
+`freqout-100k`, `ctrloop-freqout-10k` (all decode exactly with `tools/drv_fusion.py`).
+
+### 7.1 Objects and methods (H for ids/types; names ours, role from captures = M)
+
+`ctr` = class 0x0c41 instance 0; `freqout` = 0x0c40 instance 0.
+
+| method | args | reply | role seen |
+|---|---|---|---|
+| ctr 08 | – | – | reset (first call of every task) |
+| ctr 09 | 9 × u32, u16, u16, 4 × u8 | – | main configuration (7.3) |
+| ctr 0a | u16 | – | 0 in all captures |
+| ctr 0b | 16 × u16 | – | mode fields (7.3) |
+| ctr 0c | u16 | – | 1 for input tasks, 0 for output tasks |
+| ctr 0d | u16, u16 | – | (2, 0) always |
+| ctr 0e | – | – | always sent |
+| ctr 0f | 6 × u16 | – | (0,0,0,3,0,0); last = 7 for finite pulse generation |
+| ctr 10 | 7 × u16, u8 | – | gate/edge options (7.3) |
+| ctr 11 | 5 × u16 | – | (0,1,0,0,0) always |
+| ctr 12 | 12 × u8 | – | all 0; byte 8 = 1 for finite pulse generation; sent twice (before and after 13) |
+| ctr 13 | – | – | commit |
+| ctr 14 | u32, u32, u16, 4 × u8 | – | **arm/start**: initial load values + application code |
+| ctr 15, 16, 17 | – | – | stop / disarm / unconfigure (sent in this order at task stop) |
+| ctr 18 | u32, u32 | – | not seen (probably "write new loads" for on-the-fly pulse-train updates, L) |
+| ctr 19 | u16 | – | not seen |
+| ctr 1a, 1b, 1c, 1e | – | u32 | not seen (status/count readers, L) |
+| ctr 1d | **read**(u32 n, u32 1, u32 timeout_ms, u32 1, u16 1, u8 app) | u32[] values | on-demand read of n values; count 10567 read back in `ctrloop-freqout-10k` (H). With no input signal the reply status is -200474 (timeout) after the timeout (`ctr-cifreq-pfi1-timeout`) |
+| ctr 1f | u8, u8 | u32 | not seen |
+| ctr 20 | – | u64 | not seen |
+| ctr 21 | 5 × u8 | – | not seen |
+| ctr 22 | u32, u32, u16, u8, u8 | – | not seen |
+| freqout 08 | configure(u16 divider, u8, u8) | – | see 7.5 |
+| freqout 09 / 0a / 0b | – | – | start / stop / release |
+| 0x0c42 m09 | (u8[], u8) | – | digital input filter (not used by DAQmx defaults) |
+| 0x0c43 m08 | (u16, u8[]) | – | trigger filter |
+| 0x0c44 m08–0b | –, (u16, u16, u32), –, → u32 | | PLL (not used by the myDAQ) |
+
+Event: ctr (0x0c41) **event 9** status 0 arrives when a finite pulse generation completes
+(`co-finite-100-1k`) (H).
+
+### 7.2 Task sequence (H: identical order in all captures)
+
+```
+route.connect(...)                 source/gate/output routes (7.4)
+ctr.reset; ctr.configure(...); ctr.m0a(0); ctr.m0b(...); ctr.m0c(in?1:0); ctr.m0d(2,0); ctr.m0e
+ctr.m0f(...); ctr.m10(...); ctr.m11(0,1,0,0,0); ctr.m12(...)
+[route.connect(output PFI)]        output tasks only
+ctr.commit; ctr.m12(...) again
+ctr.arm(loadA, loadB, 0, app, ...) counter runs
+ctr.read(...)                      input tasks, on demand, as often as needed
+ctr.disarm(15); ctr.m16; ctr.unconfigure(17)
+FREQOUT: route PFI4; freqout.configure; freqout.start ... freqout.stop; freqout.release
+```
+
+### 7.3 Application code and the configuration fields
+
+**Application code** (H — nistc3ru tCounterChannelExpert 0x180058fe0, keyed on the public DAQmx
+measurement/output types): 1 = count edges, 2 = period, 3 = frequency, 4 = pulse width,
+5 = semi-period, 6 = two-edge separation, 7 = linear encoder, 0x0e = angular encoder, 0x0f = CI
+pulse (freq/time/ticks), 9 = pulse-train output (CO pulse freq/time/ticks). Captures confirm 1, 3
+and 9 in `ctr.configure` u8 #2 and `ctr.arm` u8 #1 (and in the last byte of `ctr.read`), and show
+**0x0b for a finite pulse train** (9 + finite, M).
+
+Fields that change between the captured modes (M: differential, 6 tasks):
+
+| field | count edges (PFI0) | frequency (PFI1, 1 counter) | pulse train (continuous) | finite pulse train (N=100) |
+|---|---|---|---|---|
+| configure u32 0..8 | all 0 | 1,0,1,0,0,0,0,0,0 | 2,0,**L**,**H**,0,0,0,0,0 | 2,2,0,**2N**,0,0,L,H,H |
+| configure u8 0..3 | 0,1,0,1 | 0,3,1,0 | 1,9,0,1 | 0,0x0b,0,1 |
+| m0b (16 × u16) | [7]=2, [12]=1 | [3]=1, [7]=3, [9]=2, [12]=1 | [0]=1, [2]=1, [4]=1 | [0]=1,[2]=1,[4]=1,[5]=1,[6]=2,[15]=2 |
+| m0c | 1 | 1 | 0 | 0 |
+| m10 | 0… | [2]=1, [4]=1 | [0]=1, [3]=1, [4]=1 | 0… |
+| arm u32,u32,u16,u8×4 | 0,0,0,1,1,0,0 | 1,0,0,3,0,0,0 | L,H,0,9,1,0,1 | 0,2N,0,0x0b,1,0,0 |
+
+- **Pulse train loads (H)**: L = low (idle) time and H = high time in ticks of the 100 MHz
+  timebase: 1 kHz 50 % → 50000/50000; 10 kHz 25 % duty → L = 7500, H = 2500; 100 Hz → 500000
+  each. Frequency = 100 MHz / (L + H), duty = H / (L + H). Finite: count field = 2·N (number of
+  half-periods).
+- **Frequency / period (M)**: the one-counter method counts the 100 MHz timebase (source select
+  0x1e) between consecutive rising edges of the gate (PFI1). `ctr.read` returns the tick count per
+  period: period = count / 100 MHz, frequency = 100 MHz / count. Period (app 2) differs from
+  frequency (app 3) only in the application code (same expert, nistc3ru 0x180073640
+  instantiated with 2 or 3) (H for the shared expert, M for identical wire fields).
+- **Pulse width (4), semi-period (5), two-edge separation (6), encoders (7/0x0e)**: not captured.
+  They use their own experts (nistc3ru 0x18008da80, 0x18008fc90, 0x180096880, 0x180079680);
+  expect the same message sequence with the application code changed and different m0b/m10 gate
+  options. Default terminals (DAQmx, `capabilities.txt`): pulse width / period / frequency gate =
+  PFI1; two-edge first = PFI2 (aux), second = PFI1 (gate); encoder A = PFI0 (source), B = PFI2
+  (aux), Z = PFI1 (gate); count-edges direction = PFI2, reset = PFI1. **Capture each once before
+  implementing** (L for field values).
+- **Buffered (implicit/sample-clocked) counter input**: not captured; the counter has a bulk stream
+  path (`iCtrBulkTransferManager` in nistc3rk) that presumably uses a stream endpoint like AI (L).
+
+### 7.4 Routing for counters and PFI lines (H for the id tables, M for the value meanings)
+
+Route ids come from two NI routing maps inside niraptrk (counter map 0x1800f1f30, trigger/PFI map
+0x1800f21e0). They are written with `route.connect([id…], [value…])`.
+
+| id | meaning | values seen |
+|---|---|---|
+| 0x587c6efe (+ 0x37cf14dd = 0) | ctr0 **source** select | PFI0 = 1, 100 MHz timebase = 0x1e, FREQOUT = 0x2b |
+| 0x097d2c54 (+ 0x11f9be17 = 0) | ctr0 **gate** select | PFI1 = 2 (so PFIn = n + 1, M) |
+| 0xc7c20613 (+ 0x88fbba44 = 0) | ctr0 (aux/second gate?) | 0x2f in every task (none, M) |
+| PFI n output select: 0xc51cc492, 0xb21bf404, 0x2b12a5be, 0x5c159528, 0xc271008b (n = 0..4) | what drives the pin | 0 = nothing (input), 0x0d = ctr0 output, 0x0f = FREQOUT |
+| PFI n output enable: 0x8e309935, 0xf937a9a3, 0x603ef819, 0x1739c88f, 0x895d5d2c | pin direction | 1 = drive, 0 = input |
+
+Input tasks set the used PFI to (select 0, enable 0); output tasks set PFI3 (ctr0 out) or PFI4
+(FREQOUT) to (0x0d or 0x0f, 1). The 12 ids zeroed in the device init are the same register
+families for the other lines (M). Source values for the 20 MHz and 100 kHz timebases are not
+known yet (capture a count-edges task with those sources).
+
+### 7.5 FREQOUT (H for the arg mapping, M for the timebase)
+
+`freqout.configure(divider, a, b)`: output = timebase / divider (STC3 FREQOUT: divider 1..16).
+(a, b) is a one-hot timebase selector derived from a 3-value setting (nistc3rk 0x18003e390):
+setting 0 → (0, 0), 1 → (0, 1), 2 → (1, 0). DAQmx used (1, 0) with divider 10 for 10 kHz and
+divider 1 for 100 kHz, so (1, 0) = 100 kHz timebase. The other two are presumably 20 MHz and
+10 MHz (L). The output appears on PFI4 after `route.connect([0xc271008b, 0x895d5d2c], [0x0f, 1])`.
+
+## 8. DMM (H — niraptru tES51981DMMUserSupervisor 0x18048c2b0; 30/30 captured readings bit-exact)
 
 - Measurement: `dmm.set_mode(mode, 0)` (takes ~0.5–1.5 s: the meter chip settles), then
   `dmm.read(1, 10000)` → 11-byte ASCII packet from the isolated meter chip (Cyrustek ES51981).
@@ -454,11 +570,47 @@ ids (capture them).
   5 = resistance (10278; also RTD/thermistor). The same 1..5 codes are the "type" field of the
   driver's range descriptors (the kernel uses them to pick the calibration slot, 5.3). RMS types
   switch the channel coupling to AC (DAQmx 10045), others to DC (10050).
-- `set_mode` first byte (H for DC V from captures): 0 = DC 2 V, 1 = DC 20 V, 2 = DC 60 V,
-  3 = DC 200 mV. This equals the driver's 19-entry calibration index order (DC V 2/20/60/0.2,
-  AC V 2/20/0.2, DC A 0.02/0.2/1, AC A 0.02/0.2/1, Ω 200…20M), so the **hypothesis** (L) is
-  mode = that index (AC V 2 V = 4 … Ω 20 MΩ = 18, diode/continuity 19/20?). Second byte: 0 in all
-  captures (L: maybe AC/DC or null). Needs one capture per function/range.
+- **`set_mode(mode, hw_autorange)`** (H): the mode byte is the index of the matching entry in
+  the driver's DMM capability table (niraptru 0x1805c0c00, entries = range descriptor, excitation
+  flag, mode). Captures confirm every entry up to 15:
+
+| mode | function / range | mode | function / range |
+|---|---|---|---|
+| 0 | DC V 2 V | 11 | AC A 20 mA |
+| 1 | DC V 20 V | 12 | AC A 200 mA |
+| 2 | DC V 60 V | 13 | AC A 1 A |
+| 3 | DC V 200 mV | 14 | Ω 200 Ω (with current excitation) |
+| 4 | AC V 2 V | 15 | Ω 2 kΩ |
+| 5 | AC V 20 V | 16–19 | Ω 20 kΩ, 200 kΩ, 2 MΩ, 20 MΩ (table only) |
+| (6) | unused (AC 60 V not offered) | **20** | **diode**: ±2 V DC range *with* excitation (table only) |
+| 7 | AC V 200 mV | **21** | **continuity**: 200 Ω range *without* excitation (table only) |
+| 8, 9, 10 | DC A 20 mA, 200 mA, 1 A | | |
+
+  All 30 DMM readings in the captures (DC/AC V, DC/AC A, Ω overload) are reproduced bit-exactly by
+  `tools/drv_dmm.py`.
+- **Second byte = hardware autorange** (H for the data flow): the DMM device expert copies the
+  channel's attribute **0x2FF8** (u32) into the second settings field, which the kernel sends as the
+  second `set_mode` byte (niraptru 0x180496460 → kernel 0x1800f04c0 → 0x1800f1300). 0 in all
+  captures. With autorange the meter chooses the range itself; the host already scales every packet
+  with the range digit contained in the packet, and when 0x2FF8 ≠ 0 the driver skips its
+  user-calibration polynomial (0x180494db0). Which mode byte accompanies autorange is not known
+  (probably any range of the function, L): capture once.
+- **Continuity** = attribute **0x3051** (u32 boolean) on a resistance channel: the expert then
+  looks the caps table up *without* the excitation flag, which only matches mode 21 (H, niraptru
+  0x180491ad0 / 0x1804e7d80). The driver rejects continuity unless the function is resistance with
+  the 200 Ω range, and rejects continuity together with hardware autorange (0x18048fae0) (H).
+  Readings come back with function byte '5' (section above).
+- **Diode** = voltage channel, 2 V range, *internal current excitation* (AI.Excit.Src internal,
+  AI.Excit.Val ≠ 0): matches mode 20 (H for the table; the excitation-flag test is
+  "excitation source ≠ none and value ≠ 0 and continuity off", 0x180491ad0). Readings come back
+  with function byte '1'.
+- **Why DAQmx returned -200233** for 0x3051/0x2FF8: both are ordinary u32 attributes of the myDAQ
+  DMM channel expert (declared in the channel expert constructor 0x18048e080, defaults 0 set in
+  0x1803b4f00), so the rejection happens in DAQmx's generic attribute layer before the myDAQ code
+  (L: likely an access-path issue, e.g. set through a non-DMM channel, wrong data type through the
+  variadic C setter, or attribute visibility for this channel type). For libmydaq this does not
+  matter: the device commands are `set_mode(20, 0)` (diode), `set_mode(21, 0)` (continuity) and
+  `set_mode(m, 1)` (autorange). Mark them unverified until one capture (ELVISmx GUI) confirms.
 
 ## 9. Digital I/O (H — stub types + niraptrk 0x180041b40 / 0x180042310; captures)
 
@@ -481,9 +633,12 @@ ids (capture them).
 4. **AO timed**: finite and continuous (regenerated and streamed), 1 and 2 channels, audio out:
    which bulk OUT endpoint, `out_timing.configure` fields, `out_fifo.write` usage, `stream.out_credit`.
    Needs QEMU with a larger pcap DATA_LEN to see full bulk payloads.
-5. **DMM**: one reading per function and range (AC V ×3, DC A ×3, AC A ×3, Ω ×6, diode,
-   continuity) → `set_mode` bytes; with a known source if possible to see overload packets.
-6. **Counter**: edge count, frequency, period, pulse width, pulse-train output (ctr0 and freqout)
-   → class 0x0c41/0x0c40 calls and extra route ids.
+5. **DMM**: done for DC/AC V, DC/AC A, Ω 200/2k (§8). Still needed: Ω 20 k–20 M, and diode,
+   continuity, hardware autorange from the ELVISmx DMM GUI (expected `set_mode` 20, 21, (m, 1)).
+6. **Counter**: count edges / pulse train / frequency (timeout) / FREQOUT are captured (§7). Still
+   needed, one each: frequency and period *with a signal on PFI1*, pulse width, semi-period,
+   two-edge separation, linear and angular encoder, count edges from the 20 MHz / 100 kHz
+   timebases, a pulse-train frequency change while running, and FREQOUT at a rate needing
+   another timebase (e.g. 1 MHz).
 7. **Abort**: start a continuous AI task and stop it abruptly / let a read time out → vendor
    control requests of 1.2 (bRequest value).
