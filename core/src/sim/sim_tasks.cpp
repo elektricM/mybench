@@ -146,7 +146,7 @@ std::vector<std::vector<double>> SimAiTask::read(int64_t n, int timeoutMs)
             throw DeviceError(DeviceError::Timeout,
                               QStringLiteral("Timed out waiting for %1 AI samples (%2 acquired)").arg(n).arg(backlog));
         const Clock::time_point ready = m_core->timePoint(m_start + double(m_readPos + n) / m_rate + kWakeSlack);
-        m_core->changed.wait_until(lock, std::min(ready, deadline));
+        m_core->waitUntil(lock, std::min(ready, deadline));
         m_core->requireConnected();
     }
 
@@ -295,7 +295,7 @@ void SimAoTask::write(const std::vector<std::vector<double>>& data, int timeoutM
         const int64_t needed = std::min<int64_t>(int64_t(length - done), m_capacity);
         const Clock::time_point ready =
             m_core->timePoint(m_start + double(written() - m_capacity + needed) / m_rate + kWakeSlack);
-        m_core->changed.wait_until(lock, std::min(ready, deadline));
+        m_core->waitUntil(lock, std::min(ready, deadline));
         m_core->requireConnected();
     }
     m_core->prune();
@@ -357,7 +357,7 @@ bool SimAoTask::waitUntilDone(int timeoutMs)
         Clock::time_point wake = deadline;
         if (m_kind != Kind::Regenerate)
             wake = std::min(wake, m_core->timePoint(endTime() + kWakeSlack));
-        m_core->changed.wait_until(lock, wake);
+        m_core->waitUntil(lock, wake);
         m_core->requireConnected();
     }
 }

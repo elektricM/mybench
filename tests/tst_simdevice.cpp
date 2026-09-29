@@ -3,6 +3,7 @@
 #include "mydaq/dsp/measure.h"
 #include "mydaq/dsp/waveform.h"
 
+#include <future>
 #include <QElapsedTimer>
 #include <QTest>
 
@@ -363,35 +364,44 @@ private slots:
 
     void aoStreaming()
     {
+        // Driven by the simulator's manual clock: nothing here depends on wall-clock timing.
         SimDevice dev;
+        dev.setManualClock(true);
         auto ao = dev.createAoTask(aoConfig({{AoChannel::AO0, 10.0}}, 10e3, SampleMode::Continuous, false));
         QCOMPARE(ao->spaceAvailable(), int64_t(10000));   // 1 s buffer
         ao->write({std::vector<double>(3000, 1.0)});
         QCOMPARE(ao->spaceAvailable(), int64_t(7000));
         ao->start();
-        // 10000 more samples: 7000 fit, the rest waits for ~0.3 s of generation.
-        QElapsedTimer timer;
-        timer.start();
-        ao->write({std::vector<double>(10000, 2.0)}, 2000);
-        // write() must have blocked for the generation of ~3000 samples (300 ms at 10 kS/s) and
-        // returned, well before its 2 s timeout, as soon as the last chunk fitted. The upper bound
-        // is generous: a loaded CI runner may schedule the wake-up late.
-        const qint64 returned = timer.elapsed();
-        QVERIFY2(returned >= 250 && returned < 1800, qPrintable(QString::number(returned)));
-        // The buffer was full when write() returned; from then on the simulator drains it at
-        // 10 samples/ms. Bound the free space by what can have drained since (plus 50 ms of
-        // slack for the wake-up), so a late scheduler does not fail a test about blocking.
-        const int64_t space = ao->spaceAvailable();
-        const qint64 sinceReturn = timer.elapsed() - returned;
-        QVERIFY2(space < 500 + 10 * (sinceReturn + 50),
-                 qPrintable(QString("space %1 after %2 ms").arg(space).arg(sinceReturn)));
+        QCOMPARE(ao->spaceAvailable(), int64_t(7000));   // time stands still: nothing generated
+
+        // 10000 more samples: 7000 fit at once, the other 3000 must wait for the generation of
+        // 3000 samples (0.3 s at 10 kS/s).
+        auto writer = std::async(std::launch::async, [&] { ao->write({std::vector<double>(10000, 2.0)}, 20000); });
+        auto waitForSpace = [&](int64_t expected) {
+            for (int i = 0; i < 5000 && ao->spaceAvailable() != expected; ++i)
+                QThread::msleep(2);
+            QCOMPARE(ao->spaceAvailable(), expected);
+        };
+        waitForSpace(0);   // buffer full, writer blocked with 3000 samples left
+        QVERIFY(writer.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
+        dev.advanceClock(0.29);   // 2900 generated: 2900 more fit, 100 still missing
+        waitForSpace(0);
+        QVERIFY(writer.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
+        dev.advanceClock(0.01005);   // 3000 generated (+ half a sample): the writer completes
+        QVERIFY(writer.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
+        writer.get();
+        QCOMPARE(ao->spaceAvailable(), int64_t(0));   // full again: 13000 written, 3000 generated
+        dev.advanceClock(0.1);   // 1000 more samples drained
+        QCOMPARE(ao->spaceAvailable(), int64_t(1000));
+        // A write larger than the free space times out (real-time timeout) after storing what fits.
         QCOMPARE(errorOf([&] { ao->write({std::vector<double>(5000, 2.0)}, 50); }), int(DeviceError::Timeout));
+        QCOMPARE(ao->spaceAvailable(), int64_t(0));
         ao->stop();
 
         // Underflow: a 50 ms pre-fill runs dry.
         ao->write({std::vector<double>(500, 0.5)});
         ao->start();
-        QThread::msleep(100);
+        dev.advanceClock(0.1);
         QCOMPARE(errorOf([&] { ao->write({std::vector<double>(100, 0.5)}); }), int(DeviceError::Underflow));
         QVERIFY(!ao->isRunning());
         ao->stop();
@@ -399,6 +409,8 @@ private slots:
 
         // waitUntilDone() ends a stream once every sample was generated.
         ao->start();
+        QVERIFY(ao->isRunning());
+        dev.advanceClock(0.1);
         QVERIFY(ao->waitUntilDone(1000));
         QVERIFY(!ao->isRunning());
     }

@@ -6,6 +6,7 @@
 #include "mydaq/sim_device.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -98,7 +99,13 @@ struct Core {
     double encoderPosition(double t) const;
     void setFrequencyOutput(double t, double frequency);   // 0 stops it
 
-    double now() const;                                // seconds since epoch
+    double now() const;                                // seconds since epoch (or the manual clock)
+    // Blocks on `changed` until `wake` (a real time point). With the manual clock the simulated
+    // time only moves through advance(), so wake-up times mean nothing: wait a short real slice
+    // instead and let the caller re-check its condition (advance() notifies).
+    void waitUntil(std::unique_lock<std::mutex>& lock, Clock::time_point wake);
+    std::atomic<bool> manualClock{false};
+    std::atomic<double> manualTime{0.0};
     Clock::time_point timePoint(double t) const;       // inverse of now()
     void requireConnected() const;                     // throws NotConnected
     // One converted AI sample at device time t (advances the loopback filters: call in time order).

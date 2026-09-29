@@ -161,6 +161,13 @@ public:
     // panels as they look on a backend with fewer features. Default: none (everything works).
     void setUnsupportedFeatures(const QStringList& features);
 
+    // Test hook: replace the wall clock by a manual one that starts at the current simulated time
+    // and only moves through advanceClock(). Task timing (AI/AO/counter) then follows it exactly,
+    // so tests need no sleeps. Blocked reads/writes still honour their real-time timeouts.
+    // Default: off (wall clock). Intended for tests; call before creating tasks.
+    void setManualClock(bool manual);
+    void advanceClock(double seconds);
+
 private:
     std::shared_ptr<sim::Core> d;
 };

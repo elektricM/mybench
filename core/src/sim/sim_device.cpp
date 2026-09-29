@@ -328,6 +328,26 @@ double SimDevice::rcCutoff() const
     return d->rcFilter.cutoff();
 }
 
+void SimDevice::setManualClock(bool manual)
+{
+    std::lock_guard lock(d->mutex);
+    if (manual == d->manualClock.load())
+        return;
+    if (manual)
+        d->manualTime = d->now();
+    d->manualClock = manual;
+    d->changed.notify_all();
+}
+
+void SimDevice::advanceClock(double seconds)
+{
+    std::lock_guard lock(d->mutex);
+    if (!d->manualClock || !(seconds >= 0.0))
+        throw invalid(QStringLiteral("advanceClock() needs the manual clock and a non-negative step"));
+    d->manualTime = d->manualTime.load() + seconds;
+    d->changed.notify_all();
+}
+
 void SimDevice::setChannelSkew(double seconds)
 {
     if (!(seconds >= 0.0))

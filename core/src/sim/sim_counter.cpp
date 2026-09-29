@@ -472,7 +472,7 @@ double SimCounterInputTask::readScalar(int timeoutMs)
         const double first = firstIntervalEnd();
         if (first < kInf)
             wake = std::min(wake, m_core->timePoint(first + kWakeSlack));
-        m_core->changed.wait_until(lock, wake);
+        m_core->waitUntil(lock, wake);
         m_core->requireConnected();
     }
 }
@@ -525,7 +525,7 @@ std::vector<double> SimCounterInputTask::readBuffered(int64_t n, int timeoutMs)
         Clock::time_point wake = deadline;
         if (ready < kInf)
             wake = std::min(wake, m_core->timePoint(ready + kWakeSlack));
-        m_core->changed.wait_until(lock, wake);
+        m_core->waitUntil(lock, wake);
         m_core->requireConnected();
     }
     std::vector<double> values(m_queue.begin(), m_queue.begin() + ptrdiff_t(count));
@@ -656,7 +656,7 @@ bool SimCounterOutputTask::waitUntilDone(int timeoutMs)
         Clock::time_point wake = deadline;
         if (finite())
             wake = std::min(wake, m_core->timePoint(m_end + kWakeSlack));
-        m_core->changed.wait_until(lock, wake);
+        m_core->waitUntil(lock, wake);
         m_core->requireConnected();
     }
 }

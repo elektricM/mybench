@@ -128,7 +128,20 @@ Core::Core(DeviceInfo deviceInfo) : info(std::move(deviceInfo))
         applyDigitalSource(line, 0.0);
 }
 
-double Core::now() const { return std::chrono::duration<double>(Clock::now() - epoch).count(); }
+double Core::now() const
+{
+    if (manualClock.load())
+        return manualTime.load();
+    return std::chrono::duration<double>(Clock::now() - epoch).count();
+}
+
+void Core::waitUntil(std::unique_lock<std::mutex>& lock, Clock::time_point wake)
+{
+    if (manualClock.load())
+        changed.wait_for(lock, std::chrono::milliseconds(5));
+    else
+        changed.wait_until(lock, wake);
+}
 
 Core::Clock::time_point Core::timePoint(double t) const
 {
