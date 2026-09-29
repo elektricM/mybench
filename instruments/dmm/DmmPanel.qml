@@ -206,15 +206,47 @@ Item {
                     }
                 }
 
-                // Trend chart.
-                Item {
+                // Trend chart: the time-range row sits above the plot, so the plot's own hover
+                // toolbar (zoom, reset, export) at the plot's top right never covers it.
+                ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.max(150, display.height * 0.36)
-                    Layout.minimumHeight: 120
+                    Layout.preferredHeight: Math.max(170, display.height * 0.38)
+                    Layout.minimumHeight: 140
+                    spacing: 2
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.rightMargin: 4
+                        spacing: Theme.spacingXs
+                        Text {
+                            text: qsTr("Trend")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeS
+                            font.weight: Font.DemiBold
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        SegmentedControl {
+                            objectName: "trendWindow"
+                            compact: true
+                            model: [qsTr("1 min"), qsTr("10 min"), qsTr("1 h"), qsTr("All")]
+                            currentIndex: root.controller.trendWindow
+                            onActivated: index => root.controller.trendWindow = index
+                        }
+                        IconButton {
+                            iconName: "trash"
+                            size: Theme.controlHeightS
+                            iconSize: Theme.iconSizeS
+                            toolTip: qsTr("Clear the trend")
+                            onClicked: root.controller.clearTrend()
+                        }
+                    }
 
                     BenchPlot {
                         id: trendPlot
-                        anchors.fill: parent
+                        objectName: "trendPlot"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
                         placeholderText: qsTr("Trend — press Run to measure")
                         xAxis {
                             labelFormat: PlotAxis.Time
@@ -234,26 +266,6 @@ Item {
                             pointSize: 4
                         }
                         Component.onCompleted: root.applyTrendWindow()
-                    }
-                    Row {
-                        anchors.top: parent.top
-                        anchors.right: parent.right
-                        anchors.topMargin: 6
-                        anchors.rightMargin: 10
-                        spacing: Theme.spacingXs
-                        SegmentedControl {
-                            compact: true
-                            model: [qsTr("1 min"), qsTr("10 min"), qsTr("1 h"), qsTr("All")]
-                            currentIndex: root.controller.trendWindow
-                            onActivated: index => root.controller.trendWindow = index
-                        }
-                        IconButton {
-                            iconName: "trash"
-                            size: Theme.controlHeightS
-                            iconSize: Theme.iconSizeS
-                            toolTip: qsTr("Clear the trend")
-                            onClicked: root.controller.clearTrend()
-                        }
                     }
                 }
             }

@@ -27,6 +27,10 @@ Item {
     readonly property bool customBackground: controller.background !== ScopeController.ThemeBackground
     readonly property bool whiteBackground: controller.background === ScopeController.White
     readonly property alias ytPlot: ytPlot
+    readonly property alias fftPlot: fftPlot
+    // A QML property only signals when its value changes: binding the axis to this (not to
+    // controller.fftMaxFrequency, which is notified on every frame) keeps the user's zoom.
+    readonly property real fftNyquist: Math.max(1, controller.fftMaxFrequency)
     // A display setting changed: drop the afterglow of the old setting (the plot clears its ghosts
     // while persistence is 0, then the value returns).
     property bool persistenceHold: false
@@ -70,31 +74,14 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingS
 
-        // Directly accessible FFT: a spectrum pane of CH 0 or CH 1 under the graph.
-        RowLayout {
-            visible: !root.xyMode
+        // The FFT settings live in the inspector (FFT section); only the persistence note stays here.
+        Text {
+            visible: !root.xyMode && root.controller.persistence > 0
             Layout.fillWidth: true
-            spacing: Theme.spacingS
-            Text {
-                text: qsTr("FFT")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeS
-                font.weight: Font.DemiBold
-            }
-            SegmentedControl {
-                model: [{ text: qsTr("Off"), toolTip: qsTr("No spectrum pane") },
-                        { text: "CH 0", toolTip: qsTr("Spectrum of CH 0 under the graph") },
-                        { text: "CH 1", toolTip: qsTr("Spectrum of CH 1 under the graph") }]
-                currentIndex: root.controller.fftSource
-                onActivated: index => root.controller.fftSource = index
-            }
-            Item { Layout.fillWidth: true }
-            Text {
-                visible: root.controller.persistence > 0
-                text: qsTr("persistence %1").arg(Units.format(root.controller.persistence / 1000, "s", 2))
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeS
-            }
+            horizontalAlignment: Text.AlignRight
+            text: qsTr("persistence %1").arg(Units.format(root.controller.persistence / 1000, "s", 2))
+            color: Theme.textMuted
+            font.pixelSize: Theme.fontSizeS
         }
 
         Item {
@@ -511,6 +498,7 @@ Item {
                 // ---- FFT of the math channel ----------------------------------------------------
                 BenchPlot {
                     id: fftPlot
+                    objectName: "fftPlot"
                     hoverReadout: true
                     visible: root.fftShown
                     Layout.fillWidth: true
@@ -521,12 +509,12 @@ Item {
                     placeholderText: root.controller.running ? "" : qsTr("FFT of the displayed record")
                     xAxis {
                         min: 0
-                        max: Math.max(1, root.controller.fftMaxFrequency)
+                        max: root.fftNyquist
                         unit: "Hz"
                         unitInLabels: true
                         lowerLimit: 0
-                        upperLimit: Math.max(1, root.controller.fftMaxFrequency)
-                        minimumSpan: Math.max(1, root.controller.fftMaxFrequency) / 200
+                        upperLimit: root.fftNyquist
+                        minimumSpan: root.fftNyquist / 200
                     }
                     yAxis { min: -140; max: 20; unit: "dBV"; title: qsTr("Magnitude"); limitToData: true; limitMargin: 0.5; minimumSpan: 3 }
                     PlotTrace {

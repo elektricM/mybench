@@ -454,15 +454,18 @@ void DioController::releaseLines(uint8_t mask, bool synchronous)
     if (!mask)
         return;
     m_drivenMask &= ~mask;
+    m_claimed->fetch_and(uint8_t(~mask));
     emit drivenMaskChanged();
     const mydaq::DevicePtr device = DeviceHub::instance()->device();
     if (!device)
         return;
-    auto job = [device, mask, dioMutex = m_dioMutex] {
+    auto job = [device, mask, dioMutex = m_dioMutex, claimed = m_claimed] {
         std::lock_guard lock(*dioMutex);
         try {
-            if (device->isConnected())
-                device->dioSetDirection(mask, false);
+            // Jobs run on the thread pool, possibly after a newer run took some lines again.
+            const uint8_t free = uint8_t(mask & ~claimed->load());
+            if (free && device->isConnected())
+                device->dioSetDirection(free, false);
         } catch (const mydaq::DeviceError&) {
             // Unplugged or lines reserved meanwhile: nothing left to release.
         }
@@ -511,6 +514,7 @@ InstrumentController::WorkerFunction DioController::createWorker()
         clearTimeline();
     m_readbackErrors = 0;
     m_releaseOnExit->store(false);
+    m_claimed->store(outputs);
     m_live->clear();
 
     const uint8_t previouslyDriven = uint8_t(m_drivenMask);
@@ -525,7 +529,7 @@ InstrumentController::WorkerFunction DioController::createWorker()
     setSummary(tr("DIO %1").arg(ResourceArbiter::dioLinesLabel(inputs | outputs).mid(4)));
 
     return [this, inputs, outputs, previouslyDriven, first, origin, status, live = m_live,
-            release = m_releaseOnExit, dioMutex = m_dioMutex, samples = m_samples](WorkerContext& ctx) {
+            release = m_releaseOnExit, claimed = m_claimed, dioMutex = m_dioMutex, samples = m_samples](WorkerContext& ctx) {
         mydaq::Device& device = ctx.device();
         ctx.setStatus(status);
         {
@@ -663,6 +667,7 @@ InstrumentController::WorkerFunction DioController::createWorker()
             ctx.post([answer, release] { answer->set_value(release->load()); });
             if (isPause.wait_for(std::chrono::milliseconds(300)) == std::future_status::ready && isPause.get()) {
                 std::lock_guard lock(*dioMutex);
+                claimed->store(0);
                 device.dioSetDirection(outputs, false);
                 ctx.post([this] {
                     m_drivenMask = 0;

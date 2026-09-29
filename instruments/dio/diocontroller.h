@@ -261,6 +261,9 @@ private:
 
     std::shared_ptr<Mailbox<Live>> m_live = std::make_shared<Mailbox<Live>>();
     std::shared_ptr<std::atomic<bool>> m_releaseOnExit = std::make_shared<std::atomic<bool>>(false);
+    // Lines the newest run drives (UI thread writes, release jobs read): a queued release never
+    // undrives lines a later run has claimed.
+    std::shared_ptr<std::atomic<uint8_t>> m_claimed = std::make_shared<std::atomic<uint8_t>>(0);
     std::shared_ptr<std::mutex> m_dioMutex = std::make_shared<std::mutex>();   // direction changes
     std::shared_ptr<SampleLog> m_samples = std::make_shared<SampleLog>();
     std::chrono::steady_clock::time_point m_origin = std::chrono::steady_clock::now();

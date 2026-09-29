@@ -11,6 +11,10 @@
 #include <mydaq/sim_device.h>
 
 #include <QTest>
+#include <QThread>
+#include <QThreadPool>
+
+#include <atomic>
 
 using namespace Qt::StringLiterals;
 using mybench::instruments::DioController;
@@ -137,6 +141,29 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle() && values.size() >= 2, 10000);   // both steps, however slow the runner
         QCOMPARE(values, (QList<int>{0x5, 0xA}));
         QCOMPARE(m_sim->dioDirection(), uint8_t(0x0F));   // Single done: outputs keep driving
+    }
+
+    // A release queued for the thread pool (Stop / Release on an idle DIO) must never land after a
+    // newer run has claimed the lines again (windows CI: singleAlternating saw direction 0).
+    void lateReleaseDoesNotUndriveNewRun()
+    {
+        m_dio->setPattern(DioController::Manual);
+        m_dio->runOnce();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle() && m_dio->holdsOutputs(), 10000);
+        // Occupy every pool thread so the release job stays queued.
+        QThreadPool* pool = QThreadPool::globalInstance();
+        std::atomic<bool> hold{true};
+        for (int i = 0; i < pool->maxThreadCount(); ++i)
+            pool->start([&hold] {
+                while (hold.load())
+                    QThread::msleep(2);
+            });
+        m_dio->stop();       // idle + driving: queues the release
+        m_dio->runOnce();    // the new run drives the same lines again
+        QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle() && m_dio->holdsOutputs(), 10000);
+        hold = false;
+        QVERIFY(pool->waitForDone(10000));
+        QCOMPARE(m_sim->dioDirection(), uint8_t(0x0F));
     }
 
     void presetMovesLines()

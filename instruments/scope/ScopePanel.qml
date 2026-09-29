@@ -21,6 +21,9 @@ Item {
     readonly property bool edge: controller.triggerType === ScopeController.Edge
     readonly property int triggerChannel: controller.triggerSource === ScopeController.Chan1Source ? 1 : 0
 
+    readonly property bool fftZoomed: display.fftPlot.xAxis.zoomed || display.fftPlot.yAxis.zoomed
+    function resetFftZoom() { display.fftPlot.resetView() }
+
     function channelName(index: int): string {
         return index === 2 ? qsTr("Math") : "CH " + index
     }
@@ -46,6 +49,7 @@ Item {
         runBar.timeoutText: qsTr("Timeout")
 
         ScopeDisplay {
+            id: display
             anchors.fill: parent
             controller: root.controller
         }
@@ -437,6 +441,49 @@ Item {
                     font.pixelSize: Theme.fontSizeS
                     text: root.math.fft ? qsTr("Magnitude spectrum of the displayed record (Hanning window, dBV RMS) under the graph. For averaging, windows and distortion use the Spectrum Analyzer.")
                                         : qsTr("Computed on the displayed record; CH 0 and CH 1 must be enabled for + − ×.")
+                }
+            },
+
+            // ---- FFT: spectrum pane of CH 0 / CH 1 under the graph --------------------------------
+            Section {
+                title: qsTr("FFT")
+                accentColor: root.controller.fftSource === ScopeController.FftChannel1 ? Theme.ch1 : Theme.ch0
+                collapsed: root.controller.fftSource === ScopeController.FftOff
+                summary: root.controller.fftSource === ScopeController.FftOff ? qsTr("Off")
+                                                                              : "CH " + (root.controller.fftSource - 1)
+                headerTools: ToggleSwitch {
+                    objectName: "fftToggle"
+                    accentColor: Theme.ch0
+                    checked: root.controller.fftSource !== ScopeController.FftOff
+                    Accessible.name: qsTr("FFT spectrum")
+                    onToggled: root.controller.fftSource = checked ? ScopeController.FftChannel0 : ScopeController.FftOff
+                }
+                Field {
+                    label: qsTr("Source")
+                    Layout.fillWidth: true
+                    SegmentedControl {
+                        objectName: "fftSource"
+                        model: [{ text: "CH 0", toolTip: qsTr("Spectrum of CH 0 under the graph") },
+                                { text: "CH 1", toolTip: qsTr("Spectrum of CH 1 under the graph") }]
+                        currentIndex: Math.max(0, root.controller.fftSource - 1)
+                        onActivated: index => root.controller.fftSource = index + 1
+                    }
+                }
+                ActionButton {
+                    objectName: "fftResetZoom"
+                    visible: root.fftZoomed
+                    compact: true
+                    tone: "subtle"
+                    iconName: "zoom-fit"
+                    text: qsTr("Reset zoom")
+                    onClicked: root.resetFftZoom()
+                }
+                Text {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeS
+                    text: qsTr("Magnitude spectrum of the displayed record (Hanning window, dBV RMS). Zoom with the wheel or a drag; the zoom stays until you reset it. For averaging, windows and distortion use the Spectrum Analyzer.")
                 }
             },
 

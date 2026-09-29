@@ -12,3 +12,18 @@ foreach(name dmmlogic dmmcontroller)
     set_tests_properties(dmm_${name} PROPERTIES TIMEOUT 120
                          ENVIRONMENT "MYBENCH_NO_USB=1;QT_QPA_PLATFORM=offscreen")
 endforeach()
+
+# The panel QML in an offscreen window: the trend's time-range selector vs the plot toolbar.
+add_executable(tst_dmm_qml tst_dmm_qml.cpp)
+target_link_libraries(tst_dmm_qml PRIVATE mybench_instrument_dmm mybench_instrument_dmmplugin mybench_offscreen
+                                          Qt6::Test Qt6::Quick)
+target_compile_definitions(tst_dmm_qml PRIVATE MYBENCH_QML_DIR="${CMAKE_BINARY_DIR}/qml")
+if(MSVC)
+    target_compile_options(tst_dmm_qml PRIVATE /W4)
+else()
+    target_compile_options(tst_dmm_qml PRIVATE -Wall -Wextra)
+endif()
+# Static QML plugin + its backing library appear twice on the link line; Apple ld warns about that.
+target_link_options(tst_dmm_qml PRIVATE $<$<CXX_COMPILER_ID:AppleClang>:LINKER:-no_warn_duplicate_libraries>)
+add_test(NAME dmm_qml COMMAND tst_dmm_qml)
+set_tests_properties(dmm_qml PROPERTIES TIMEOUT 120 ENVIRONMENT "MYBENCH_NO_USB=1;QT_QPA_PLATFORM=offscreen")
