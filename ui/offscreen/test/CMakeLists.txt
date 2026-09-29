@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 QuickShapes QuickEffects)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2)   # QtQuick.Shapes/Effects are QML imports only
 
 qt_add_executable(mybench-offscreen-test main.cpp)
 qt_add_qml_module(mybench-offscreen-test

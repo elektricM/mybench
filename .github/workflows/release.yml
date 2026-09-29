@@ -2,7 +2,7 @@
 #   macOS    MYBENCH-<v>-macOS-universal.dmg     (Qt from aqtinstall, universal libusb from source)
 #   Linux    MYBENCH-<v>-linux-x86_64.AppImage   (ubuntu-22.04 baseline, Qt bundled)
 #            mybench_<v>_amd64.deb               (Ubuntu 26.04 / Debian with Qt >= 6.9, system Qt)
-#            mybench-<v>-1.x86_64.rpm            (Fedora 43, system Qt)
+#            mybench-<v>-1.x86_64.rpm            (Fedora 44, system Qt)
 #   Windows  MYBENCH-<v>-windows-x64.exe (NSIS) + .zip
 # Each package is installed/started once in the job (simulator, offscreen) before upload.
 # Push a tag v<version> (matching project(VERSION) in CMakeLists.txt) or run it by hand.
@@ -121,9 +121,9 @@ jobs:
           path: build/package/*.deb
 
   rpm:
-    name: RPM package (Fedora 43)
+    name: RPM package (Fedora 44)
     runs-on: ubuntu-latest
-    container: fedora:43
+    container: fedora:44
     steps:
       - uses: actions/checkout@v4
       - name: Build dependencies (distribution Qt)

@@ -184,7 +184,7 @@ The sources are in `packaging/linux/`.
     lists explicitly (plugins are invisible to shlibdeps).
   - RPM: dependencies come from rpm's automatic requires.
   - Post-install, both reload udev and update the desktop, MIME and icon caches.
-  - CI builds them in `ubuntu:26.04` and `fedora:43` containers, and installs each package
+  - CI builds them in `ubuntu:26.04` and `fedora:44` containers, and installs each package
     once as a check.
 - **AppImage**: `packaging/linux/appimage/build-appimage.sh [build-dir]` uses linuxdeploy and
   linuxdeploy-plugin-qt on the same install tree:

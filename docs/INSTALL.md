@@ -91,6 +91,12 @@ The rule grants access in two ways:
 - `GROUP="plugdev"` covers setups without logind. For this path, add yourself to the group
   with `sudo usermod -aG plugdev $USER`, then log in again.
 
+**Fedora (KDE Plasma, GNOME, Wayland or X11)** has no `plugdev` group, and none is needed: udev
+ignores the unknown group (a harmless "Unknown group 'plugdev'" line may appear in
+`journalctl -b -u systemd-udevd`) and `uaccess` gives your desktop session access. Do not add
+yourself to any group. This works for a local, logged-in graphical session. Over plain SSH there
+is no seat, so no ACL: use `sudo`.
+
 To check that the rule applies:
 
 ```sh
