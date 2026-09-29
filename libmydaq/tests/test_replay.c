@@ -356,7 +356,12 @@ static void ao_timed(const char *script, const mydaq_ao_channel *ch, size_t nch,
         }
     } else {
         const uint64_t end = md_now_ms() + (uint64_t)run_ms;
-        while (md_now_ms() < end) {
+        /* A slow runner may not even write a quarter within run_ms: keep feeding (streaming only)
+         * until the transport has moved a quarter of the capture, under a hard deadline. */
+        const uint64_t feed_limit = md_now_ms() + 5000;
+        while (md_now_ms() < end ||
+               (!regenerate && mydaq_mock_ao_bytes(r.mock) < mydaq_mock_ao_expected(r.mock) / 4 &&
+                md_now_ms() < feed_limit)) {
             if (!regenerate) {   /* keep streaming the waveform, a quarter at a time */
                 size_t q;
                 for (q = 0; q < 4; ++q) {
