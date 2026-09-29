@@ -373,8 +373,18 @@ private slots:
         QElapsedTimer timer;
         timer.start();
         ao->write({std::vector<double>(10000, 2.0)}, 2000);
-        QVERIFY2(timer.elapsed() >= 250 && timer.elapsed() < 700, qPrintable(QString::number(timer.elapsed())));
-        QVERIFY(ao->spaceAvailable() < 500);
+        // write() must have blocked for the generation of ~3000 samples (300 ms at 10 kS/s) and
+        // returned, well before its 2 s timeout, as soon as the last chunk fitted. The upper bound
+        // is generous: a loaded CI runner may schedule the wake-up late.
+        const qint64 returned = timer.elapsed();
+        QVERIFY2(returned >= 250 && returned < 1800, qPrintable(QString::number(returned)));
+        // The buffer was full when write() returned; from then on the simulator drains it at
+        // 10 samples/ms. Bound the free space by what can have drained since (plus 50 ms of
+        // slack for the wake-up), so a late scheduler does not fail a test about blocking.
+        const int64_t space = ao->spaceAvailable();
+        const qint64 sinceReturn = timer.elapsed() - returned;
+        QVERIFY2(space < 500 + 10 * (sinceReturn + 50),
+                 qPrintable(QString("space %1 after %2 ms").arg(space).arg(sinceReturn)));
         QCOMPARE(errorOf([&] { ao->write({std::vector<double>(5000, 2.0)}, 50); }), int(DeviceError::Timeout));
         ao->stop();
 

@@ -31,7 +31,7 @@ jobs:
           arch: clang_64
           modules: qtshadertools qtmultimedia
           cache: true
-      - run: brew install ninja pkgconf
+      - run: brew install ninja pkgconf spirv-tools
       - name: libusb (universal, minimum macOS ${{ env.MACOSX_DEPLOYMENT_TARGET }})
         run: packaging/macos/build-libusb.sh "$RUNNER_TEMP/libusb"
       - name: Configure
@@ -79,7 +79,7 @@ jobs:
           cache: true
       - run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libusb-1.0-0-dev \
+          sudo apt-get install -y --no-install-recommends ninja-build spirv-tools pkg-config libusb-1.0-0-dev \
             libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libfontconfig1-dev \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 \
             libxcb-randr0 libxcb-render-util0 libxcb-image0 libpulse0 file xvfb
@@ -101,7 +101,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates cmake ninja-build g++ pkg-config \
+          apt-get install -y --no-install-recommends ca-certificates cmake ninja-build spirv-tools g++ pkg-config \
             file dpkg-dev libusb-1.0-0-dev qt6-base-dev qt6-base-private-dev qt6-declarative-dev \
             qt6-declarative-private-dev qt6-shadertools-dev qt6-svg-dev qt6-multimedia-dev \
             libgl-dev libvulkan-dev
