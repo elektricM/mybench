@@ -1,0 +1,11 @@
+# capture dryrun-ohm-r20k: exp.ps1 -Op dmm -Func ohm -Range 20000 -Value 0.001 -Count 2
+t_attach 1790634945.457
+t_bound 1790634953.996
+t_script_start 1790634962.027
+00:36:26.454 begin op=dmm chan=ai0 range=20000 ranges= rate=1000 n=100 value=0.001 func=ohm count=2 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+00:36:27.044 rep 0
+DATA ch0 NaN
+00:36:37.326 rep 1
+DATA ch0 NaN
+00:36:39.385 end
+t_script_end 1790635004.678

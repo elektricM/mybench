@@ -1,0 +1,11 @@
+# capture co-update-1k-to-2k-d0.25: exp.ps1 -Op coupdate -Rate 1000 -Duty 0.5 -Rate2 2000 -Duty2 0.25 -Secs 1
+t_attach 1790644892.550
+t_bound 1790644930.513
+t_script_start 1790644938.549
+03:23:40.023 begin op=coupdate chan=ai0 range=10 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+03:23:41.200 rep 0
+03:23:49.363 started
+03:23:50.793 updated
+03:23:58.544 stopped
+03:24:00.455 end
+t_script_end 1790645044.525

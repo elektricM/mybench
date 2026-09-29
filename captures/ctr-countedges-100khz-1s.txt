@@ -1,0 +1,10 @@
+# capture ctr-countedges-100khz-1s: exp.ps1 -Op ctr -Term /myDAQ1/100kHzTimebase -Secs 1
+t_attach 1790633302.868
+t_bound 1790634071.884
+t_script_start 1790634079.943
+00:22:47.426 begin op=ctr chan=ai0 range=10 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=/myDAQ1/100kHzTimebase
+00:22:49.306 rep 0
+CHAN term= dirterm=
+CTR 142971
+00:23:03.147 end
+t_script_end 1790634189.148

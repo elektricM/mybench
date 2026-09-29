@@ -1,0 +1,10 @@
+# capture ai0-cont-resetduring: exp.ps1 -Op resetduring -Chan ai0 -Range 10 -Rate 1000
+t_attach 1790649526.139
+t_bound 1790649569.153
+t_script_start 1790649577.199
+04:41:33.477 begin op=resetduring chan=ai0 range=10 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+04:41:35.907 rep 0
+04:41:51.553 started
+04:41:55.138 reset done
+04:41:56.655 end
+t_script_end 1790649723.231

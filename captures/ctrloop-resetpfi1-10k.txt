@@ -1,0 +1,11 @@
+# capture ctrloop-resetpfi1-10k: exp.ps1 -Op ctrloop -ResetTerm /myDAQ1/PFI1 -Rate 10000 -Secs 1
+t_attach 1790632584.835
+t_bound 1790632626.565
+t_script_start 1790632634.628
+23:58:54.646 begin op=ctrloop chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+23:58:56.595 rep 0
+CHAN term= dirterm=
+23:59:17.446 started
+CTR 14154
+23:59:22.596 end
+t_script_end 1790632776.375

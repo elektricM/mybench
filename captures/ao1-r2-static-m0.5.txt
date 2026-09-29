@@ -1,0 +1,9 @@
+# capture ao1-r2-static-m0.5: exp.ps1 -Op aostatic -Chan ao1 -AoRange 2 -Value -0.5
+t_attach 1790645394.342
+t_bound 1790645435.129
+t_script_start 1790645443.179
+03:32:34.644 begin op=aostatic chan=ao1 range=10 ranges= rate=1000 n=100 value=-0.5 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+03:32:36.030 rep 0
+wrote -0.5
+03:32:46.714 end
+t_script_end 1790645571.504

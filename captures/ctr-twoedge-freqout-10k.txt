@@ -1,0 +1,10 @@
+# capture ctr-twoedge-freqout-10k: exp.ps1 -Op cimeas -Func twoedge -Rate 10000
+t_attach 1790646585.428
+t_bound 1790646625.050
+t_script_start 1790646633.114
+03:52:35.681 begin op=cimeas chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=twoedge count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+03:52:38.349 rep 0
+03:52:53.828 freqout started
+MEAS 5E-05
+03:52:56.839 end
+t_script_end 1790646783.688

@@ -1,0 +1,12 @@
+# capture ai0-finite-timeout: exp.ps1 -Op aitimeout -Chan ai0 -Range 10 -Rate 10 -N 100
+t_attach 1790649029.379
+t_bound 1790649062.297
+t_script_start 1790649070.332
+04:32:38.931 begin op=aitimeout chan=ai0 range=10 ranges= rate=10 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+04:32:41.311 rep 0
+04:32:57.478 configured, actual rate 10
+ERROR Some or all of the samples requested have not yet been acquired.
+04:33:06.766 after timeout
+04:33:08.146 disposed
+04:33:08.413 end
+t_script_end 1790649193.086

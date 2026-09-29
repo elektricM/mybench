@@ -1,0 +1,11 @@
+# capture ctr-angenc-x2: exp.ps1 -Op cimeas -Func angenc -Decoding X2 -Rate 10000 -Secs 1
+t_attach 1790631568.912
+t_bound 1790631592.656
+t_script_start 1790631600.704
+23:41:09.357 begin op=cimeas chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=angenc count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+23:41:10.447 rep 0
+ENC A= B= Z=
+23:41:19.248 freqout started
+MEAS 0
+23:41:22.737 end
+t_script_end 1790631688.831

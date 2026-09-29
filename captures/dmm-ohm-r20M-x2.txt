@@ -1,0 +1,11 @@
+# capture dmm-ohm-r20M-x2: exp.ps1 -Op dmm -Func ohm -Range 20000000 -Value 0.001 -Count 2
+t_attach 1790648785.290
+t_bound 1790648822.889
+t_script_start 1790648830.920
+04:28:50.192 begin op=dmm chan=ai0 range=20000000 ranges= rate=1000 n=100 value=0.001 func=ohm count=2 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+04:28:51.388 rep 0
+DATA ch0 NaN
+04:29:07.641 rep 1
+DATA ch0 NaN
+04:29:09.467 end
+t_script_end 1790648953.403

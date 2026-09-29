@@ -1,0 +1,20 @@
+# capture dmm-elvis-dcv-auto: manual.ps1 -Secs 100 -Say dcv-auto
+t_attach 1790637846.473
+t_bound 1790637859.701
+t_script_start 1790637867.743
+01:24:57.872 GO: dcv-auto
+01:25:04.744 t+5s
+01:25:09.884 t+10s
+01:25:14.913 t+15s
+01:25:19.943 t+20s
+01:25:24.963 t+25s
+01:25:30.013 t+30s
+01:25:35.033 t+35s
+01:25:40.063 t+40s
+01:25:45.103 t+45s
+01:25:50.125 t+50s
+01:25:55.153 t+55s
+01:26:00.195 t+60s
+01:26:05.214 t+65s
+Connection to 127.0.0.1 closed by remote host.
+t_script_end 1790637966.298

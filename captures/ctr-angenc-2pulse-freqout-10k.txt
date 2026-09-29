@@ -1,0 +1,11 @@
+# capture ctr-angenc-2pulse-freqout-10k: exp.ps1 -Op cimeas -Func angenc -Decoding TwoPulseCounting -ATerm /myDAQ1/FrequencyOutput -Rate 10000 -Secs 1
+t_attach 1790631729.894
+t_bound 1790631749.198
+t_script_start 1790631757.257
+23:43:39.388 begin op=cimeas chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=angenc count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+23:43:40.498 rep 0
+ENC A= B= Z=
+23:43:48.276 freqout started
+MEAS 171645
+23:43:50.827 end
+t_script_end 1790631834.768

@@ -1,0 +1,10 @@
+# capture ctr-freq-freqout-10k: exp.ps1 -Op cimeas -Func freq -Rate 10000
+t_attach 1790645980.648
+t_bound 1790646024.447
+t_script_start 1790646032.506
+03:42:49.984 begin op=cimeas chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=freq count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+03:42:53.253 rep 0
+03:43:10.337 freqout started
+MEAS 10000
+03:43:16.740 end
+t_script_end 1790646204.928

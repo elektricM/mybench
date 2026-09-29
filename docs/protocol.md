@@ -1,6 +1,6 @@
 # NI myDAQ USB protocol (reverse-engineered)
 
-Status: **stage 2 in progress** (2026-09-28). The single source of truth for libmydaq. Facts come
+Status: **stage 3 done** (2026-09-29; open items: section 14). The single source of truth for libmydaq. Facts come
 from USB captures of NI's own driver (DAQmx 25.8 in the Windows VM, `captures/`, full payloads
 since the 256 KiB pcap patch) and from native replays on macOS (`tools/mydaq_native.py`). The
 driver-RE agent's static analysis (`docs/driver-notes.md`, `tools/drv_*.py`) supplies NI's object
@@ -35,17 +35,26 @@ Status: **R** = READY for libmydaq (exact sequences + formats, byte-verified aga
 | Init sequence | 3 | **R, N** | identical in every capture; native replay |
 | Calibration memory, AI/AO/audio/DMM formulas | 4, 9.3 | **R, N** | 98k+ AI values, all AO codes, 26 DMM readings bit-exact |
 | AI on demand (ai0/ai1, ±10/±2 V, 1–2 ch) | 5 | **R, N** | |
-| AI hardware timed, finite + continuous (incl. audio in) | 6 | **R, N** (audio in: **R, C**) | 27/27 sequences byte-identical from the builder; native 2 × 200 kS/s |
+| AI hardware timed, finite + continuous (incl. audio in) | 6 | **R, N** (audio in: native via libmydaq, 48 kS/s) | 27/27 sequences byte-identical from the builder; native 2 × 200 kS/s |
 | Stream credit / overflow events | 6.4, 6.5 | **R, N** | native credit experiments |
 | AO static (ao0/ao1, 1–2 ch) | 7.1 | **R, N** | |
-| AO hardware timed, finite + continuous, 1–2 ch, audio out | 7.2 | **R, C** | 10/10 sequences byte-identical; all stream codes match |
+| AO hardware timed, finite + continuous, 1–2 ch, audio out | 7.2 | **R, N** | 10/10 sequences byte-identical; native: libmydaq hwtest (finite 2 × 20 k, regen/stream up to 2 × 200 kS/s, audio 48 k) and `native_aiao_test.py` |
+| **AI + AO concurrently** (second timed task on stream 5) | 7.3 | **R, N** | 4 DAQmx captures (either order, finite AI inside AO, 2 ch); native both orders; negative control reproduces the stream-4 clash |
+| AO underflow event (0561 event 2, then 1) | 7.3 | **R** (captured) | `aiao-ao01stream-ai01cont-10k` |
 | DIO static (masks, directions) | 8 | **R, N** | |
-| DMM DC V, AC V, DC A, AC A, Ω 200 Ω / 2 kΩ | 9 | **R** (DC V: **N**) | 26/26 readings bit-exact, overload = NaN |
-| DMM Ω 20 kΩ – 20 MΩ | 9.2 | MODE 16–19 **[H]** | capture P1 |
-| DMM diode, continuity, HW autorange | 9.5 | open | P2 / P3 |
-| Counter: edge count, pulse train (cont/finite), FREQOUT | 10 | decoded **C** (replay-level) | P4 native; field meanings partly [H] |
-| Counter: frequency/period/pulse width/encoder | 10.5 | open | P5, P7 |
-| Abort / timeouts / reset during task | 2.1 | open | P8 |
+| DMM DC V, AC V, DC A, AC A, Ω 200 Ω / 2 kΩ | 9 | **R, N** (every mode read natively, `native_stage2_test.py dmm`) | 26/26 readings bit-exact, overload = NaN |
+| DMM Ω 20 kΩ – 20 MΩ | 9.2, 9.5 | **R** MODE 16–19 (16: **N**; 17–19: **C**, statuses replayed natively) | open-lead captures; finite-value scaling of these ranges **BLOCKED** (real resistors, Martin) |
+| DMM diode, continuity | 9.2, 9.5 | **R, N** — MODE 20 / 21 | ELVISmx GUI captures `dmm-elvis-diode/-cont`; native open-lead packets identical |
+| DMM hardware autorange | 9.5 | **BLOCKED** (needs Martin: ELVISmx DMM in Auto) | `dmm-elvis-dcv-auto` has no DMM traffic |
+| Counter: edge count, pulse train (cont/finite), FREQOUT | 10 | **R, N** | captures; libmydaq; native replays |
+| Counter: frequency, period, two-edge separation (FREQOUT loop or PFI) | 10.5 | **R, N** | `ctr-freq/-period/-twoedge-freqout-10k`: native reads 10000 / 10000 / 5000 = DAQmx |
+| Counter: pulse width, pulse time, encoders (lin/ang, X1/X2/X4/2-pulse, Z), count edges falling / initial count / reset on PFI1, sources 20 MHz / 100 kHz | 10.5 | **R, N** (timebase sources and reset: **R, C**) | `native_ctr_replay.py` reads match DAQmx |
+| Pulse train idle high, initial delay (cont + finite), finite duty order, **live update** (`m1e` + `m18`) | 10.5 | **R, C** (live update replayed natively: statuses 0) | 4 captures |
+| Counter: semi-period, buffered counter input, count down / external direction | 10.5 | **not supported by DAQmx on the myDAQ**; emulate (10.5); ext. direction sense **BLOCKED** (jumper) | DAQmx -200431 / programmed I/O only / -200077 |
+| FREQOUT timebases 20 MHz / 10 MHz / 100 kHz, divider 1–16 | 10.4 | **R, N** | 7 captures; `native_freqout_check.py`: all within 0.01 % |
+| AO ±2 V on ao0/ao1 (static, timed) | 7.1, 7.2 | **R** (static: **N**; timed: builder byte-exact, `ao_range=2`) | 3 captures; codes = ±2 V record exactly |
+| Timeouts (AI read, DMM read), reset during a task | 2.1 | **R** (DMM timeout: **N**) | 3 captures; no vendor abort request anywhere |
+| PFI0 = DIO0 | 10.6 | **N** | ctr0 counted 25 DIO0 toggles on PFI0 |
 
 Pending experiments, with commands, are listed in section 14.
 
@@ -110,11 +119,29 @@ offset size  request                                  reply
 `tools/mydaq_proto.py` and `tools/drv_fusion.py` decode frames; `frame()` in
 `tools/mydaq_native.py` builds them and rebuilds every captured request byte-exactly.
 
-### 2.1 Aborting a call **[B]** (not yet observed)
+### 2.1 Timeouts, aborts, reset during a task — **READY for libmydaq** **[C]**
 
-NI's transport aborts an outstanding call with a vendor control request (OUT bmRequestType 0x40,
-wValue = slot, wIndex = 1), then polls (IN 0xC0, wValue = slot, wIndex = 3, 6 bytes) until idle;
-bRequest is probably 0xFC (driver-notes 1.2). Only needed for timeout recovery.
+Captures `ai0-finite-timeout`, `dmm-dcv-timeout`, `ai0-cont-resetduring` (s3-final). In none of
+them does DAQmx send a vendor control request: the only control transfers are the enumeration
+ones every capture has. NI's abort mechanism (driver-notes 1.2: OUT 0x40 bRequest 0xFC?, wValue =
+slot, wIndex = 1) is **never needed** in these paths; libmydaq must not implement it blind.
+
+- **AI read timeout** (finite 100 samples at 10 S/s, read with a 1 s timeout): the host just gives
+  up and tears the task down with the normal 6.1 stop sequence (`endpoint.stop`, `in_timing.status`,
+  `disarm`, `ai_fe.release`, `unconfigure`, `endpoint.flush` → -225229). Only differences from a
+  completed task: event 5 on in_timing arrives *after* `endpoint.stop`, and `status` returns
+  (1, 0) instead of (0, 1). libmydaq: on a host-side timeout, run the normal stop.
+- **DMM read timeout**: the timeout travels **in the request**, `dmm.read(1, TIMEOUT_MS)` (DAQmx
+  200 ms → `00 00 00 01 00 00 00 c8`); the device itself answers after ≈ 200 ms with status
+  **-225202** (`ff fc 90 4e`) and an 11-byte all-zero packet (length field 0x000d). `set_mode` is
+  not affected (it still took 1.55 s). libmydaq: pass the caller's timeout in the read, map
+  -225202 to a timeout error, send nothing else.
+- **Device reset while continuous AI runs**: DAQmx first stops the task — `session.identify`,
+  `ai_fe.release`, `in_timing.status` (event 5 arrives), `disarm`, `unconfigure`,
+  `endpoint[4].stop`, `endpoint[4].flush` (-225229) — then sends the **complete section-3 init**
+  (identify, limits, stream table, open, calibration reads, hwverify, resets, `dmm.init`, the
+  init routes). The 14.1 prediction ("init without stopping first") is refuted. libmydaq: reset =
+  stop every running task, then re-run init.
 
 ### 2.2 Objects **[B]** (ids from driver-notes 1.4; roles confirmed by captures **[N]**)
 
@@ -377,7 +404,13 @@ slot op  object       arguments                                  NI method
 `code` = i16 from 4.2 (±10 V range record), sent in the low half of the u32 (e.g. -0.5 V on ao0 →
 0x0000f999). Note the write goes to instance 0 with the channel in the u16 list; several channels
 can be written in one call (both lists longer: `ao01-static-p0.5` writes `u32[] {0x518, 0xf962}`,
-`u16[] {0, 1}` after configuring both DACs). Captures `ao*-static-*`; natively verified
+`u16[] {0, 1}` after configuring both DACs).
+
+**±2 V range** (`ao0-r2-static-p0.5`, `ao1-r2-static-m0.5`) **[C]**, replayed natively **[N]**:
+`ao_dac.configure` becomes `u8 0, 1, 5, 0, 0, 1` (the SEL = 5, AUD = 1 pair audio out uses) and
+the code comes from the channel's ±2 V record (4.1: ao0 0x1af, ao1 0x1e0): +0.5 V on ao0 → 7226
+(0x1c3a), −0.5 V on ao1 → −7532 (0xe294), both = round(offset + gain · V) exactly. Nothing else
+changes (`write`, `update` identical). Frame: `00 01 00 14 00 10 01 08 05 20 00 CH 00 01 05 00 00 01 00 00`. Captures `ao*-static-*`; natively verified
 (codes identical to DAQmx's; outputs left at 0 V). Nothing is wired, so the analog output voltage
 itself is not measured.
 
@@ -385,9 +418,10 @@ itself is not measured.
 
 Sources: 10 captures (`ao0/ao1/ao01-finite-*`, `ao0/ao01-cont-*-regen/-stream`,
 `audiooutLR-finite-48k-*`; 1 k … 200 kS/s). `ao_timed_frames()` in `tools/mydaq_native.py` rebuilds
-**all 10** of NI's command sequences byte-for-byte (`mydaq_native.py selfcheck`), and every streamed
-DAC code equals `round(offset + gain · volts)` of DAQmx's waveform (`tools/aotiming.py`).
-Not yet run natively (`native_stage2_test.py aofinite aocont audioout`) **[C]**.
+**all 11** of NI's command sequences byte-for-byte (`mydaq_native.py selfcheck`, incl. ±2 V), and
+every streamed DAC code equals `round(offset + gain · volts)` of DAQmx's waveform (`tools/aotiming.py`).
+Run natively **[N]** (`native_stage2_test.py aofinite aocont audioout`, 2026-09-29, plus libmydaq's
+hw tests): finite ao0, ao0+ao1 and audio L+R all end with event `0001` on 0560.
 
 ```
 slot type op  object      arguments                                            NI method
@@ -419,7 +453,7 @@ slot type op  object      arguments                                            N
 | field | value |
 |---|---|
 | DAC channel numbers | 0 = ao0, 1 = ao1, 2 = audio out L, 3 = audio out R (instances of 0x0520 and entries of the out_fifo list) |
-| SEL, AUD | ao0/ao1: 0, 0; audio out: 5, 1 (static AO uses `0 1 0 0 0 0`, section 7) |
+| SEL, AUD | ao0/ao1 ±10 V: 0, 0; **ao0/ao1 ±2 V: 5, 1** (`ao0-r2-finite-1k-n100-ramp`: the only frame that differs from `ao0-finite-1k-n100-ramp`; stream codes = ±2 V record, 100/100 exact) **[C]**; audio out: 5, 1 (static AO uses `0 1 0 0 0 0`, ±2 V `0 1 5 0 0 1`, section 7.1) |
 | finite | A = 1, B = N (samples per channel), C = 0, FLAGS `00 01 00 00 00 01 01 00 00 00 01 00 00 00 01 01 00 00 00 00 00 00`, CREDIT = 2 · n_ch · N |
 | continuous | A = B = C = 0xfffffffe, FLAGS as finite but byte 11 = 01, CREDIT = 0x7fffffff |
 | DIVISOR | `floor(100e6 / rate)`, as AI (48000 → 2083 = 48007.68 S/s) |
@@ -427,8 +461,7 @@ slot type op  object      arguments                                            N
 | regeneration | **host side**: DAQmx's "regenerate" and "stream" modes send identical commands; with regeneration DAQmx simply re-sends the buffer. The device FIFO holds ≈ 18 KB ahead of the output (`ao0-cont-10k-*`: 60500 B sent in 2.1 s at 20000 B/s) |
 | after stop | the outputs keep the last sample (update per channel at the end) |
 
-Underflow (host too slow in continuous mode) was not provoked; driver-notes 1.3 expects an event
-on 0x0561. Audio out cannot be written on demand (DAQmx -201087: a sample clock is required), so
+Underflow (host too slow in continuous mode): event 0002 then 0001 on 0561, see 7.3. Audio out cannot be written on demand (DAQmx -201087: a sample clock is required), so
 audio out is timed-only.
 
 ### 7.3 AI and AO at the same time (stream allocation) — **READY for libmydaq** **[N]**
@@ -455,7 +488,10 @@ Observed pairs: AO on 4 + AI on 5 (AO first) and AI on 4 + AO on 5 (AI first). S
 leaves the other running; each teardown touches only its own `endpoint[S]` (DAQmx deferred the
 second task's `endpoint[5].flush` until the other task's teardown in one capture — ordering only).
 The AI front end (0x0512/0x0550/0x0551 instance 2) and the AO objects (0x0520/0x0560/0x0561) are
-separate, so nothing else is shared. **Native** (`tools/native_aiao_test.py`, builders `ai_timed_frames(..., stream=)` /
+separate, so nothing else is shared. **Byte-exact**: `mydaq_native.py selfcheck` rebuilds both tasks of all 4 captures from their
+parameters with `stream=` 4/5 and finds every frame, in order, in NI's sequence.
+
+**Native** (`tools/native_aiao_test.py`, builders `ai_timed_frames(..., stream=)` /
 `ao_timed_frames(..., stream=)`): AO continuous on 4 + AI continuous on 5 started inside it (AI 1843
 scans in 2 s, AO kept streaming, no error) and AI on 4 + AO on 5 started inside it (AI 3928 scans in
 4 s, AO 110 buffers) both run cleanly. Negative control `same4` (AI configured on stream 4 while AO
@@ -495,11 +531,11 @@ finite DAQmx reading (26/26); overload readings are NaN on both sides.
 ```
 slot op  object     arguments                     reply
 1    09  0c90 0000  u8 MODE, u8 0                 status (returns after ~0.5–1.5 s: the meter settles)
-1    0a  0c90 0000  u32 1, u32 10000 (timeout ms)  status, u8[] PACKET (11 bytes)
+1    0a  0c90 0000  u32 1, u32 TIMEOUT_MS          status, u8[] PACKET (11 bytes); -225202 on timeout (2.1)
 ```
 
-Init (section 3) sends `0c90.08()` once (~1.6 s after attach). One `set_mode` + `read` per reading,
-as DAQmx does even when the mode does not change. The DMM is isolated from and independent of AI/AO.
+Init (section 3) sends `0c90.08()` once (~1.6 s after attach). DAQmx sends `set_mode` + `read` per
+reading; ELVISmx sends `set_mode` once and then loops `read` (faster, see 9.4) **[N]**. The DMM is isolated from and independent of AI/AO.
 
 ### 9.2 MODE byte per function and range **[N]** (captures) / **[C]** where noted
 
@@ -509,8 +545,9 @@ as DAQmx does even when the mode does not change. The DMM is isolated from and i
 | AC voltage | 2 V → 4, 20 V → 5, 200 mV → 7 (6 is unused: no 60 V AC range) |
 | DC current | 20 mA → 8, 200 mA → 9, 1 A → 10 |
 | AC current | 20 mA → 11, 200 mA → 12, 1 A → 13 |
-| resistance | 200 Ω → 14, 2 kΩ → 15, 20 kΩ … 20 MΩ → 16 … 19 **[H]** (captures pending) |
-| diode, continuity | not reachable through public DAQmx calls (see 9.5) |
+| resistance | 200 Ω → 14, 2 kΩ → 15, 20 kΩ → 16 (`dmm-ohm-r20k-x2`), 200 kΩ … 20 MΩ → 17 … 19 (see 9.5 for the evidence) |
+| diode | **20** (one range; `dmm-elvis-diode`, ELVISmx GUI) **[N]** |
+| continuity | **21** (one range; `dmm-elvis-cont`, ELVISmx GUI) **[N]** |
 
 DAQmx resistance channels only accept 1 mA "excitation" on every range (it is a DAQmx formality:
 the meter chip sources its own test current; DAQmx rejects other values with -200077).
@@ -531,8 +568,8 @@ the meter chip sources its own test current; DAQmx rejects other values with -20
 | `?` 0x3f | mA | 0 ×0.01 (20 mA), 1 ×0.1 (200 mA) | A |
 | `0` 0x30 | A | 0 ×1 (1 A) | A |
 | `3` 0x33 | Ω | 0 ×100 (200 Ω), 1 ×1 k, 2 ×10 k, 3 ×100 k, 4 ×1 M, 5 ×10 M | Ω |
-| `1` 0x31 | diode | ×1 | V (driver-notes; not captured) |
-| `5` 0x35 | continuity | (reading − D4/1000) × 100 | Ω (driver-notes; not captured) |
+| `1` 0x31 | diode | ×1 (R = 0) | V (`016181800` = 1.618 V, Martin's LED; open = `020001900` overload) **[C]** |
+| `5` 0x35 | continuity | (reading − D4/1000) × 100 (R = 0) | Ω (`014945800` → 149 Ω for Martin's 150 Ω resistor; wire `0000[0-4]5800` → 0 Ω; open = `020005900`) **[C]** |
 
 - O2 = `8` for DC, `4` for AC (the packet does not otherwise say AC/DC; the value's meaning comes
   from the MODE you set). S bit 3 is always set in our captures.
@@ -552,34 +589,36 @@ Examples: `10003;804` in AC 20 V mode → 0.03 × 10 = 0.03 V → 1.2727573 × 0
 
 ### 9.4 Timing
 
-Each reading takes ~1–1.5 s (set_mode settling + one meter conversion), AC as fast as DC (the meter
-chip computes RMS itself).
+The meter chip streams packets by itself; `read` blocks until the **next** packet. Measured
+natively after one `set_mode` (2026-09-29, `scratchpad` cadence check, 11 intervals each):
+**0.50 s** per packet for V, A and Ω (modes 0, 4, 14), **0.094 s** for diode and continuity
+(modes 20, 21; ELVISmx's GUI reads at the same 95 ms median, `dmm-elvis-diode/-cont`).
+So a meter UI sends `set_mode` **once** per function/range change and then loops `read` — the way
+ELVISmx does — getting 2 or ~10.6 readings/s. DAQmx instead sends `set_mode` + `read` per reading
+(~1–1.5 s each, as in the `dmm-*` captures). AC is as fast as DC (the chip computes RMS itself).
+The first packets after `set_mode` may still be settling (ELVISmx shows them anyway) **[H]**.
 
-### 9.5 Open **[?]**
+### 9.5 Diode, continuity, Ω 20 k–20 M, hardware autorange
 
-- **Resistance 20 kΩ … 20 MΩ**: MODE 16–19 follow the pattern but their captures were lost (first
-  attempt used excitation values DAQmx rejects; re-run pending, item P1 in section 14).
-- **Stage-3 result (2026-09-28 22:20, `dmmtry.ps1`, one variant per process)**: every DAQmx route
-  to diode / continuity is refused *before any device traffic*: `DAQmxSetChanAttribute(0x3051)` on a
-  resistance channel (named or physical channel string) and on a voltage channel → -200233; reading
-  0x3051 back → -200233; generic 0x1874/0x1875 excitation on a voltage channel → -200233;
-  `DAQmxCreateAIVoltageChanWithExcit` → -200431 (the dmm channel only offers Current, CurrentRMS,
-  Resistance, Temp…, Voltage, VoltageRMS); `DAQmxSetAIExcitSrc` on a voltage channel **kills the
-  32-bit PowerShell process** (no output after the call). So diode/continuity can only be captured
-  from ELVISmx's own DMM (GUI fallback, P3); driver-notes 8 predicts `set_mode(20, 0)` and
-  `set_mode(21, 0)`.
-- **Diode and continuity**: ELVISmx selects them with device-specific DAQmx channel attributes
-  (docs/instruments/algorithms/dmm.md: continuity = resistance channel + attribute 0x3051 = TRUE;
-  diode = voltage channel ±2 V + internal excitation 1 mA; hardware autorange = 0x2FF8). Our first
-  attempt (`tools/daqmx-scripts/dmmc.ps1`, `DAQmxSetChanAttribute` from 32-bit nicaiu.dll) got
-  -200233 "property not valid for this function" for 0x3051, 0x2FF8 and AI.Excit.Src
-  (`dmm-dcv-hwauto-x2`, `dmm-ohm-hwauto-x2` show no DMM traffic). A variant script
-  (`dmmtry.ps1`: typed setters, named vs physical channel, set before/after range, voltage channel
-  with excitation) is ready (P2); fallback: capture the ELVISmx DMM GUI in diode and continuity mode
-  (P3). Until then libmydaq cannot offer diode/continuity (driver-notes' packet conversion for
-  F = '1'/'5' is ready; only the MODE bytes are missing; hypothesis 20/21 — do not send unverified).
+- **Ω 20 kΩ … 20 MΩ = MODE 16 … 19** **[C]** (`dmm-ohm-r20k/-r200k/-r2M/-r20M-x2`, DAQmx, open
+  leads): `set_mode(0x10…0x13, 0)`, replies `R20003900` with range digit R = 2, 3, 4, 5 and F = '3'
+  (overload → NaN, as DAQmx). The multiplier per R (×10 k, ×100 k, ×1 M, ×10 M) and the
+  calibration slots 24–27 (all (1, 0) on this unit) are **[B]** from driver-notes 8: no finite
+  reading on these ranges has been captured yet (needs real resistors, Martin).
+- **Diode = MODE 20, continuity = MODE 21** **[N]**: ELVISmx's DMM GUI sent exactly one
+  `set_mode(0x14, 0)` / `set_mode(0x15, 0)` when Martin selected the function, then `read(1, 10000)`
+  every ~95 ms (`dmm-elvis-diode`, `dmm-elvis-cont`). Native replay (2026-09-29 03:10, open leads):
+  both accepted, replies `020001900` / `020005900`, byte-identical to ELVISmx's open-lead packets.
+  Values in 9.3 (1.618 V for Martin's LED, 149 Ω for his 150 Ω resistor). No calibration.
+  DAQmx itself refuses every route to these functions (-200233 / -200431, `dmmtry.ps1`), so these
+  come only from the ELVISmx captures.
+- **Hardware autorange: BLOCKED** (needs Martin): `dmm-elvis-dcv-auto` holds only the init's
+  `0c90.08`, no `set_mode` or `read` at all, and the ssh session into the VM closed at t+65 s
+  ("Connection … closed by remote host") — probably the VM going down then, which is also why it
+  was not running when the 03:00 device window started. Prediction (driver-notes 8):
+  `set_mode(m, 1)`. Do not send the second byte ≠ 0 until captured; MYBENCH autoranges in software.
 
-## 10. Counter / timer and FREQOUT — decoded **[C]** (replayable; not yet run natively)
+## 10. Counter / timer and FREQOUT — **READY for libmydaq** (native **[N]** where marked)
 
 Sources: `ctr-countedges-pfi0-1s`, `ctr-cifreq-pfi1-timeout`, `co-ptrain-1k-d0.5`,
 `co-ptrain-10k-d0.25`, `co-finite-100-1k`, `freqout-10k`, `freqout-100k`, `ctrloop-freqout-10k`.
@@ -624,9 +663,8 @@ Exact bytes of each task are in the captures; `native_stage2_test.py` replays th
 
 LOW/HIGH = low and high time in **100 MHz ticks**, low phase first (idle low): 1 kHz 50 % →
 50000/50000; 10 kHz 25 % → 7500/2500 (**[C]**, the 25 % capture fixes the order); 100 Hz →
-500000/500000. Frequency = 1e8 / (LOW + HIGH), duty = HIGH / (LOW + HIGH). Finite: T6..T8 were
-all 50000 at 1 kHz 50 % (initial delay, low, high **[H]** — needs a finite capture with duty ≠ 50 %,
-P7).
+500000/500000. Frequency = 1e8 / (LOW + HIGH), duty = HIGH / (LOW + HIGH). Finite: T6..T8 =
+high, low, high and U0 = initial delay (settled in 10.5 by `co-finite-10-1k-d0.25-delay5ms`).
 
 ### 10.3 Routes (route.connect: `u32[] ids, u32[] values`) **[C]**
 
@@ -649,14 +687,95 @@ P7).
 1 0a 0c40 0000 ; 1 0b 0c40 0000              stop, release
 ```
 
-DAQmx's error text says the 4-bit FREQOUT divider (1..16) runs from 20 MHz, 10 MHz or 100 kHz; only
-the 100 kHz timebase (u8 1) was observed. Other timebases: pending (P6).
+**Timebase and divider** **[C]** (`freqout-10k/-100k/-2M/-1M25/-6250/-1M/-4M`, s3-final):
+`configure(u16 DIV, u8 A, u8 B)`, f = timebase / n, n = 1..16, **DIV = n mod 16** (n = 16 is sent
+as 0):
 
-### 10.5 Open
+| (A, B) | timebase | examples (DIV) |
+|---|---|---|
+| (1, 0) | 100 kHz | 100 kHz (1), 10 kHz (10), 6250 Hz (0 = 16) |
+| (0, 0) | 20 MHz | 2 MHz (10), 1.25 MHz (0 = 16), 4 MHz (5) |
+| (0, 1) | 10 MHz | 1 MHz (10) |
 
-PFIn = DIOn (DAQmx refuses a DI task on the lines a counter reserves, `pfidio-co-100hz-port0`;
-native test P4); period / pulse-width / two-edge / encoder measurements; frequency with a real
-signal (internal FREQOUT loop, P5); the meaning of the remaining 0c41 fields.
+DAQmx picks 20 MHz whenever 20 MHz / n hits the frequency (2 MHz = 20/10, not 10/5), then 10 MHz,
+then 100 kHz; other frequencies are refused (DAQmx rejects 1 kHz, naming the three timebases). libmydaq: same
+preference order. Native: `tools/native_freqout_check.py` counts the output with ctr0 on the
+internal loop.
+
+### 10.5 Stage-3 counter modes — decoded **[C]**, replayed natively where marked **[N]**
+
+Sources: `tools/lists/s3-ctr.txt` (`exp.ps1 -Op cimeas/ctrloop/ctr/coptrain/cofinite`), all on
+the internal FREQOUT loop or with open inputs; `tools/native_ctr_replay.py CAPTURE…` replays a
+capture's requests verbatim from macOS and prints the reads. Names below use `drv_fusion.py`'s
+method names (`configure` = 09, `m0b`…`m12`, `commit` = 13, `arm` = 14, `read` = 1d). Every task
+is the 10.1 skeleton; `configure` = 9 × u32 **U[0..8]**, 2 × u16 (0, 0), 4 × u8 **B[0..3]**.
+
+**Routes and polarity.** Each input route is a pair (select id, polarity id); polarity 0 = rising /
+active high, 1 = falling / inverted (`ctrloop-falling-10k` changed only 0x37cf14dd 0 → 1;
+`ctr-pw-falling-freqout-10k` sets 0x11f9be17 = 1). The PFI lines a task reads are first set to
+input (their select/enable pair = 0/0: PFI0 0xc51cc492/0x8e309935, PFI1 0xb21bf404/0xf937a9a3,
+PFI2 0x2b12a5be/0x603ef819).
+
+| input | select id / polarity id | values |
+|---|---|---|
+| ctr0 source (edges counted / timebase) | 0x587c6efe / 0x37cf14dd | PFI n = n + 1, **20 MHz = 0x1c**, **100 kHz = 0x12**, 100 MHz = 0x1e, FREQOUT = 0x2b |
+| ctr0 gate (measured signal, count reset) | 0x097d2c54 / 0x11f9be17 | PFI1 = 2, FREQOUT = 0x29 (with 0x5e3c3848 = 0x24; pulse width also sets 0x77c75630/0x5d392cd4 = 0/0) |
+| ctr0 aux | 0xc7c20613 / 0x88fbba44 | 0x2f (none) in every task seen |
+| encoder A / B / Z | 0x3da647a3 / 0xa4af1619 / 0xb7c38e4f | A: PFI0 = 1, FREQOUT = 0x2e (+ 0x5e3c3848 = 0x24); B: PFI2 = 3; Z: PFI1 = 2 (only with Z index on) |
+
+**Input modes** (app code = B[1] = `arm` u8 #1 = last byte of `read`; `m0c` = 1, except 2 for encoders):
+
+| mode | U[0..2] | B | m0b (non-zero entries) | other | read → | evidence |
+|---|---|---|---|---|---|---|
+| count edges | U0 = **initial count** | 0,1,0,1 | [7]=2, [12]=1 | count reset on PFI1: gate route = 2, m0b [3]=1, [7]=3, [9]=2 | u32 count | `ctrloop-*` **[N]** (falling: 12017 native vs 11941 DAQmx edges in ~1.1 s) |
+| pulse width (app 4) | 0 | 0,4,0,1 | [3]=1, [7]=2, [9]=1, [12]=1 | m10 [2]=1, [4]=1; gate polarity = which level is measured | u32 ticks of 100 MHz | `ctr-pw-falling-freqout-10k` **[N]** (5000 = 50 µs) |
+| pulse time (app 0x0f) | 1,0,1 | 0,0x0f,1,1 | [3]=1, [7]=3, [8]=1, [9]=3, [12]=1 | `read(1, 2, …)` asks for 2 values | u32 {high, low} ticks | `ctr-pulsetime-freqout-10k` **[N]** (5000, 5000) |
+| linear / angular encoder (app 7 / 0x0e) | 1,0,1 | 0,app,2,1 | [7]=3, [12]=1 | **m0c = 2**; **m0f = (0,0,0,3, Z enable, DECODING)**, DECODING X1 = 1, X2 = 2, X4 = 3, two-pulse = 4 | u32 count (signed position) | `ctr-linenc-x4/-x1-z`, `ctr-angenc-x2`, `ctr-angenc-2pulse-freqout-10k` **[N]** (11518 native vs 11443 DAQmx counts) |
+
+| frequency (app 3) | 1,0,1 | 0,3,1,0 | [3]=1, [7]=3, [9]=2, [12]=1 | m10 [2]=1, [4]=1; `arm(1,0,0, 3,0,0,0)` | u32 **period** ticks of 100 MHz; f = 1e8 / ticks | `ctr-freq-freqout-10k` (10000 → 10 kHz = DAQmx) |
+| period (app 2) | as frequency | 0,2,1,0 | as frequency | `arm(1,0,0, 2,0,0,0)` | u32 period ticks | `ctr-period-freqout-10k` (10000 → 100 µs = DAQmx) |
+| two-edge separation (app 6) | 0 | 0,6,1,1 | [3]=1, [7]=2, [9]=1, [12]=1, **[14]=1** | m10 [4]=1; **first edge = route 0x77c75630 / polarity 0x5d392cd4**, second edge = gate 0x097d2c54 / 0x11f9be17; `arm(0,0,0, 6,1,0,0)` | u32 ticks first → second edge | `ctr-twoedge-freqout-10k` (rising → falling on FREQOUT 10 kHz: 5000 = 50 µs = DAQmx) |
+
+Frequency / period / two-edge on the FREQOUT loop (`-Op cimeas`, nothing wired): the gate (measured
+signal) is FREQOUT = 0x29 plus 0x5e3c3848 = 0x24; for PFI1 it is 2 with PFI1 set to input
+(0xb21bf404/0xf937a9a3 = 0/0, `ctr-cifreq-pfi1-timeout`). Two-edge's first-edge input takes the
+same values as encoder A (FREQOUT = 0x2e; PFI n = n + 1 **[H]** for PFIs, by analogy with 0x3da647a3).
+The 14.1 prediction "first edge on aux 0xc7c20613" is refuted: aux stays 0x2f.
+Scaling is host side (ticks / 100 MHz; encoder counts × distance per pulse or 360° / (ppr · X)).
+
+**Not supported by the myDAQ in DAQmx** (so nothing to capture; MYBENCH must emulate or hide):
+- semi-period (`CreateSemiPeriodChannel` → -200431): use pulse time (both half-periods per read);
+- **buffered / implicit-timed counter input**: the counter's only data transfer mechanism is
+  programmed I/O ("Non-buffered hardware-timed operations are not supported", `ctr-*-buf50-*`);
+  emulate with repeated on-demand reads. The counter therefore never takes a stream (7.3);
+- count **down** and **external direction** (-200077: only `Up`). External direction can be
+  built on the encoder mode: X1 decoding with A = the signal (PFI0) and B = the direction line
+  (PFI2) — needs a jumper test for the direction sense; "down" = host-side `initial − count`;
+- two-edge separation with both edges on the same terminal and the same edge (DAQmx rule).
+
+**Pulse trains** (app 9 continuous, 0x0b finite; U in 100 MHz ticks):
+- **U0 = initial delay** (minimum 2; DAQmx sends 2 when no delay is asked): 10 ms → 1,000,000
+  (`co-ptrain-1k-d0.25-delay10ms`), 5 ms → 500,000 finite (`co-finite-10-1k-d0.25-delay5ms`). With
+  a delay the continuous task also has B0 = 0 and `arm` last byte 0 (1 without delay).
+- Continuous: U2 = time in the **idle** state, U3 = time in the active state; `arm(U2, U3, 0, 9,
+  1, 0, B0)`. **Idle high** = `m0d(2, 1)` (instead of (2, 0)) with the loads swapped accordingly
+  (`co-ptrain-1k-d0.25-idlehigh`: U2 = 25000 high, U3 = 75000 low at 1 kHz 25 %).
+- Finite N pulses: U1 = 2, U3 = 2N, U6 = high, U7 = low, U8 = high (1 kHz 25 %: 25000, 75000,
+  25000); `arm(0, 2N, 0, 0x0b, 1, 0, 0)`; event 9 on 0c41 at the end (10.2).
+- **Live update while running** (`co-update-1k-to-2k-d0.25`: 1 kHz 50 % → 2 kHz 25 %) **[C]**:
+  `ctr.m1e()` (reply: status 0 + u32 0), then `ctr.m18(u32 IDLE, u32 ACTIVE)` with the new
+  idle-state / active-state ticks (37500, 12500), nothing else; the train keeps running and the
+  new values take effect at the next period **[H]** (not measured: nothing wired). Frames:
+  `00 01 00 0c 00 08 01 1e 0c 41 00 00` then `00 01 00 14 00 10 01 18 0c 41 00 00 <u32 IDLE> <u32 ACTIVE>`.
+  Prediction `m18(low, high)` confirmed; for idle high the pair is presumably (high, low) as U2/U3 **[H]**.
+
+### 10.6 Open
+
+- **PFIn = DIOn**: PFI0 = DIO0 **[N]** (`native_stage2_test.py pfidio`: ctr0 counted exactly 25
+  rising edges on PFI0 while DIO0 was toggled 25 times as an output); PFI3 = DIO3 (libmydaq's pulse
+  train). DAQmx refuses a DI task on lines a counter reserves (`pfidio-co-100hz-port0`).
+- Open: the meaning of the remaining 0c41 fields (send them verbatim per mode, as in 10.5); two-edge
+  first-edge values for PFI inputs (**[H]** n + 1); external-direction sense (jumper test).
 
 ## 11. Native validation (`tools/mydaq_native.py`, `tools/native_*test*.py`)
 
@@ -672,8 +791,12 @@ macOS + pyusb only, VM detached (through `tools/devlock.sh native`):
 | AO static | ao0/ao1 codes identical to DAQmx's for the same volts; left at 0 V |
 | DIO | read 0x00 (open inputs, as DAQmx); DO 0x55/0xAA driven and read back; back to inputs |
 | DMM DC V | all 4 ranges; values identical to DAQmx for the same display reading |
+| DMM all modes (2026-09-29) | every confirmed MODE incl. Ω 20 k, diode (20), continuity (21) read with open leads; diode/continuity packets byte-identical to ELVISmx's; `read(1, 200)` → -225202 after 200 ms |
+| counter (2026-09-29) | freq / period / two-edge on the FREQOUT loop: 10000 / 10000 / 5000 ticks = DAQmx; live update, AO ±2 V static, Ω 200 k–20 M replayed with status 0 |
+| FREQOUT (2026-09-29) | 10 k, 100 k, 6250, 1 M, 2 M, 1.25 M, 4 MHz counted by ctr0: all within 0.01 % (`native_freqout_check.py`) |
+| stage 2 (2026-09-29) | `native_stage2_test.py`: timed AO finite/cont, audio in/out, all DMM modes, ctr loop (10607 edges), PFI0 = DIO0 — all pass (AO done events re-checked: 0001 on 0560 for ao0, ao0+ao1, audio L+R) |
 
-Offline, byte-exact: all 27 AI/audio-in and 10 AO/audio-out timed task sequences
+Offline, byte-exact: all 27 AI/audio-in and 11 AO/audio-out (incl. ±2 V) timed task sequences
 (`mydaq_native.py selfcheck`); 98,322 streamed AI values, all AO stream codes, 26 DMM readings and
 all on-demand AI values reproduced from raw data + calibration (`aitiming.py`, `aotiming.py`,
 `drv_dmm.py`, `verify_cal.py`).
@@ -706,6 +829,16 @@ The command lists that produced the stage-2 captures are in `tools/lists/s2-*.tx
 | `dmm-dcv-*`, `dmm-acv-*`, `dmm-dca-*`, `dmm-aca-*`, `dmm-ohm-r200-x2`, `dmm-ohm-r2k-x2` | DMM MODE bytes, packets, overload |
 | `dmm-dcv-hwauto-x2`, `dmm-ohm-hwauto-x2` | failed attribute attempts (DAQmx -200233; no DMM traffic) |
 | `ctr-countedges-pfi0-1s`, `ctr-cifreq-pfi1-timeout`, `co-ptrain-1k-d0.5`, `co-ptrain-10k-d0.25`, `co-finite-100-1k`, `freqout-10k/-100k`, `ctrloop-freqout-10k`, `pfidio-co-100hz-port0` | counter / FREQOUT (section 10) |
+| `aiao-ao0cont-ai0cont-aofirst`, `aiao-ai0cont-ao0cont-aifirst`, `aiao-ao0cont-ai0finite`, `aiao-ao01stream-ai01cont-10k` | AI + AO concurrently: stream 5 for the second task; AO underflow events (7.3) |
+| `ctr-pw-falling-freqout-10k`, `ctr-pulsetime-freqout-10k`, `ctr-linenc-x4`, `ctr-linenc-x1-z`, `ctr-angenc-x2`, `ctr-angenc-2pulse-freqout-10k`, `ctrloop-falling-10k`, `ctrloop-init1000-10k`, `ctrloop-resetpfi1-10k`, `ctr-countedges-20mhz-1s`, `ctr-countedges-100khz-1s`, `co-ptrain-1k-d0.25-idlehigh`, `co-ptrain-1k-d0.25-delay10ms`, `co-finite-10-1k-d0.25-delay5ms` | stage-3 counter modes (10.5) |
+| `ctr-semiperiod-freqout-1k`, `ctr-twoedge-rr-freqout-10k`, `ctr-*-buf50-freqout-10k`, `ctrloop-down-10k`, `ctrloop-extdir-10k` | DAQmx refusals (no counter traffic): semi-period, same-edge two-edge, buffered CI, count down/external direction |
+| `dmm-ohm-r20k-x2`, `dmm-ohm-r200k-x2`, `dmm-ohm-r2M-x2`, `dmm-ohm-r20M-x2` | Ω 20 k … 20 MΩ = MODE 16 … 19 (open leads) |
+| `dmm-elvis-diode`, `dmm-elvis-cont`, `dmm-elvis-dcv-auto` | ELVISmx DMM GUI operated by Martin: diode (LED), continuity (wire, 150 Ω); dcv-auto holds no DMM traffic |
+| `co-update-1k-to-2k-d0.25` | live pulse-train update (`m1e`, `m18`) |
+| `ao0-r2-static-p0.5`, `ao1-r2-static-m0.5`, `ao0-r2-finite-1k-n100-ramp` | AO ±2 V range |
+| `ctr-freq-freqout-10k`, `ctr-period-freqout-10k`, `ctr-twoedge-freqout-10k` | frequency, period, two-edge on the FREQOUT loop |
+| `freqout-2M`, `-1M25`, `-6250`, `-1M`, `-4M` | FREQOUT timebases and divider 16 |
+| `ai0-finite-timeout`, `dmm-dcv-timeout`, `ai0-cont-resetduring` | timeouts and reset during a task (2.1) |
 | `calmem-036CD1C6.bin` | full calibration memory of this unit (device data; test fixture) |
 | `capabilities.txt` | every DAQmx device/channel property, terminals, counter default terminals |
 | `enum-and-failed-first-transfer.pcap` | historical: unconfigured-device failure before the QEMU patch |
@@ -729,6 +862,11 @@ Captures since the stage-2 VM restart hold complete payloads (QEMU `usb-pcap-dat
 | `tools/aitiming.py`, `tools/aotiming.py`, `tools/streams.py` | timed AI/AO parameters and stream checks vs DAQmx values |
 | `tools/aical.py`, `tools/verify_cal.py`, `tools/drv_dmm.py` | calibration / DMM conversion checks |
 | `tools/mydaq_native.py` | native prototype: `info ai aitimed aifinite ao di do dmm all selfcheck`; builders `ai_timed_frames`, `ao_timed_frames` |
+| `tools/native_aiao_test.py` | AI + AO concurrently on streams 4/5 (and the stream-4 clash control) |
+| `tools/native_ctr_replay.py CAPTURE…` | replay any capture's post-init requests verbatim, print ctr reads and non-zero statuses |
+| `tools/native_freqout_check.py CAPTURE…` | FREQOUT capture's `configure` + ctr0 count on the internal loop → measured frequency |
+| `tools/dmm_timeline.py CAPTURE…` | DMM `set_mode` / `read` timeline with decoded packets (ELVISmx GUI captures) |
+| `tools/daqmx-scripts/manual.ps1` | keeps a capture open while Martin operates an NI program by hand |
 | `tools/native_stream_test.py`, `native_credit_test*.py`, `native_stage2_test.py` | native experiments (run through devlock) |
 
 ## 14. Pending experiments (device needed), in priority order
@@ -737,18 +875,16 @@ All through the lock; captures with `tools/devlock.sh vm usb -- tools/capture.sh
 (or put the lines in a list and run `tools/capture-batch.sh`), native tests with
 `tools/devlock.sh native usb -- /usr/bin/python3 tools/…`.
 
-| # | goal | command |
+Stage-3 batch `tools/lists/s3-final.txt` ran on 2026-09-29 (03:18–04:42); P1, P3–P8 are done
+(verdicts in 14.1). Still open:
+
+| # | goal | status / command |
 |---|---|---|
-| P1 | DMM Ω MODE 16–19 (20 k … 20 MΩ) | `tools/capture-batch.sh tools/lists/s3-pending.txt` runs P1, P5–P8 in one go (~15 captures, ~40 min); P1 = the four `dmm-ohm-r20k/r200k/r2M/r20M-x2` lines |
-| P2 | find a DAQmx route to diode / continuity / HW autorange | in the VM (no capture): `devlock.sh vm usb -- mydaq-vm ssh 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -File C:\setup\dmmtry.ps1'`; for the variant that reads OK, capture it as `dmm-diode-x2` / `dmm-cont-x2` with `dmmc.ps1` adjusted to that variant |
-| P3 | fallback for P2: capture ELVISmx's own DMM in diode and continuity mode | capture.sh with a script that starts `C:\setup\ui.ps1 -Exe DMM.exe`, selects Diode (then Continuity) via UI automation and waits 10 s; name `dmm-elvis-diode`, `dmm-elvis-cont` |
-| P4 | native go for stage 2: timed AO, audio, DMM all modes, counter loop, PFI0 = DIO0 | `tools/devlock.sh native usb -- /usr/bin/python3 tools/native_stage2_test.py` |
-| P5 | frequency measurement with a real signal (internal FREQOUT → ctr0) | `ctr-freq-freqout-10k`: `exp.ps1 -Op cimeas -Func freq -Rate 10000` (in s3-pending) |
-| P6 | FREQOUT timebases (20 MHz, 10 MHz) and divider range | `freqout-2M` / `freqout-1M25` / `freqout-6250`: `-Op freqout -Rate 2000000 / 1250000 / 6250` (in s3-pending) |
-| P7 | counter measurement types; finite pulse-train field order | `-Op cimeas -Func period / pw / twoedge -Rate 10000`, `-Op cofinite -Rate 1000 -N 100 -Duty 0.25` (in s3-pending); encoder later |
-| P8 | abort / timeout paths (vendor control request 0xFC?) | `selftest`, `ai0-finite-timeout`, `dmm-dcv-timeout`, `ai0-cont-resetduring` (in s3-pending) |
-| P9 | AO underflow and AI overflow events natively | native: stop writing during `ao_timed(finite=False)`; stop reading during `ai_timed(n=0)`; record the 0x82 events |
-| P10 | minimal init (which of the 23 init calls are needed) | native: drop one group at a time and run `mydaq_native.py all --no-init` variants — only with observed commands, no new opcodes |
+| P1b | Ω 20 k–20 M **scaling** with real resistors (MODE bytes done) | **BLOCKED** on Martin: resistor in the jacks, then `tools/devlock.sh vm usb -- tools/capture.sh dmm-ohm-r200k-100k tools/daqmx-scripts/exp.ps1 -Op dmm -Func ohm -Range 200000 -Value 0.001 -Count 2` (likewise 2M / 20M with 1 MΩ / 10 MΩ) |
+| P3b | DMM hardware autorange | **BLOCKED** on Martin: `tools/devlock.sh vm usb-manual -- tools/capture.sh dmm-elvis-dcv-auto tools/daqmx-scripts/manual.ps1 -Secs 90 -Say dcv-auto`, open the ELVISmx DMM, set Mode = Auto |
+| P9 | AI overflow / AO underflow events | **READY** from captures (6.5: 0551/2 + 0550/7; 7.3: 0561/2 + 0561/1); native provocation optional |
+| P10 | minimal init (which of the 23 init calls are needed) | **deferred** (not needed: the full init works natively in ~1 s); if ever: drop one group at a time, observed commands only |
+| P11 | external-direction sense, two-edge on PFIs | **BLOCKED** (jumper DIO→PFI2 / PFI1) |
 
 Added for stage 3 (coordinator, acceptance audit — every Counter/Timer panel mode needs a capture):
 pulse width, semi-period, two-edge separation, linear and angular encoders; count edges falling
@@ -758,6 +894,35 @@ delay, live pulse-train update (frequency/duty change while running); AO ±2 V r
 AI + AO concurrently (both on stream 4); abort/timeout. Signals come from the internal FREQOUT loop
 (`/myDAQ1/FrequencyOutput` as counter terminal) or DIO lines; tests needing a jumper (AO0→AI0,
 DIO4→DIO1) are listed as such.
+
+### 14.1 Stage-3 predictions (from driver-notes 7 / 8, written 2026-09-28 23:40 before decoding) and verdicts
+
+Each stage-3 capture answers one question; the prediction was recorded first. Verdict: **READY**
+= exact bytes known (sections named), **BLOCKED** = needs Martin / a jumper.
+
+| item | prediction (source) | verdict (2026-09-29) |
+|---|---|---|
+| pulse width | app code 4 in `ctr.configure` u8 #2 / `ctr.arm` / `ctr.read` last byte; gate = PFI1 (driver-notes 7.3) | **READY** — confirmed, 10.5 **[N]** |
+| two-edge separation | app 6; first edge on aux (PFI2), second on gate (PFI1) | **READY** — app 6 confirmed; first edge is route **0x77c75630** (not aux), 10.5 **[N]** (5000 ticks) |
+| linear / angular encoder | app 7 / 0x0e; A = source (PFI0), B = aux (PFI2), Z = gate (PFI1); decoding X1/X2/X4/2-pulse in a `m0b` field | **READY** — apps confirmed; own A/B/Z routes, decoding in `m0f`, 10.5 **[N]** |
+| count edges falling / down / external direction | an edge-polarity and a direction field in `m0b`/`m10`; external direction = aux route 0xc7c20613 = PFI2 (value 3) | falling **READY** (polarity id, 10.5 **[N]**); down / ext. direction refused by DAQmx — host emulation; direction sense **BLOCKED** (jumper) |
+| initial count | `ctr.arm` first u32 (load value) = initial count | **READY** — refuted: `configure` U0, 10.5 **[N]** |
+| count reset on PFI1 | gate route 0x097d2c54 = 2 plus a gate-mode field in `m10` | **READY** — gate route + `m0b` fields (not m10), 10.5 **[C]** |
+| count-edge source 20 MHz / 100 kHz | new source values on 0x587c6efe (unknown numbers) | **READY** — 0x1c / 0x12, 10.5 **[C]** |
+| buffered counter input | a bulk stream like AI (`iCtrBulkTransferManager`, driver-notes 7.3, **L**) | refuted — DAQmx: programmed I/O only; emulate |
+| idle-high pulse train | an output-polarity field (m0b / m10); loads unchanged | **READY** — `m0d(2, 1)`, loads swapped, 10.5 **[C]** |
+| initial delay | finite train U[6] = initial delay ticks (driver-notes: T6..T8 = delay, low, high) | **READY** — refuted: U0 = delay; U6/U7/U8 = high/low/high, 10.5 **[C]** |
+| live pulse update | `ctr.m18(u32 low, u32 high)` (unused method, driver-notes 7.1, **L**) | **READY** — confirmed, preceded by `m1e()`, 10.5 **[C]** (native replay: statuses 0) |
+| FREQOUT timebase | `freqout.configure(div, a, b)`: (1, 0) = 100 kHz (seen); (0, 0) and (0, 1) = 20 MHz / 10 MHz in some order | **READY** — (0, 0) = 20 MHz, (0, 1) = 10 MHz; divider 16 sent as 0, 10.4 |
+| AO ±2 V on ao0/ao1 | a range selector byte in `ao_dac.configure` and the ±2 V calibration record | **READY** — `configure` SEL 5 / AUD 1 + ±2 V record, 7.1 / 7.2 (static **[N]**) |
+| DMM Ω 20 k … 20 M | `set_mode` 16..19 (capability table order) | **READY** (MODE bytes, open leads) — 9.5; finite-value scaling **BLOCKED** (real resistors) |
+| DMM diode / continuity | `set_mode(20, 0)` / `(21, 0)` (driver-notes 8) | **READY** — confirmed by ELVISmx GUI captures, native **[N]**, 9.5 |
+| DMM hardware autorange | `set_mode(m, 1)` | **BLOCKED** — `dmm-elvis-dcv-auto` has no DMM traffic (needs Martin) |
+| frequency / period on the FREQOUT loop | app 3 / 2, gate = FREQOUT (0x29), read → ≈ 10000 ticks at 10 kHz (added 2026-09-29 01:00) | **READY** — confirmed exactly (10000 / 10000), 10.5 **[N]** |
+| two-edge (rising → falling, both FREQOUT) | app 6; first edge on aux 0xc7c20613, second on gate; read ≈ 5000 ticks | **READY** — 5000 ticks; first edge on 0x77c75630, 10.5 **[N]** |
+| AI finite read timeout (DAQmx 1 s) | no vendor abort request; the normal stop/flush sequence of 6.1 when the task is cleared | **READY** — confirmed, 2.1 |
+| DMM read timeout | the pending `dmm.read` is simply left to complete (or aborted with control request 0xFC, driver-notes 1.2) | **READY** — neither: the timeout is a `read` argument and the device answers -225202, 2.1 **[N]** |
+| reset during continuous AI | the init sequence of section 3 again, without stopping the stream first | **READY** — refuted: task teardown first, then the full init, 2.1 |
 
 Not to be done: power-supply overcurrent tests (never provoke supply faults), any flash write
 (0x0507 `write`), unobserved MODE/route values.

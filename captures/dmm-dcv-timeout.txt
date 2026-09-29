@@ -1,0 +1,11 @@
+# capture dmm-dcv-timeout: exp.ps1 -Op dmmtimeout -Range 20
+t_attach 1790649253.272
+t_bound 1790649289.897
+t_script_start 1790649297.957
+04:36:54.427 begin op=dmmtimeout chan=ai0 range=20 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=3 coupling= xfer=0/0 duty=0.5 term=
+04:36:56.823 rep 0
+ERROR Specified operation did not complete, because the specified timeout expired.
+04:37:15.743 after timeout
+04:37:16.973 disposed
+04:37:17.201 end
+t_script_end 1790649443.144

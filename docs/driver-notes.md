@@ -104,7 +104,9 @@ then polls a vendor IN request (0xC0, wValue = slot, wIndex = 3, 6 bytes) every 
 device reports the slot idle. The bRequest byte is a dispatcher parameter; the only candidate the
 kernel passes when it creates the USB dispatcher is **0xFC** (niraptrk 0x1800119c0, next to the
 4096-byte maximum message size and the 64-byte event buffer size). Only needed for cancel/timeout
-recovery. Dispatcher limits (nifslk 0x1800126f0): 256 slots, request queue depth 100 by default,
+recovery. **Capture check (2026-09-29, protocol.md 2.1):** DAQmx sent no vendor control request for
+an AI read timeout, a DMM read timeout (the DMM timeout is a `dmm.read` argument; the device
+replies -225202 itself) or a device reset during continuous AI, so this path stays unobserved. Dispatcher limits (nifslk 0x1800126f0): 256 slots, request queue depth 100 by default,
 maximum message 4096 bytes (so a single command/reply never exceeds 4 KiB).
 
 If `session.identify` fails with certain transport errors, NI's driver resets the USB port and
@@ -308,7 +310,9 @@ different tables (AI = instance 2; the others are presumably counter/DI timing e
   hardware-timed engine (mode field 1 or 2), else 0; [1] = a boolean (1 for static writes);
   [2] = a device-specific selector from a virtual call (range/gain select, L); [3] = another
   translated selector; [4] = a byte from the channel configuration; [5] = 1 when a mode field is 5
-  or 6. Static ao0/ao1: `0 1 0 0 0 0`. Capture audio-out and timed AO to see [2]..[5] change.
+  or 6. Static ao0/ao1: `0 1 0 0 0 0`. **Captured (2026-09-29):** the ±2 V range of ao0/ao1 sets
+  [2] = 5 and [5] = 1 (`0 1 5 0 0 1` static, `1 1 5 0 0 1` timed), the same pair audio out uses;
+  codes then come from the ±2 V calibration record (protocol.md 7.1).
 - Timed output (M, no capture yet): `out_timing` (0x0560) + `out_fifo` (0x0561). `out_fifo`
   method 09 carries a list with one byte per output channel (built from the channel/DAC list,
   niraptrk 0x180080f00) plus two selectors — it configures the FIFO, it does **not** carry
@@ -441,9 +445,10 @@ the ids), captures `ctr-countedges-pfi0-1s`, `ctr-cifreq-pfi1-timeout`, `co-ptra
 | ctr 13 | – | – | commit |
 | ctr 14 | u32, u32, u16, 4 × u8 | – | **arm/start**: initial load values + application code |
 | ctr 15, 16, 17 | – | – | stop / disarm / unconfigure (sent in this order at task stop) |
-| ctr 18 | u32, u32 | – | not seen (probably "write new loads" for on-the-fly pulse-train updates, L) |
+| ctr 18 | u32, u32 | – | **write new loads** while a pulse train runs: (idle-state ticks, active-state ticks) (`co-update-1k-to-2k-d0.25`, M) |
 | ctr 19 | u16 | – | not seen |
-| ctr 1a, 1b, 1c, 1e | – | u32 | not seen (status/count readers, L) |
+| ctr 1a, 1b, 1c | – | u32 | not seen (status/count readers, L) |
+| ctr 1e | – | u32 | sent once right before `18` in a live update; returned 0 (M) |
 | ctr 1d | **read**(u32 n, u32 1, u32 timeout_ms, u32 1, u16 1, u8 app) | u32[] values | on-demand read of n values; count 10567 read back in `ctrloop-freqout-10k` (H). With no input signal the reply status is -200474 (timeout) after the timeout (`ctr-cifreq-pfi1-timeout`) |
 | ctr 1f | u8, u8 | u32 | not seen |
 | ctr 20 | – | u64 | not seen |
@@ -511,6 +516,16 @@ Fields that change between the captured modes (M: differential, 6 tasks):
 - **Buffered (implicit/sample-clocked) counter input**: not captured; the counter has a bulk stream
   path (`iCtrBulkTransferManager` in nistc3rk) that presumably uses a stream endpoint like AI (L).
 
+**Stage-3 check against captures (2026-09-29, protocol.md 10.5):** app codes 4 (pulse width),
+7 / 0x0e (encoders) and 0x0f (pulse time) confirmed; the encoder decoding sits in `m0f` last u16
+(X1 = 1, X2 = 2, X4 = 3, two-pulse = 4) with Z enable in `m0f[4]`, and `m0c` = 2 for encoders.
+Refuted: the initial count is `configure` U0 (not an `arm` load); the pulse-train initial delay is
+U0 (not T6); the buffered counter path (`iCtrBulkTransferManager`) is not reachable on the myDAQ —
+DAQmx offers programmed I/O only and refuses implicit/sample-clocked CI; DAQmx also refuses
+semi-period (app 5), count down and external direction on this device. Edge polarity is the
+second id of each route pair (0x37cf14dd source, 0x11f9be17 gate, 0x88fbba44 aux). Timebase
+sources: 20 MHz = 0x1c, 100 kHz = 0x12.
+
 ### 7.4 Routing for counters and PFI lines (H for the id tables, M for the value meanings)
 
 Route ids come from two NI routing maps inside niraptrk (counter map 0x1800f1f30, trigger/PFI map
@@ -526,16 +541,17 @@ Route ids come from two NI routing maps inside niraptrk (counter map 0x1800f1f30
 
 Input tasks set the used PFI to (select 0, enable 0); output tasks set PFI3 (ctr0 out) or PFI4
 (FREQOUT) to (0x0d or 0x0f, 1). The 12 ids zeroed in the device init are the same register
-families for the other lines (M). Source values for the 20 MHz and 100 kHz timebases are not
-known yet (capture a count-edges task with those sources).
+families for the other lines (M). Source values: 20 MHz = 0x1c, 100 kHz = 0x12 (captured).
+Two-edge separation takes its first edge from route **0x77c75630** (+ polarity 0x5d392cd4;
+FREQOUT = 0x2e) and its second edge from the gate (protocol.md 10.5).
 
 ### 7.5 FREQOUT (H for the arg mapping, M for the timebase)
 
 `freqout.configure(divider, a, b)`: output = timebase / divider (STC3 FREQOUT: divider 1..16).
 (a, b) is a one-hot timebase selector derived from a 3-value setting (nistc3rk 0x18003e390):
-setting 0 → (0, 0), 1 → (0, 1), 2 → (1, 0). DAQmx used (1, 0) with divider 10 for 10 kHz and
-divider 1 for 100 kHz, so (1, 0) = 100 kHz timebase. The other two are presumably 20 MHz and
-10 MHz (L). The output appears on PFI4 after `route.connect([0xc271008b, 0x895d5d2c], [0x0f, 1])`.
+setting 0 → (0, 0), 1 → (0, 1), 2 → (1, 0). **Captured (2026-09-29, protocol.md 10.4):**
+(0, 0) = 20 MHz, (0, 1) = 10 MHz, (1, 0) = 100 kHz; the 4-bit divider field sends 16 as 0.
+Verified natively by counting the output with ctr0 (all within 0.01 %). The output appears on PFI4 after `route.connect([0xc271008b, 0x895d5d2c], [0x0f, 1])`.
 
 ## 8. DMM (H — niraptru tES51981DMMUserSupervisor 0x18048c2b0; 30/30 captured readings bit-exact)
 
@@ -581,9 +597,9 @@ divider 1 for 100 kHz, so (1, 0) = 100 kHz timebase. The other two are presumabl
 | 2 | DC V 60 V | 13 | AC A 1 A |
 | 3 | DC V 200 mV | 14 | Ω 200 Ω (with current excitation) |
 | 4 | AC V 2 V | 15 | Ω 2 kΩ |
-| 5 | AC V 20 V | 16–19 | Ω 20 kΩ, 200 kΩ, 2 MΩ, 20 MΩ (table only) |
-| (6) | unused (AC 60 V not offered) | **20** | **diode**: ±2 V DC range *with* excitation (table only) |
-| 7 | AC V 200 mV | **21** | **continuity**: 200 Ω range *without* excitation (table only) |
+| 5 | AC V 20 V | 16–19 | Ω 20 kΩ, 200 kΩ, 2 MΩ, 20 MΩ (captured, open leads: R digit 2–5) |
+| (6) | unused (AC 60 V not offered) | **20** | **diode**: ±2 V DC range *with* excitation (**confirmed**, ELVISmx GUI capture) |
+| 7 | AC V 200 mV | **21** | **continuity**: 200 Ω range *without* excitation (**confirmed**, ELVISmx GUI capture) |
 | 8, 9, 10 | DC A 20 mA, 200 mA, 1 A | | |
 
   All 30 DMM readings in the captures (DC/AC V, DC/AC A, Ω overload) are reproduced bit-exactly by
@@ -610,7 +626,9 @@ divider 1 for 100 kHz, so (1, 0) = 100 kHz timebase. The other two are presumabl
   (L: likely an access-path issue, e.g. set through a non-DMM channel, wrong data type through the
   variadic C setter, or attribute visibility for this channel type). For libmydaq this does not
   matter: the device commands are `set_mode(20, 0)` (diode), `set_mode(21, 0)` (continuity) and
-  `set_mode(m, 1)` (autorange). Mark them unverified until one capture (ELVISmx GUI) confirms.
+  `set_mode(m, 1)` (autorange). **Confirmed 2026-09-29** for diode and continuity (`dmm-elvis-diode`,
+`dmm-elvis-cont`: one `set_mode(0x14, 0)` / `(0x15, 0)`, packets F = '1' / '5', no calibration;
+1.618 V for an LED, 149 Ω for a 150 Ω resistor). Autorange is still uncaptured.
 
 ## 9. Digital I/O (H — stub types + niraptrk 0x180041b40 / 0x180042310; captures)
 
@@ -633,12 +651,10 @@ divider 1 for 100 kHz, so (1, 0) = 100 kHz timebase. The other two are presumabl
 4. **AO timed**: finite and continuous (regenerated and streamed), 1 and 2 channels, audio out:
    which bulk OUT endpoint, `out_timing.configure` fields, `out_fifo.write` usage, `stream.out_credit`.
    Needs QEMU with a larger pcap DATA_LEN to see full bulk payloads.
-5. **DMM**: done for DC/AC V, DC/AC A, Ω 200/2k (§8). Still needed: Ω 20 k–20 M, and diode,
-   continuity, hardware autorange from the ELVISmx DMM GUI (expected `set_mode` 20, 21, (m, 1)).
-6. **Counter**: count edges / pulse train / frequency (timeout) / FREQOUT are captured (§7). Still
-   needed, one each: frequency and period *with a signal on PFI1*, pulse width, semi-period,
-   two-edge separation, linear and angular encoder, count edges from the 20 MHz / 100 kHz
-   timebases, a pulse-train frequency change while running, and FREQOUT at a rate needing
-   another timebase (e.g. 1 MHz).
-7. **Abort**: start a continuous AI task and stop it abruptly / let a read time out → vendor
-   control requests of 1.2 (bRequest value).
+5. **DMM**: done for every function incl. Ω 20 k–20 M MODE bytes, diode and continuity (§8).
+   Still needed: hardware autorange from the ELVISmx DMM GUI (expected `set_mode(m, 1)`), and a
+   finite reading on each of Ω 20 k–20 M (real resistors) to confirm their multipliers.
+6. **Counter**: all done (protocol.md 10.4, 10.5), incl. frequency/period/two-edge with a signal
+   (internal FREQOUT loop), live pulse-train update and the FREQOUT timebases. DAQmx refuses
+   semi-period, buffered CI, count down and external direction on the myDAQ.
+7. **Abort**: done — no vendor control request in the timeout / reset captures (1.2).

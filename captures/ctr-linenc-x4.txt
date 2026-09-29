@@ -1,0 +1,11 @@
+# capture ctr-linenc-x4: exp.ps1 -Op cimeas -Func linenc -Decoding X4 -Rate 10000 -Secs 1
+t_attach 1790631226.434
+t_bound 1790631248.919
+t_script_start 1790631256.967
+23:35:22.402 begin op=cimeas chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=linenc count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+23:35:23.761 rep 0
+ENC A= B= Z=
+23:35:32.659 freqout started
+MEAS 0
+23:35:35.402 end
+t_script_end 1790631340.419

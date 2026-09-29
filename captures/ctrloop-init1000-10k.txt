@@ -1,0 +1,11 @@
+# capture ctrloop-init1000-10k: exp.ps1 -Op ctrloop -Init 1000 -Rate 10000 -Secs 1
+t_attach 1790632345.007
+t_bound 1790632366.411
+t_script_start 1790632374.458
+23:54:23.096 begin op=ctrloop chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+23:54:24.766 rep 0
+CHAN term= dirterm=
+23:54:42.635 started
+CTR 29419
+23:54:49.844 end
+t_script_end 1790632503.214

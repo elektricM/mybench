@@ -1,0 +1,33 @@
+# capture ctrloop-extdir-10k: exp.ps1 -Op ctrloop -Dir Ext -Rate 10000 -Secs 1
+t_attach 1790632202.446
+t_bound 1790632223.607
+t_script_start 1790632231.663
+23:51:26.023 begin op=ctrloop chan=ai0 range=10 ranges= rate=10000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+23:51:26.751 rep 0
+Exception calling "CreateCountEdgesChannel" with "5" argument(s): "Requested value is not a 
+supported value for this property. The property value may be invalid because it conflicts with 
+another property.
+Property: NationalInstruments.DAQmx.CIChannel.CountEdgesCountDirection
+Requested Value: NationalInstruments.DAQmx.CICountEdgesCountDirection.ExternallyControlled
+Possible Values: NationalInstruments.DAQmx.CICountEdgesCountDirection.Up
+Channel Name: myDAQ1/ctr0
+Task Name: _unnamedTask<1>
+Status Code: -200077"
+At C:\setup\exp.ps1:79 char:5
++     $c = $t.CIChannels.CreateCountEdgesChannel("$D/ctr0", "", [Nation ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], MethodInvocationException
+    + FullyQualifiedErrorId : DaqException
+ 
+CHAN term= dirterm=
+The property 'CountEdgesTerminal' cannot be found on this object. Verify that the property exists 
+and can be set.
+At C:\setup\exp.ps1:181 char:65
++ ... ntEdgesTerminal = if ($Term) { $Term } else { "/$D/FrequencyOutput" }
++                                                   ~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidOperation: (:) [], RuntimeException
+    + FullyQualifiedErrorId : PropertyNotFound
+ 
+ctrloop failed: Specified operation cannot be performed when there are no channels in the task.
+23:51:41.324 end
+t_script_end 1790632306.064

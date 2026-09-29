@@ -1,0 +1,10 @@
+# capture freqout-6250: exp.ps1 -Op freqout -Rate 6250 -Secs 1
+t_attach 1790647441.396
+t_bound 1790647483.767
+t_script_start 1790647491.828
+04:07:00.767 begin op=freqout chan=ai0 range=10 ranges= rate=6250 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+04:07:03.516 rep 0
+04:07:16.165 started
+04:07:18.063 stopped
+04:07:19.810 end
+t_script_end 1790647647.130

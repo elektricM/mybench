@@ -1,0 +1,10 @@
+# capture freqout-2M: exp.ps1 -Op freqout -Rate 2000000 -Secs 1
+t_attach 1790646873.222
+t_bound 1790646915.071
+t_script_start 1790646923.131
+03:57:28.547 begin op=freqout chan=ai0 range=10 ranges= rate=2000000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.5 term=
+03:57:30.890 rep 0
+03:57:44.026 started
+03:57:46.042 stopped
+03:57:47.563 end
+t_script_end 1790647074.864

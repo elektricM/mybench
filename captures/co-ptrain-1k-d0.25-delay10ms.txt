@@ -1,0 +1,10 @@
+# capture co-ptrain-1k-d0.25-delay10ms: exp.ps1 -Op coptrain -Rate 1000 -Duty 0.25 -Delay 0.01 -Secs 1
+t_attach 1790634626.967
+t_bound 1790634646.449
+t_script_start 1790634654.500
+00:31:42.679 begin op=coptrain chan=ai0 range=10 ranges= rate=1000 n=100 value=0 func=dcv count=1 wave=ramp regen=1 secs=1 coupling= xfer=0/0 duty=0.25 term=
+00:31:43.170 rep 0
+00:31:46.779 started
+00:31:48.039 stopped
+00:31:48.409 end
+t_script_end 1790634711.584
