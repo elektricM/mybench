@@ -11,6 +11,8 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 src=$(cd "$here/../../.." && pwd)
 build=${1:-"$src/build-appimage"}
+mkdir -p "$build"
+build=$(cd "$build" && pwd)   # absolute: the script cd's into it before running linuxdeploy
 arch=$(uname -m)
 tools="$build/appimage-tools"
 appdir="$build/AppDir"
