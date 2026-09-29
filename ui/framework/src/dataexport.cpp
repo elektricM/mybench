@@ -256,8 +256,10 @@ bool DataExport::write(const QString& path, const DataTable& table, QString* err
     if (table.isEmpty())
         return failed(tr("There is no data to export."));
 
+    // Binary mode: the writers choose their line endings themselves (LF; the ELVISmx-style DSA
+    // log writes CR LF). Text mode would turn each LF into CR LF on Windows (CR CR LF for DSA).
     QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+    if (!file.open(QIODevice::WriteOnly))
         return failed(file.errorString());
     const TableWriter* writer = writerFor(path, table.instrumentId);
     if (!writer->write(table, standardHeader(table), file, &message)) {

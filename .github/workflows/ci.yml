@@ -99,6 +99,23 @@ jobs:
         continue-on-error: true
         run: ctest --test-dir build --label-exclude hw --rerun-failed --timeout 300 -V
 
+      - name: Run failed tests directly (Windows, exit code and QTest output)
+        if: failure() && runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $tests = (ctest --test-dir build --show-only=json-v1 | ConvertFrom-Json).tests
+          $failed = Get-Content build/Testing/Temporary/LastTestsFailed.log | ForEach-Object { ($_ -split ':', 2)[1] }
+          foreach ($name in $failed) {
+            $t = $tests | Where-Object { $_.name -eq $name }
+            $wd = ($t.properties | Where-Object { $_.name -eq 'WORKING_DIRECTORY' }).value
+            "=== $name : $($t.command -join ' ')"
+            Push-Location $wd
+            & $t.command[0] $t.command[1..($t.command.Count)] -v2 -o "-,txt" 2>&1 | Out-String -Width 300
+            "exit code: $LASTEXITCODE (0x{0:X})" -f $LASTEXITCODE
+            Pop-Location
+          }
+
       - name: Test (Linux, under Xvfb for the OpenGL offscreen renders)
         if: runner.os == 'Linux'
         run: xvfb-run -a ctest --test-dir build --label-exclude hw --parallel 4 --timeout 300

@@ -62,6 +62,23 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt)
     add_subdirectory(tests)
 endif()
 
+# Test executables are console applications on Windows (Qt's qt_add_executable makes GUI-subsystem
+# ones), so QTest output reaches ctest and the CI log.
+function(mybench_console_tests dir)
+    get_property(_targets DIRECTORY ${dir} PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_t IN LISTS _targets)
+        get_target_property(_type ${_t} TYPE)
+        if(_type STREQUAL "EXECUTABLE" AND (_t MATCHES "^tst_" OR _t STREQUAL "mybench-offscreen-test"))
+            set_target_properties(${_t} PROPERTIES WIN32_EXECUTABLE FALSE)
+        endif()
+    endforeach()
+    get_property(_subdirs DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
+    foreach(_d IN LISTS _subdirs)
+        mybench_console_tests(${_d})
+    endforeach()
+endfunction()
+mybench_console_tests(${CMAKE_CURRENT_SOURCE_DIR})
+
 # App icon, install rules, Qt runtime deployment and installers (CPack): see docs/BUILDING.md.
 option(MYBENCH_PACKAGING "App icon, install rules and CPack packaging" ON)
 if(MYBENCH_PACKAGING AND TARGET mybench AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/packaging/CMakeLists.txt)
