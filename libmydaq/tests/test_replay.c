@@ -14,6 +14,9 @@ typedef struct replay {
     mydaq_device *dev;
 } replay;
 
+/* 1: open the mock without asynchronous OUT streams (the library's synchronous AO writer). */
+static int g_sync_out;
+
 static int replay_open(replay *r, const char *script)
 {
     int rc;
@@ -26,6 +29,7 @@ static int replay_open(replay *r, const char *script)
         fprintf(stderr, "    cannot load %s\n", script);
         return 0;
     }
+    mydaq_mock_set_sync_out(r->mock, g_sync_out);
     rc = mydaq_mock_open(r->ctx, r->mock, 0, &r->dev);
     if (rc != MYDAQ_OK) {
         fprintf(stderr, "    open: %s; %s\n", mydaq_error_name(rc),
@@ -405,6 +409,21 @@ static void test_ao01_regen(void) { ao_timed("ao01-cont-10k-n1000-regen.mock", a
 static void test_ao0_stream(void) { ao_timed("ao0-cont-10k-n1000-stream.mock", ao0, 1, 10e3, MYDAQ_CONTINUOUS, 0, 1000, 100); }
 static void test_ao01_stream(void) { ao_timed("ao01-cont-10k-n1000-stream.mock", ao01, 2, 10e3, MYDAQ_CONTINUOUS, 0, 1000, 100); }
 
+/* The same AO replays through the synchronous writer (transports without stream_open_out): both
+ * paths must send the captured byte stream. */
+static void sync_out(void (*test)(void))
+{
+    g_sync_out = 1;
+    test();
+    g_sync_out = 0;
+}
+static void test_ao0_finite_sync(void) { sync_out(test_ao0_finite); }
+static void test_ao01_finite_sync(void) { sync_out(test_ao01_finite); }
+static void test_ao0_finite_200k_sync(void) { sync_out(test_ao0_finite_200k); }
+static void test_audio_out_finite_sync(void) { sync_out(test_audio_out_finite); }
+static void test_ao01_regen_sync(void) { sync_out(test_ao01_regen); }
+static void test_ao01_stream_sync(void) { sync_out(test_ao01_stream); }
+
 /* ---- counter / FREQOUT ---- */
 
 static void test_ctr_count_edges(void)
@@ -443,8 +462,145 @@ static void test_ctr_frequency_timeout(void)
     CHECK(replay_close(&r));
 }
 
-static void pulse_train(const char *script, double f, double duty, mydaq_sample_mode mode,
-                        uint64_t pulses)
+/* Counter inputs on the internal FREQOUT loop (ctrloop-*: FREQOUT 10 kHz started after the
+ * counter, stopped before the read) or on the open terminals / timebases (protocol.md 10.5). */
+static void ctr_loop(const char *script, const mydaq_ctr_config *cfg, uint32_t expect)
+{
+    replay r;
+    mydaq_ctr_task *t = NULL;
+    uint32_t count = 0;
+    double hz = 0;
+    REPLAY_OPEN(r, script);
+    REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, cfg, &t));
+    REPLAY_STEP(r, mydaq_ctr_task_start(t));
+    REPLAY_STEP(r, mydaq_freqout_start(r.dev, 10e3, &hz));
+    REPLAY_STEP(r, mydaq_freqout_stop(r.dev));
+    REPLAY_STEP(r, mydaq_ctr_task_read_count(t, &count, 10015));
+    REPLAY_CHECK(r, count == expect);
+    REPLAY_STEP(r, mydaq_ctr_task_stop(t));
+    mydaq_ctr_task_destroy(t);
+    CHECK(replay_close(&r));
+}
+
+static mydaq_ctr_config edges_on(mydaq_ctr_input input)
+{
+    mydaq_ctr_config c;
+    memset(&c, 0, sizeof c);
+    c.kind = MYDAQ_CTR_COUNT_EDGES;
+    c.input = input;
+    return c;
+}
+
+static void test_ctrloop_rising(void)
+{
+    const mydaq_ctr_config c = edges_on(MYDAQ_CTR_INPUT_FREQOUT);
+    ctr_loop("ctrloop-freqout-10k.mock", &c, 10567);
+}
+
+static void test_ctrloop_falling(void)
+{
+    mydaq_ctr_config c = edges_on(MYDAQ_CTR_INPUT_FREQOUT);
+    c.falling = 1;
+    ctr_loop("ctrloop-falling-10k.mock", &c, 0x2ea5);
+}
+
+static void test_ctrloop_initial_count(void)
+{
+    mydaq_ctr_config c = edges_on(MYDAQ_CTR_INPUT_FREQOUT);
+    c.initial_count = 1000;
+    ctr_loop("ctrloop-init1000-10k.mock", &c, 0x72eb);
+}
+
+static void test_ctrloop_reset_dio1(void)
+{
+    mydaq_ctr_config c = edges_on(MYDAQ_CTR_INPUT_FREQOUT);
+    c.reset_on_dio1 = 1;
+    ctr_loop("ctrloop-resetpfi1-10k.mock", &c, 0x374a);
+}
+
+static void ctr_timebase(const char *script, mydaq_ctr_input input, uint32_t expect)
+{
+    replay r;
+    const mydaq_ctr_config c = edges_on(input);
+    mydaq_ctr_task *t = NULL;
+    uint32_t count = 0;
+    REPLAY_OPEN(r, script);
+    REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, &c, &t));
+    REPLAY_CHECK(r, mydaq_ctr_task_dio_lines(t) == 0);   /* no terminal */
+    REPLAY_STEP(r, mydaq_ctr_task_start(t));
+    REPLAY_STEP(r, mydaq_ctr_task_read_count(t, &count, 10015));
+    REPLAY_CHECK(r, count == expect);
+    REPLAY_STEP(r, mydaq_ctr_task_stop(t));
+    mydaq_ctr_task_destroy(t);
+    CHECK(replay_close(&r));
+}
+
+static void test_ctr_edges_20mhz(void) { ctr_timebase("ctr-countedges-20mhz-1s.mock", MYDAQ_CTR_INPUT_20MHZ, 0x0206cb74); }
+static void test_ctr_edges_100khz(void) { ctr_timebase("ctr-countedges-100khz-1s.mock", MYDAQ_CTR_INPUT_100KHZ, 0x22e7b); }
+
+/* Measurements with FREQOUT (10 kHz) started first and stopped last (ctr-*-freqout-10k,
+ * ctr-*enc-*). */
+static void ctr_measure(const char *script, const mydaq_ctr_config *c, uint32_t expect, uint32_t expect2)
+{
+    replay r;
+    mydaq_ctr_task *t = NULL;
+    uint32_t v = 0, v2 = 0;
+    double hz = 0, value = 0;
+    REPLAY_OPEN(r, script);
+    REPLAY_STEP(r, mydaq_freqout_start(r.dev, 10e3, &hz));
+    REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, c, &t));
+    REPLAY_STEP(r, mydaq_ctr_task_start(t));
+    if (c->kind == MYDAQ_CTR_PULSE_TIME) {
+        REPLAY_STEP(r, mydaq_ctr_task_read_pulse_time(t, &v, &v2, 10015));
+        REPLAY_CHECK(r, v == expect && v2 == expect2);
+    } else {
+        REPLAY_STEP(r, mydaq_ctr_task_read(t, &value, 10015));
+        REPLAY_CHECK(r, c->kind == MYDAQ_CTR_PULSE_WIDTH ? value == expect / 1e8 : value == (double)expect);
+    }
+    REPLAY_STEP(r, mydaq_ctr_task_stop(t));
+    mydaq_ctr_task_destroy(t);
+    REPLAY_STEP(r, mydaq_freqout_stop(r.dev));
+    CHECK(replay_close(&r));
+}
+
+static mydaq_ctr_config measure(mydaq_ctr_kind kind, mydaq_ctr_input input)
+{
+    mydaq_ctr_config c;
+    memset(&c, 0, sizeof c);
+    c.kind = kind;
+    c.input = input;
+    return c;
+}
+
+static void test_ctr_pulse_width_falling(void)
+{
+    mydaq_ctr_config c = measure(MYDAQ_CTR_PULSE_WIDTH, MYDAQ_CTR_INPUT_FREQOUT);
+    c.falling = 1;   /* the low time: 50 us at 10 kHz */
+    ctr_measure("ctr-pw-falling-freqout-10k.mock", &c, 5000, 0);
+}
+
+static void test_ctr_pulse_time(void)
+{
+    const mydaq_ctr_config c = measure(MYDAQ_CTR_PULSE_TIME, MYDAQ_CTR_INPUT_FREQOUT);
+    ctr_measure("ctr-pulsetime-freqout-10k.mock", &c, 5000, 5000);
+}
+
+static void encoder(const char *script, mydaq_ctr_kind kind, mydaq_ctr_input input,
+                    mydaq_ctr_decoding decoding, int z, uint32_t expect)
+{
+    mydaq_ctr_config c = measure(kind, input);
+    c.decoding = decoding;
+    c.z_index = z;
+    ctr_measure(script, &c, expect, 0);
+}
+
+static void test_ctr_linenc_x4(void) { encoder("ctr-linenc-x4.mock", MYDAQ_CTR_LINEAR_ENCODER, MYDAQ_CTR_INPUT_TERMINAL, MYDAQ_CTR_X4, 0, 0); }
+static void test_ctr_linenc_x1_z(void) { encoder("ctr-linenc-x1-z.mock", MYDAQ_CTR_LINEAR_ENCODER, MYDAQ_CTR_INPUT_TERMINAL, MYDAQ_CTR_X1, 1, 0); }
+static void test_ctr_angenc_x2(void) { encoder("ctr-angenc-x2.mock", MYDAQ_CTR_ANGULAR_ENCODER, MYDAQ_CTR_INPUT_TERMINAL, MYDAQ_CTR_X2, 0, 0); }
+static void test_ctr_angenc_2pulse(void) { encoder("ctr-angenc-2pulse-freqout-10k.mock", MYDAQ_CTR_ANGULAR_ENCODER, MYDAQ_CTR_INPUT_FREQOUT, MYDAQ_CTR_TWO_PULSE, 0, 0x2cb3); }
+
+static void pulse_train_ex(const char *script, double f, double duty, mydaq_sample_mode mode,
+                           uint64_t pulses, int idle_high, double delay)
 {
     replay r;
     mydaq_ctr_config cfg;
@@ -455,6 +611,8 @@ static void pulse_train(const char *script, double f, double duty, mydaq_sample_
     cfg.duty_cycle = duty;
     cfg.mode = mode;
     cfg.pulses = pulses;
+    cfg.idle_high = idle_high;
+    cfg.initial_delay = delay;
     REPLAY_OPEN(r, script);
     REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, &cfg, &t));
     REPLAY_STEP(r, mydaq_ctr_task_start(t));
@@ -466,6 +624,15 @@ static void pulse_train(const char *script, double f, double duty, mydaq_sample_
     CHECK(replay_close(&r));
 }
 
+static void pulse_train(const char *script, double f, double duty, mydaq_sample_mode mode,
+                        uint64_t pulses)
+{
+    pulse_train_ex(script, f, duty, mode, pulses, 0, 0.0);
+}
+
+static void test_co_delay(void) { pulse_train_ex("co-ptrain-1k-d0.25-delay10ms.mock", 1000.0, 0.25, MYDAQ_CONTINUOUS, 0, 0, 10e-3); }
+static void test_co_idle_high(void) { pulse_train_ex("co-ptrain-1k-d0.25-idlehigh.mock", 1000.0, 0.25, MYDAQ_CONTINUOUS, 0, 1, 0.0); }
+static void test_co_finite_delay(void) { pulse_train_ex("co-finite-10-1k-d0.25-delay5ms.mock", 1000.0, 0.25, MYDAQ_FINITE, 10, 0, 5e-3); }
 static void test_co_1k(void) { pulse_train("co-ptrain-1k-d0.5.mock", 1000.0, 0.5, MYDAQ_CONTINUOUS, 0); }
 static void test_co_10k(void) { pulse_train("co-ptrain-10k-d0.25.mock", 10e3, 0.25, MYDAQ_CONTINUOUS, 0); }
 static void test_co_finite(void) { pulse_train("co-finite-100-1k.mock", 1000.0, 0.5, MYDAQ_FINITE, 100); }
@@ -610,6 +777,10 @@ static void test_dmm_aca_200m(void) { dmm_function("dmm-aca-r0.2-x2.mock", MYDAQ
 static void test_dmm_aca_1(void) { dmm_function("dmm-aca-r1-x2.mock", MYDAQ_DMM_AC_CURRENT, 1.0, 2); }
 static void test_dmm_ohm_200(void) { dmm_function("dmm-ohm-r200-x2.mock", MYDAQ_DMM_RESISTANCE, 200.0, 2); }
 static void test_dmm_ohm_2k(void) { dmm_function("dmm-ohm-r2k-x2.mock", MYDAQ_DMM_RESISTANCE, 2e3, 2); }
+/* Diode (mode 20) and continuity (mode 21): only ELVISmx's own DMM reaches them (DAQmx has no
+ * such channel); frames from its GUI captures, see the scripts' headers. */
+static void test_dmm_diode(void) { dmm_function("dmm-elvis-diode.mock", MYDAQ_DMM_DIODE, 2.0, 3); }
+static void test_dmm_continuity(void) { dmm_function("dmm-elvis-cont.mock", MYDAQ_DMM_CONTINUITY, 200.0, 3); }
 
 static void test_mismatch_detected(void)
 {
@@ -649,11 +820,32 @@ const test_case replay_tests[] = {
     {"replay.ao01_regen", test_ao01_regen},
     {"replay.ao0_stream", test_ao0_stream},
     {"replay.ao01_stream", test_ao01_stream},
+    {"replay.ao0_finite_sync", test_ao0_finite_sync},
+    {"replay.ao01_finite_sync", test_ao01_finite_sync},
+    {"replay.ao0_finite_200k_sync", test_ao0_finite_200k_sync},
+    {"replay.audio_out_finite_sync", test_audio_out_finite_sync},
+    {"replay.ao01_regen_sync", test_ao01_regen_sync},
+    {"replay.ao01_stream_sync", test_ao01_stream_sync},
     {"replay.ctr_count_edges", test_ctr_count_edges},
     {"replay.ctr_frequency_timeout", test_ctr_frequency_timeout},
     {"replay.co_ptrain_1k", test_co_1k},
     {"replay.co_ptrain_10k_d0.25", test_co_10k},
     {"replay.co_finite", test_co_finite},
+    {"replay.co_delay", test_co_delay},
+    {"replay.co_idle_high", test_co_idle_high},
+    {"replay.co_finite_delay", test_co_finite_delay},
+    {"replay.ctrloop_rising", test_ctrloop_rising},
+    {"replay.ctrloop_falling", test_ctrloop_falling},
+    {"replay.ctrloop_initial_count", test_ctrloop_initial_count},
+    {"replay.ctrloop_reset_dio1", test_ctrloop_reset_dio1},
+    {"replay.ctr_edges_20mhz", test_ctr_edges_20mhz},
+    {"replay.ctr_edges_100khz", test_ctr_edges_100khz},
+    {"replay.ctr_pulse_width_falling", test_ctr_pulse_width_falling},
+    {"replay.ctr_pulse_time", test_ctr_pulse_time},
+    {"replay.ctr_linenc_x4", test_ctr_linenc_x4},
+    {"replay.ctr_linenc_x1_z", test_ctr_linenc_x1_z},
+    {"replay.ctr_angenc_x2", test_ctr_angenc_x2},
+    {"replay.ctr_angenc_2pulse", test_ctr_angenc_2pulse},
     {"replay.freqout_10k", test_freqout_10k},
     {"replay.freqout_100k", test_freqout_100k},
     {"replay.ao0_p0.5", test_ao0_p05},
@@ -679,6 +871,8 @@ const test_case replay_tests[] = {
     {"replay.dmm_aca_1", test_dmm_aca_1},
     {"replay.dmm_ohm_200", test_dmm_ohm_200},
     {"replay.dmm_ohm_2k", test_dmm_ohm_2k},
+    {"replay.dmm_diode", test_dmm_diode},
+    {"replay.dmm_continuity", test_dmm_continuity},
     {"replay.mismatch_detected", test_mismatch_detected},
     {NULL, NULL},
 };

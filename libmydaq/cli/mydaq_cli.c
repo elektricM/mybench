@@ -8,8 +8,12 @@
  *   mydaq-cli [options] ao -c 0|1 --volts V
  *   mydaq-cli [options] ao-gen [-c 0|1|0,1|L|R|L,R] [--rate HZ] [--amp V] [--n SAMPLES] [--secs S]
  *             finite sine (one period of n samples), or regenerated for S seconds with --secs
- *   mydaq-cli [options] ctr edges|freq|period [--secs S]   read once per second (DIO0 / DIO1)
- *   mydaq-cli [options] ctr pulse --freq HZ [--duty D] [--secs S | --n PULSES]   (DIO3)
+ *   mydaq-cli [options] ctr edges|freq|period|pw|pulsetime|linenc|angenc [--secs S] [--falling]
+ *             [--initial N] [--reset-dio1] [--source 20mhz|100khz] [--decoding 1..4] [--z]
+ *             [--loop HZ]   read once per second (DIO0 / DIO1 / DIO0+2); --loop measures the
+ *             internal FREQOUT at HZ instead of the terminal (no wiring)
+ *   mydaq-cli [options] ctr pulse --freq HZ [--duty D] [--idle-high] [--delay S]
+ *             [--secs S | --n PULSES]   (DIO3)
  *   mydaq-cli [options] freqout --freq HZ [--secs S]                              (DIO4)
  *   mydaq-cli [options] dio read | dio write VALUE [--mask M] | dio dir MASK in|out
  *   mydaq-cli [options] dmm [-f dcv] [-r RANGE] [-n COUNT]
@@ -331,16 +335,41 @@ static int cmd_ctr(mydaq_device *dev, const args *a, int at)
     mydaq_ctr_task *t = NULL;
     int rc, k;
     memset(&cfg, 0, sizeof cfg);
+    const double loop = atof(opt(a, "--loop", "0"));   /* measure the internal FREQOUT at this Hz */
     if (strcmp(what, "pulse") == 0) {
         cfg.kind = MYDAQ_CTR_PULSE_TRAIN;
         cfg.frequency = atof(opt(a, "--freq", "1000"));
         cfg.duty_cycle = atof(opt(a, "--duty", "0.5"));
         cfg.pulses = (uint64_t)atoll(opt(a, "--n", "0"));
         cfg.mode = cfg.pulses ? MYDAQ_FINITE : MYDAQ_CONTINUOUS;
+        cfg.idle_high = flag(a, "--idle-high");
+        cfg.initial_delay = atof(opt(a, "--delay", "0"));
     } else {
-        cfg.kind = strcmp(what, "freq") == 0     ? MYDAQ_CTR_FREQUENCY
-                   : strcmp(what, "period") == 0 ? MYDAQ_CTR_PERIOD
-                                                 : MYDAQ_CTR_COUNT_EDGES;
+        cfg.kind = strcmp(what, "freq") == 0         ? MYDAQ_CTR_FREQUENCY
+                   : strcmp(what, "period") == 0     ? MYDAQ_CTR_PERIOD
+                   : strcmp(what, "pw") == 0         ? MYDAQ_CTR_PULSE_WIDTH
+                   : strcmp(what, "pulsetime") == 0  ? MYDAQ_CTR_PULSE_TIME
+                   : strcmp(what, "linenc") == 0     ? MYDAQ_CTR_LINEAR_ENCODER
+                   : strcmp(what, "angenc") == 0     ? MYDAQ_CTR_ANGULAR_ENCODER
+                                                     : MYDAQ_CTR_COUNT_EDGES;
+        cfg.falling = flag(a, "--falling");
+        cfg.initial_count = (uint32_t)strtoul(opt(a, "--initial", "0"), NULL, 0);
+        cfg.reset_on_dio1 = flag(a, "--reset-dio1");
+        cfg.decoding = (mydaq_ctr_decoding)atoi(opt(a, "--decoding", "3"));
+        cfg.z_index = flag(a, "--z");
+        if (loop > 0)
+            cfg.input = MYDAQ_CTR_INPUT_FREQOUT;
+        else if (strcmp(opt(a, "--source", ""), "20mhz") == 0)
+            cfg.input = MYDAQ_CTR_INPUT_20MHZ;
+        else if (strcmp(opt(a, "--source", ""), "100khz") == 0)
+            cfg.input = MYDAQ_CTR_INPUT_100KHZ;
+    }
+    if (loop > 0) {
+        double f = 0;
+        rc = mydaq_freqout_start(dev, loop, &f);
+        if (rc != MYDAQ_OK)
+            return fail("freqout", rc);
+        printf("FREQOUT %.9g Hz measured internally\n", f);
     }
     rc = mydaq_ctr_task_create(dev, &cfg, &t);
     if (rc == MYDAQ_OK)
@@ -363,11 +392,19 @@ static int cmd_ctr(mydaq_device *dev, const args *a, int at)
         for (k = 0; k < (int)secs && rc != MYDAQ_ERR_NO_DEVICE; ++k) {
             double v = 0;
             sleep_s(1.0);
+            if (cfg.kind == MYDAQ_CTR_PULSE_TIME) {
+                uint32_t hi = 0, lo = 0;
+                rc = mydaq_ctr_task_read_pulse_time(t, &hi, &lo, 1000);
+                printf("pulse time: high %u low %u ticks (%s)\n", hi, lo, mydaq_error_name(rc));
+                continue;
+            }
             rc = mydaq_ctr_task_read(t, &v, 1000);
             printf("%s: %.9g (%s)\n", what, v, mydaq_error_name(rc));
         }
     }
     mydaq_ctr_task_destroy(t);
+    if (loop > 0)
+        mydaq_freqout_stop(dev);
     return 0;
 }
 

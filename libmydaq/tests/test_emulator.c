@@ -468,6 +468,110 @@ static void test_ao_stream_and_underflow(void)
     emu_close(&e);
 }
 
+/* Streaming at 2 x 200 kS/s: with a transport that queues OUT transfers, several transfers wait
+ * behind the device FIFO (the slack against a late thread, protocol.md 7.3); the synchronous
+ * writer has none. `sync` selects the path. Returns the mean queued bytes, or -1 on failure. */
+static double ao_stream_queue(int sync)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(2, 200e3, MYDAQ_CONTINUOUS, 0);
+    mydaq_ao_task *t = NULL;
+    static int16_t block[2 * 4000];
+    uint64_t end, q, qmin = UINT64_MAX, qsum = 0, n = 0, sent0, t0;
+    double rate;
+    int rc = MYDAQ_OK;
+    memset(&e, 0, sizeof e);
+    if (mydaq_context_new_no_usb(&e.ctx) != MYDAQ_OK)
+        return -1;
+    mydaq_context_set_log(e.ctx, MYDAQ_LOG_NONE, NULL, NULL);
+    e.mock = mydaq_mock_new_emulator_file(test_data("calmem-036CD1C6.bin"));
+    if (!e.mock)
+        return -1;
+    mydaq_mock_set_sync_out(e.mock, sync);
+    if (mydaq_mock_open(e.ctx, e.mock, 0, &e.dev) != MYDAQ_OK) {
+        emu_close(&e);
+        return -1;
+    }
+    mydaq_mock_set_realtime(e.mock, 1);
+    cfg.buffer_samples = 50000;   /* 0.25 s, as the hardware test */
+    if (mydaq_ao_task_create(e.dev, &cfg, &t) != MYDAQ_OK) {
+        emu_close(&e);
+        return -1;
+    }
+    while (rc == MYDAQ_OK && mydaq_ao_task_space_available(t) >= 4000)
+        rc = mydaq_ao_task_write_raw(t, block, 4000, 0);
+    if (rc == MYDAQ_OK)
+        rc = mydaq_ao_task_start(t);
+    t0 = md_now_ms();
+    end = t0 + 600;
+    sent0 = mydaq_ao_task_samples_sent(t);
+    while (rc == MYDAQ_OK && md_now_ms() < end) {
+        while (rc == MYDAQ_OK && mydaq_ao_task_space_available(t) >= 4000)
+            rc = mydaq_ao_task_write_raw(t, block, 4000, 0);
+        if (md_now_ms() > t0 + 100) {   /* steady state */
+            q = mydaq_mock_ao_queued(e.mock);
+            qmin = q < qmin ? q : qmin;
+            qsum += q;
+            ++n;
+        }
+        md_sleep_ms(2);
+    }
+    rate = (double)(mydaq_ao_task_samples_sent(t) - sent0) / ((double)(md_now_ms() - t0) / 1e3);
+    if (rc == MYDAQ_OK)
+        rc = mydaq_ao_task_error(t);
+    printf("    %s OUT: queued beyond the FIFO min %llu, mean %.0f bytes; %.0f S/s/ch; %s\n",
+           sync ? "synchronous" : "asynchronous", (unsigned long long)(n ? qmin : 0),
+           n ? (double)qsum / (double)n : 0.0, rate, mydaq_error_name(rc));
+    mydaq_ao_task_destroy(t);
+    emu_close(&e);
+    if (rc != MYDAQ_OK || n == 0 || rate < 0.9 * 200e3)
+        return -1;
+    return (double)qsum / (double)n;
+}
+
+static void test_ao_async_queue(void)
+{
+    const double async_mean = ao_stream_queue(0);
+    const double sync_mean = ao_stream_queue(1);
+    CHECK(async_mean >= 2.0 * 16384.0);   /* >= 2 of the 4 x 16 KiB transfers wait: >= 40 ms */
+    CHECK(sync_mean == 0.0);
+}
+
+/* Streaming with a ring that runs empty between writes: the idle OUT transfers must be refilled
+ * by the next write (stream_kick), in order, without an underflow. */
+static void test_ao_async_refill(void)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(1, 20e3, MYDAQ_CONTINUOUS, 0);
+    mydaq_ao_task *t = NULL;
+    static int16_t first[4000];
+    int16_t block[400];
+    int k, i;
+    uint64_t deadline;
+    EMU_OPEN(e);
+    mydaq_mock_set_realtime(e.mock, 1);
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    for (i = 0; i < 4000; ++i)   /* 0.2 s ahead: the emulated FIFO takes it all at once */
+        first[i] = (int16_t)i;
+    E_RC(e, mydaq_ao_task_write_raw(t, first, 4000, 0), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_OK);
+    for (k = 0; k < 20; ++k) {   /* 20 ms of data every 15 ms: the ring is empty in between */
+        md_sleep_ms(15);
+        for (i = 0; i < 400; ++i)
+            block[i] = (int16_t)(4000 + 400 * k + i);
+        E_RC(e, mydaq_ao_task_write_raw(t, block, 400, 1000), MYDAQ_OK);
+    }
+    deadline = md_now_ms() + 1000;   /* everything reaches the device */
+    while (mydaq_mock_ao_bytes(e.mock) < 2u * 12000u && md_now_ms() < deadline)
+        md_sleep_ms(2);
+    E_CHECK(e, mydaq_mock_ao_bytes(e.mock) == 2u * 12000u);
+    E_CHECK(e, mydaq_mock_ao_last(e.mock, 0) == 12000 - 1);   /* in order: the last code last */
+    E_CHECK(e, mydaq_ao_task_error(t) == MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_stop(t), MYDAQ_OK);
+    mydaq_ao_task_destroy(t);
+    emu_close(&e);
+}
+
 static void test_ao_invalid(void)
 {
     emu e;
@@ -613,8 +717,30 @@ static void test_counter_and_freqout(void)
     E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
     E_RC(e, mydaq_ctr_task_wait_done(t, 1000), MYDAQ_OK);
     mydaq_ctr_task_destroy(t);
-    cfg.kind = MYDAQ_CTR_PULSE_WIDTH;
+    cfg.kind = MYDAQ_CTR_TWO_EDGE_SEPARATION;   /* not decoded */
     E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_ERR_NOT_SUPPORTED);
+    cfg.kind = MYDAQ_CTR_PULSE_TIME;   /* two values per read */
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
+    mydaq_mock_set_counter(e.mock, 5000);
+    {
+        uint32_t hi = 0, lo = 0;
+        E_RC(e, mydaq_ctr_task_read_pulse_time(t, &hi, &lo, 100), MYDAQ_OK);
+        E_CHECK(e, hi == 5000 && lo == 5000);
+        E_RC(e, mydaq_ctr_task_read(t, &f, 100), MYDAQ_OK);
+        E_CHECK(e, fabs(f - 1e-4) < 1e-12);   /* the period */
+    }
+    mydaq_ctr_task_destroy(t);
+    cfg.kind = MYDAQ_CTR_LINEAR_ENCODER;   /* A DIO0, B DIO2, Z DIO1 */
+    cfg.z_index = 1;
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_CHECK(e, mydaq_ctr_task_dio_lines(t) == 0x07);
+    E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
+    mydaq_mock_set_counter(e.mock, 0xfffffff6u);
+    E_RC(e, mydaq_ctr_task_read(t, &f, 100), MYDAQ_OK);
+    E_CHECK(e, f == -10.0);   /* signed position */
+    mydaq_ctr_task_destroy(t);
+    cfg.z_index = 0;
     cfg.kind = MYDAQ_CTR_FREQUENCY;   /* 100 MHz ticks per period on DIO1 */
     E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
     E_CHECK(e, mydaq_ctr_task_dio_lines(t) == 0x02);
@@ -882,6 +1008,8 @@ const test_case emulator_tests[] = {
     {"emu.ao_finite", test_ao_finite},
     {"emu.ao_regenerate", test_ao_regenerate},
     {"emu.ao_stream_underflow", test_ao_stream_and_underflow},
+    {"emu.ao_async_queue", test_ao_async_queue},
+    {"emu.ao_async_refill", test_ao_async_refill},
     {"emu.ao_invalid", test_ao_invalid},
     {"emu.ao_unplug", test_ao_unplug},
     {"emu.ai_and_ao_together", test_ai_and_ao_together},

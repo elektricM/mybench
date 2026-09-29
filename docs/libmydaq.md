@@ -23,7 +23,7 @@ on the real device.
 | `src/calibration.c` | calibration memory parser (directory, CRC-16, all tables), AI/AO conversions |
 | `src/ai.c`, `src/ai_task.c` | on-demand AI, scan list, sample clock; hardware-timed AI and audio in (finite, continuous) |
 | `src/ao.c`, `src/ao_task.c` | static AO; hardware-timed AO and audio out (finite, regenerated, streamed) |
-| `src/counter.c` | ctr0 (edge count, frequency, period, pulse train) and FREQOUT |
+| `src/counter.c` | ctr0 (edge count, frequency, period, pulse width/time, encoders, pulse train) and FREQOUT |
 | `src/dio.c` | static DIO (with counter/FREQOUT line reservations) |
 | `src/dmm.c`, `src/es51981.c` | DMM ranges, reading, NI-exact conversion; ES51981 packet parser |
 | `tests/` | unit, replay and emulator tests (`libmydaq_tests`), hardware test (`libmydaq_hwtest`) |
@@ -179,29 +179,45 @@ program holds the device, or the subsystem is reserved), `TIMEOUT`, `OVERFLOW`, 
   audio), out_timing.configure (finite: 1, N, 4, divisor, 0 + flags; continuous: 0xfffffffe ×3 +
   flags with byte 11 = 1), out_fifo.configure on slot 2, endpoint (OUT) configure/start, one-way
   output credit on slot 7 (finite: exact bytes; continuous: 0x7fffffff, topped up by 1 GiB when
-  less than 256 MiB remain [H]), up to 16 KiB of samples before `out_timing.start`, then a writer
-  thread with synchronous 8 KiB bulk writes (100 ms timeouts; the device NAKs while its ~20 KB
-  FIFO is full, partial writes are accounted). Codes: `round(offset + gain·V)` with ±10 V (AO)
+  less than 256 MiB remain [H]), up to 16 KiB of samples before `out_timing.start`. Samples
+  go out as **queued asynchronous bulk OUT transfers** (4 × ~25 ms of data, 512 B–16 KiB each):
+  the device NAKs while its ~20 KB FIFO is full, and the transfers waiting behind it give ~80 ms
+  of margin at 2 × 200 kS/s (the FIFO alone is ~24 ms). Buffers are refilled on the event thread
+  when a transfer completes and, when streaming data arrives after the ring ran dry, from
+  `write()` (`stream_kick`); a monitor thread sends credit top-ups and detects host-side
+  underflow. Transports without `stream_open_out` (optional op) fall back to a writer thread
+  with synchronous 8 KiB writes. Codes: `round(offset + gain·V)` with ±10 V (AO)
   or ±2 V (audio) records. Regeneration = the host re-sends the buffer (as NI). Streaming: host
   ring (`buffer_samples`, default 1 s); `MYDAQ_ERR_UNDERFLOW` when the ring is empty and the
   sample clock has run past the samples sent (2 ms + 200 ppm margin), or on an out_fifo event.
   Stop: stop, status, (finite: m18), m17, fifo disable, endpoint stop, disarm, flush (-225229),
   unconfigure, `ao_dac.update` per channel (outputs keep the last sample).
-- **Counter** (`counter.c`, protocol.md 10, driver-notes 7): route.connect for source/gate/
-  output, then the captured ctr0 skeleton (reset, configure, m0a–m12, commit, arm/start) with
-  the task parameters: pulse train low/high ticks of 100 MHz (low phase first), finite count 2N;
-  frequency/period = one-counter method (source 100 MHz, gate PFI1, read = ticks per period, app
-  code 3/2 — period **unverified**); edge count on PFI0. Reads: `ctr.1d` (device-side timeout;
-  status -200474 → `MYDAQ_ERR_TIMEOUT`). Lines are reserved: DIO0 (edges), DIO1 (frequency/
-  period), DIO3 (pulse train), DIO4 (FREQOUT); DIO calls on them return `MYDAQ_ERR_BUSY`, and a
-  line driven as DIO output cannot be taken. Finite pulse trains: the finite-only loads
-  (U6..U8 = low, low, high) are [H]. FREQOUT = 100 kHz / n (n = 1..16), the only timebase seen.
+- **Counter** (`counter.c`, protocol.md 10, driver-notes 7): every ctr0 task is the captured
+  skeleton (routes, reset, configure U[9]/B[4], 0a–12, commit, arm) filled from one table per
+  kind (`ctr_prog`), byte-exact against 20 captures: count edges (PFI0, internal FREQOUT, 20 MHz
+  or 100 kHz timebase; rising/falling = source polarity; initial count = U0; count reset on
+  PFI1), frequency and period (one-counter, 100 MHz timebase, gate PFI1 or FREQOUT; falling =
+  gate polarity, by analogy with pulse width [M]), pulse width (high / low time), pulse time
+  (high and low of one period in one read; the myDAQ has no semi-period mode), linear and angular
+  encoders (A PFI0 or FREQOUT, B PFI2, Z PFI1; X1/X2/X4/two-pulse; signed counts, scaling on the
+  host), pulse trains (continuous/finite, idle low/high, initial delay; finite loads U6..U8 =
+  active, idle, active; finite idle-high by analogy [M]). `mydaq_ctr_config.input =
+  MYDAQ_CTR_INPUT_FREQOUT` measures FREQOUT without wiring (the hardware tests use it). Reads:
+  `ctr.1d` (1 or 2 values; device-side timeout, status -200474 → `MYDAQ_ERR_TIMEOUT`). Lines
+  reserved: DIO0 (edges, encoder A), DIO1 (gate inputs, count reset, encoder Z), DIO2 (encoder
+  B), DIO3 (pulse train), DIO4 (FREQOUT); DIO calls on them return `MYDAQ_ERR_BUSY`, and a line
+  driven as DIO output cannot be taken. Not possible on the myDAQ (DAQmx refuses them too):
+  buffered counter input (no counter data stream), count down and external direction (the C++
+  backend emulates both: down = `initial − edges` on the host; external direction = an X1
+  encoder with A = DIO0, B = DIO2, position added to the initial count). Not captured: two-edge separation (`MYDAQ_ERR_NOT_SUPPORTED`), FREQOUT timebases
+  other than 100 kHz / n (n = 1..16).
 - **DMM**: `set_mode(mode, autorange)` then `read(1, 10000 ms)`; the 11-byte ES51981 packet is
   converted exactly like NI's driver (digit arithmetic order, scale table per function byte and
   range digit, calibration slot per requested function); overload → `overload = ±1`,
-  `value = ±range` (DAQmx returns NaN). Mode bytes 0–15 are captured; Ω 20 k–20 M (16–19),
-  diode (20), continuity (21) and hardware autorange (2nd byte 1) come from the driver's
-  capability table and are **unverified** (`mydaq_dmm_range_info.verified = 0`).
+  `value = ±range` (DAQmx returns NaN). Mode bytes 0–16, diode (20) and continuity (21) are captured
+  (the last two from ELVISmx's own DMM); Ω 200 k–20 M (17–19) and hardware autorange (2nd byte 1)
+  come from the driver's capability table and are **unverified** (`mydaq_dmm_range_info.verified
+  = 0`).
 
 ## Transport, mock and how to add a subsystem
 
@@ -241,10 +257,17 @@ Adding a subsystem once the USB agent marks it READY in `docs/protocol.md`:
   protocol / device errors → `UsbError`. `UsbAiTask` wraps `mydaq_ai_task` (finite and
   continuous, AI and audio in), `UsbAoTask` wraps `mydaq_ao_task` (finite, regenerate,
   streaming; a regenerated task refuses rewrites while running with `NotSupported`; streaming
-  buffer 2 s), `UsbCounterInputTask` (CountEdges up from 0, Frequency, Period; other
-  measurements, falling edges, buffered input → `NotSupported`), `UsbCounterOutputTask` (pulse
-  train, continuous/finite; `update()` restarts the task; idle-high and initial delay →
-  `NotSupported`); FREQOUT through `frequencyOutputStart/Stop`. Audio channels have no
+  buffer 2 s), `UsbCounterInputTask` (count edges up, or down from the initial count as
+  `initial − edges` on the host, reset on DIO1, either edge; frequency, period, pulse width,
+  semi-period from pulse time (the two halves of each read are returned one per `readScalar`),
+  encoders scaled to distance / degrees; external direction as an X1 encoder (A = DIO0, B = DIO2
+  level; `kExternalDirectionSense` = +1: DIO2 high counts up, checked by libmydaq_hw); refused
+  with `NotSupported`: two-edge separation, buffered input, and the combinations the emulations
+  cannot follow (external direction with a falling edge or reset on DIO1, down from a non-zero
+  initial count with reset on DIO1)), `UsbCounterOutputTask` (pulse train, continuous/finite, idle high,
+  initial delay; `update()` restarts the task); `UsbDevice::unsupportedFeatures()` lists exactly
+  the refused options (`mydaq::feature`: counter two-edge / buffered, AO ±2 V, FREQOUT
+  20/10 MHz timebases) so panels grey them out; FREQOUT through `frequencyOutputStart/Stop`. Audio channels have no
   on-demand read/write (`NotSupported`: the device needs a sample clock). Library logs go to the Qt category `mybench.libmydaq` (debug with
   `QT_LOGGING_RULES="mybench.*.debug=true"`, every frame with `MYBENCH_USB_TRACE=1`).
 - `UsbProvider` (registered by `DeviceManager` when built with USB): a monitor thread enumerates
@@ -276,7 +299,7 @@ skipped unless `MYDAQ_HW_TESTS=1`; they run through `tools/devlock.sh native lib
 detaches the shared myDAQ from the NI VM for the duration of one run. They keep AO within ±1 V,
 end with AO at 0 V and DIO as inputs, and treat the floating inputs statistically.
 `MYDAQ_HW_ONLY=ai,dio` shortens the C run (exact group names: `ai ao aotimed concurrent audio ctr
-dio dmm dmmall reset`), `MYDAQ_HW_TRACE=1` logs every frame, `MYDAQ_JUMPERS=ao0-ai0` adds the
+ctrloop dio dmm dmmall reset`), `MYDAQ_HW_TRACE=1` logs every frame, `MYDAQ_JUMPERS=ao0-ai0` adds the
 loopback checks that need AO0 wired to AI0. Right after the lock script takes the device back
 from the NI VM, the device can refuse the AI timing engine (status -201381) for a few seconds;
 the C run waits for a working on-demand read first (up to 15 s) and prints how long it took.
@@ -288,8 +311,10 @@ the shared bench: `tools/devlock.sh native me -- build-usb/libmydaq/cli/mydaq-cl
 `list`, `info [--dump F]`, `ai [-c 0,1] [-r 10|2] [-n N]`, `ai-stream [-c ..] [--rate R] [-n N]
 [--csv F] [--cont SECONDS]`, `ao -c 0|1 --volts V`, `ao-gen [-c 0|1|0,1|L|R|L,R] [--rate R]
 [--amp V] [--n N] [--secs S]`, `dio read|write V [--mask M]|dir MASK in|out`,
-`dmm [-f dcv|acv|dca|aca|ohm|diode|cont] [-r RANGE] [-n N]`, `ctr edges|freq|period [--secs S]`,
-`ctr pulse --freq F [--duty D] [--secs S | --n PULSES]`, `freqout --freq F [--secs S]`, `reset`;
+`dmm [-f dcv|acv|dca|aca|ohm|diode|cont] [-r RANGE] [-n N]`, `ctr edges|freq|period|pw|pulsetime|
+linenc|angenc [--secs S] [--falling] [--initial N] [--reset-dio1] [--source 20mhz|100khz]
+[--decoding 1..4] [--z] [--loop HZ]` (`--loop` measures the internal FREQOUT, no wiring),
+`ctr pulse --freq F [--duty D] [--idle-high] [--delay S] [--secs S | --n PULSES]`, `freqout --freq F [--secs S]`, `reset`;
 `-v`/`-vv` for debug/frame logs.
 
 ## Platforms
@@ -322,7 +347,7 @@ natively on the real myDAQ (036CD1C6) through devlock, 2026-09-28 (`libmydaq_hwt
 | Audio in L/R (±2 V, timed) | implemented | 2 captures, 1,440 values | yes: 48 kS/s, open input sd 0.4 mV |
 | AO static ao0/ao1 (±10 V cal) | implemented | 3 captures | yes: codes = DAQmx (output voltage not measured) |
 | AO timed finite (1–2 ch, 1 k–200 kS/s) | implemented | 5 captures (commands + sample stream) | yes: 2 ch 20 kS/s (voltage not measured without a loopback) |
-| AO timed continuous, regenerated / streamed | implemented | 4 captures | yes: regenerate 2×20 k, stream 2×100 k and 2×200 k without underflow (quiet machine) |
+| AO timed continuous, regenerated / streamed | implemented (queued async OUT, sync fallback) | 4 captures, replayed through both paths; emulator: ≥ 2 × 16 KiB queued behind the FIFO at 2×200 k, idle-transfer refill | yes: regenerate 2×20 k, stream 2×100 k and 2×200 k without underflow (quiet machine; async OUT pass pending) |
 | AO underflow detection | implemented (timing + out_fifo event [H]) | emulator only | pending |
 | Audio out L/R (±2 V, timed) | implemented | 1 capture | yes: 48 kS/s finite |
 | AO ±2 V range on AO0/AO1 | NOT_SUPPORTED | not captured | — |
@@ -331,18 +356,26 @@ natively on the real myDAQ (036CD1C6) through devlock, 2026-09-28 (`libmydaq_hwt
 | DMM AC V 20/2/0.2 V | implemented | 6 readings | yes (2 V range) |
 | DMM DC/AC current 1 A/200 mA/20 mA | implemented | 12 readings | pending |
 | DMM resistance 200 Ω, 2 kΩ | implemented | 4 readings (overload) | pending |
-| DMM resistance 20 kΩ–20 MΩ (modes 16–19) | implemented, **unverified** | — | pending |
-| DMM diode (mode 20), continuity (mode 21), HW autorange | implemented, **unverified** | not reachable via DAQmx | pending |
+| DMM resistance 20 kΩ (mode 16) | implemented | 1 capture (open leads) | pending |
+| DMM resistance 200 kΩ–20 MΩ (modes 17–19) | implemented, **unverified** | — | pending |
+| DMM diode (mode 20), continuity (mode 21) | implemented, verified | ELVISmx's DMM captured (`dmm-elvis-diode/-cont`: mode bytes, packets 1.618 V, 149 Ω for a 150 Ω resistor, open); replays `replay.dmm_diode/continuity` | pending |
+| DMM hardware autorange | implemented, **unverified** | not reachable via DAQmx | pending |
 | ES51981 parsing, overload with sign | implemented | overload packets from Ω captures | no provoked overload |
 | Counter edge count (DIO0) | implemented | 1 capture | yes: open DIO0 counts 0 |
-| Counter frequency (DIO1) | implemented (M) | 1 capture (timeout path) | pending |
-| Counter period (DIO1) | implemented, **unverified** (app code 2) | — | pending |
+| Counter edge count: FREQOUT loop, 20 MHz / 100 kHz timebases, falling, initial count, reset on DIO1 | implemented | 6 captures (`ctrloop-*`, `ctr-countedges-*`) | pending (`MYDAQ_HW_ONLY=ctrloop`) |
+| Counter frequency (DIO1 or FREQOUT) | implemented (M) | 1 capture (timeout path) | pending (FREQOUT loop, exact 10 kHz) |
+| Counter period (DIO1 or FREQOUT) | implemented, **unverified** (app code 2) | — | pending (FREQOUT loop) |
+| Counter pulse width (high / low), pulse time | implemented | 2 captures (FREQOUT loop, 5000 ticks) | pending (FREQOUT loop) |
+| Counter linear / angular encoders (X1/X2/X4/two-pulse, Z) | implemented | 4 captures | pending (two-pulse on the loop) |
+| Pulse train idle high, initial delay | implemented (finite idle high by analogy) | 3 captures | pending (DIO3 level during the delay) |
 | Pulse train continuous (DIO3) | implemented | 2 captures | yes: 5 Hz seen high and low on DIO3 |
-| Pulse train finite | implemented (U6..U8 order [H]) | 1 capture (50 % duty) | yes: 100 pulses at 1 kHz complete |
+| Pulse train finite | implemented (U6..U8 = active, idle, active) | 2 captures (50 %, 25 % + delay) | yes: 100 pulses at 1 kHz complete |
 | Pulse-train update while running | restart (stop + start) | — | — |
 | FREQOUT 100 kHz / n (DIO4) | implemented | 2 captures | yes: 6250 Hz seen high and low on DIO4 |
 | FREQOUT 20/10 MHz timebases | not offered | not captured | — |
-| Counter pulse width, semi-period, two-edge, encoders, buffered input | NOT_SUPPORTED | not captured | — |
+| Counter two-edge separation | NOT_SUPPORTED | not captured (DAQmx refused the same-terminal loop) | — |
+| Counter buffered input | not possible on the myDAQ (DAQmx refuses; no counter stream) | — | — |
+| Counter count down / external direction | DAQmx refuses; emulated in the C++ backend (host arithmetic / X1 encoder) | tst_usbdevice | pending (external direction sense) |
 | Power-fault event 0x0c91/0xdead | aborts a timed AO task | — | — |
 | Abort of an in-flight command (vendor control) | not used | — | — |
 | AI and AO at the same time (streams 4 + 5) | implemented (stream allocator) | emulator (stream numbers per start order) | yes: 2×200 kS/s in + 2×200 kS/s streamed out, both start orders, each survives the other's stop; 2×100 k in + 2×10 k regenerated |

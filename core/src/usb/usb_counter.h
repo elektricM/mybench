@@ -1,4 +1,6 @@
-// Counter ctr0 (edge count, frequency, period, pulse train) on libmydaq (mydaq_ctr_task).
+// Counter ctr0 on libmydaq (mydaq_ctr_task): edge count (up; down and external direction
+// emulated on the host), frequency, period, pulse width, semi-period (from the device's
+// pulse-time mode), encoders, pulse trains.
 #pragma once
 
 #include "usb_device.h"
@@ -19,9 +21,13 @@ public:
     std::vector<double> readBuffered(int64_t n, int timeoutMs) override;
 
 private:
+    double scale(uint32_t raw) const;   // count edges / encoders: raw count -> value
+
     HandlePtr m_handle;
     CounterInputConfig m_config;
     mydaq_ctr_task* m_task = nullptr;
+    double m_semi[2] = {0, 0};   // semi-period: the other half of the last pulse-time read
+    int m_semiPending = 0;
 };
 
 class UsbCounterOutputTask final : public CounterOutputTask {

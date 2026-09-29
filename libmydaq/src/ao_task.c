@@ -54,6 +54,9 @@ struct mydaq_ao_task {
     int events_on;            /* (op_lock) */
     int thread_running;       /* (op_lock) */
     md_thread thread;
+    void *out_stream;         /* asynchronous OUT stream (transports with stream_open_out) (op_lock) */
+    int pump_on;              /* (op_lock) */
+    size_t xfer_size;         /* asynchronous OUT: bytes per transfer */
 
     md_mutex lock;
     md_cond cond;
@@ -68,7 +71,8 @@ struct mydaq_ao_task {
     uint8_t *ring;
     size_t ring_cap, ring_head, ring_count;
     /* accounting */
-    uint64_t sent_bytes;
+    uint64_t sent_bytes;      /* accepted by the device */
+    uint64_t queued_bytes;    /* asynchronous OUT: handed to the transport (>= sent_bytes) */
     uint64_t credit_bytes;
     uint64_t start_us;
     int started;              /* out_timing.start sent */
@@ -283,6 +287,149 @@ static void writer_main(void *arg)
     free(chunk);
 }
 
+/* ---- asynchronous OUT stream --------------------------------------------------------------
+ * With a transport that queues OUT transfers (stream_open_out), up to AO_XFERS transfers wait on
+ * the endpoint behind the device's ~20 KB FIFO, so a late thread does not starve the output
+ * (with synchronous writes the FIFO alone, ~24 ms at 2 x 200 kS/s, is the margin). Buffers are
+ * filled on the event thread when a transfer completes and, for streaming, from write() when
+ * new data arrives after the ring ran dry (stream_kick). A monitor thread handles what cannot
+ * run in a transfer callback: credit top-ups (a command) and host-side underflow detection. */
+
+#define AO_XFERS 4u
+#define AO_XFER_MAX 16384u
+#define AO_XFER_TARGET_S 0.025
+
+/* Copies the next bytes to send into out (lock held) and advances the queue position. */
+static size_t take_chunk(mydaq_ao_task *t, uint8_t *out, size_t cap)
+{
+    size_t n = 0;
+    cap -= cap % t->scan_bytes;
+    if (t->cfg.mode == MYDAQ_FINITE) {
+        const size_t left = t->buf_len - (size_t)t->buf_pos;
+        n = left < cap ? left : cap;
+        memcpy(out, t->buf + t->buf_pos, n);
+        t->buf_pos += n;
+    } else if (t->cfg.regenerate) {
+        while (n < cap) {   /* whole transfers, wrapping around a short buffer */
+            const size_t off = (size_t)(t->buf_pos % t->buf_len);
+            const size_t left = t->buf_len - off;
+            const size_t k = left < cap - n ? left : cap - n;
+            memcpy(out + n, t->buf + off, k);
+            t->buf_pos += k;
+            n += k;
+        }
+    } else {
+        n = ring_peek(t, out, cap);
+        ring_drop(t, n);
+    }
+    t->queued_bytes += n;
+    if (n)
+        md_cond_broadcast(&t->cond);   /* ring space for a blocked writer */
+    return n;
+}
+
+static size_t out_fill(void *user, uint8_t *buf, size_t cap, size_t done, int status)
+{
+    mydaq_ao_task *t = user;
+    size_t n = 0;
+    int err = MYDAQ_OK;
+    md_mutex_lock(&t->lock);
+    if (done) {
+        t->sent_bytes += done;
+        md_cond_broadcast(&t->cond);
+    }
+    if (status != MYDAQ_OK && !t->error) {
+        t->error = err = status;
+        md_cond_broadcast(&t->cond);
+    }
+    if (!t->stop_writer && !t->error && t->state == AO_RUNNING)
+        n = take_chunk(t, buf, cap);
+    md_mutex_unlock(&t->lock);
+    if (err == MYDAQ_ERR_NO_DEVICE)
+        md_note_error(t->dev, err);
+    return n;
+}
+
+static void monitor_main(void *arg)
+{
+    mydaq_ao_task *t = arg;
+    md_mutex_lock(&t->lock);
+    while (!t->stop_writer && !t->error) {
+        uint32_t topup = 0;
+        if (t->cfg.mode == MYDAQ_CONTINUOUS &&
+            t->credit_bytes - t->queued_bytes < AO_CREDIT_LOW + 4u * AO_XFER_MAX) {
+            t->credit_bytes += AO_CREDIT_TOPUP;
+            topup = AO_CREDIT_TOPUP;
+        }
+        if (!t->cfg.regenerate && t->cfg.mode == MYDAQ_CONTINUOUS && t->ring_count == 0 &&
+            t->queued_bytes == t->sent_bytes && underflowed(t)) {
+            t->error = MYDAQ_ERR_UNDERFLOW;
+            md_cond_broadcast(&t->cond);
+            md_mutex_unlock(&t->lock);
+            MD_WARN(t->dev->ctx, "AO underflow: the application did not write data in time");
+            md_mutex_lock(&t->lock);
+            break;
+        }
+        if (topup) {
+            md_mutex_unlock(&t->lock);
+            send_credit(t, topup);
+            md_mutex_lock(&t->lock);
+            continue;
+        }
+        md_cond_timedwait(&t->cond, &t->lock, 20);
+    }
+    md_mutex_unlock(&t->lock);
+}
+
+static size_t choose_xfer_size(const mydaq_ao_task *t)
+{
+    double target = ceil(t->rate * (double)t->scan_bytes * AO_XFER_TARGET_S / 512.0) * 512.0;
+    if (target < 512.0)
+        target = 512.0;
+    if (target > AO_XFER_MAX)
+        target = AO_XFER_MAX;
+    return (size_t)target;   /* a multiple of 512, hence of the scan size (2 or 4 bytes) */
+}
+
+/* Opens the OUT stream (which queues the first transfers) and waits until the device holds the
+ * pre-fill, as NI writes the first buffer before starting the timing engine. op_lock held. */
+static int async_prefill(mydaq_ao_task *t)
+{
+    mydaq_device *dev = t->dev;
+    const uint64_t deadline = md_now_ms() + 1000;
+    int rc = md_pump_acquire(dev);
+    if (rc != MYDAQ_OK)
+        return rc;
+    t->pump_on = 1;
+    rc = dev->ops->stream_open_out(dev->impl, t->stream, t->xfer_size, AO_XFERS, out_fill, t,
+                                   &t->out_stream);
+    if (rc != MYDAQ_OK)
+        return rc;
+    md_mutex_lock(&t->lock);
+    for (;;) {
+        const uint64_t now = md_now_ms();
+        const uint64_t want = t->queued_bytes < AO_PREFILL ? t->queued_bytes : AO_PREFILL;
+        if (t->error || t->sent_bytes >= want || now >= deadline)
+            break;
+        md_cond_timedwait(&t->cond, &t->lock, (uint32_t)(deadline - now));
+    }
+    rc = t->error;
+    md_mutex_unlock(&t->lock);
+    return rc;
+}
+
+static void async_close(mydaq_ao_task *t)
+{
+    if (t->out_stream) {
+        t->dev->ops->stream_close(t->dev->impl, t->out_stream);
+        t->out_stream = NULL;
+    }
+    if (t->pump_on) {
+        md_pump_release(t->dev);
+        t->pump_on = 0;
+    }
+}
+
 /* ---- device sequences -------------------------------------------------------------------- */
 
 static int configure(mydaq_ao_task *t)
@@ -413,6 +560,7 @@ static int finish(mydaq_ao_task *t)
         md_thread_join(t->thread);
         t->thread_running = 0;
     }
+    async_close(t);   /* cancels queued transfers before the endpoint is stopped */
     if (t->hw_active) {
         md_cmd_lock(t->dev);
         rc = release_hw(t);
@@ -480,6 +628,7 @@ int mydaq_ao_task_create(mydaq_device *dev, const mydaq_ao_config *config, mydaq
     t->scan_bytes = 2u * config->num_channels;
     t->divisor = md_rate_divisor(config->sample_rate);
     t->rate = md_divisor_rate(t->divisor);
+    t->xfer_size = choose_xfer_size(t);
     if (config->mode == MYDAQ_CONTINUOUS && !config->regenerate) {
         size_t scans = config->buffer_samples ? config->buffer_samples : (size_t)t->rate;
         if (scans < AO_MIN_RING_SCANS)
@@ -546,7 +695,7 @@ int mydaq_ao_task_write_raw(mydaq_ao_task *t, const int16_t *codes, size_t sampl
     const uint64_t deadline = timeout_ms >= 0 ? md_now_ms() + (uint64_t)timeout_ms : 0;
     uint8_t *bytes;
     size_t i;
-    int rc = MYDAQ_OK;
+    int rc = MYDAQ_OK, kick = 0;
 
     if (!t || (!codes && samples_per_channel))
         return MYDAQ_ERR_INVALID_ARG;
@@ -594,6 +743,7 @@ int mydaq_ao_task_write_raw(mydaq_ao_task *t, const int16_t *codes, size_t sampl
             if (t->ring_cap - t->ring_count >= n) {
                 ring_put(t, bytes, n);
                 md_cond_broadcast(&t->cond);
+                kick = t->state == AO_RUNNING;
                 break;
             }
             if (timeout_ms < 0) {
@@ -610,6 +760,12 @@ int mydaq_ao_task_write_raw(mydaq_ao_task *t, const int16_t *codes, size_t sampl
     }
     md_mutex_unlock(&t->lock);
     free(bytes);
+    if (kick) {   /* queued OUT transfers may have gone idle while the ring was empty */
+        md_mutex_lock(&t->op_lock);
+        if (t->out_stream)
+            t->dev->ops->stream_kick(t->dev->impl, t->out_stream);
+        md_mutex_unlock(&t->op_lock);
+    }
     return rc;
 }
 
@@ -644,12 +800,13 @@ int mydaq_ao_task_start(mydaq_ao_task *t)
 {
     mydaq_device *dev;
     uint8_t *chunk = NULL;
-    int rc = MYDAQ_OK;
+    int rc = MYDAQ_OK, async;
     if (!t)
         return MYDAQ_ERR_INVALID_ARG;
     dev = t->dev;
+    async = dev->ops->stream_open_out != NULL && dev->ops->stream_kick != NULL;
     md_mutex_lock(&t->op_lock);
-    if (t->hw_active || t->thread_running || t->events_on)
+    if (t->hw_active || t->thread_running || t->events_on || t->out_stream || t->pump_on)
         finish(t);
     if (!md_is_connected(dev)) {
         md_mutex_unlock(&t->op_lock);
@@ -661,7 +818,7 @@ int mydaq_ao_task_start(mydaq_ao_task *t)
     else if (!t->cfg.regenerate && t->cfg.mode == MYDAQ_CONTINUOUS && t->ring_count == 0)
         rc = MYDAQ_ERR_STATE;   /* streaming: pre-fill before start */
     t->buf_pos = 0;
-    t->sent_bytes = 0;
+    t->sent_bytes = t->queued_bytes = 0;
     t->error = MYDAQ_OK;
     t->stop_writer = 0;
     t->started = 0;
@@ -687,12 +844,14 @@ int mydaq_ao_task_start(mydaq_ao_task *t)
         t->events_on = rc == MYDAQ_OK;
     }
     /* prefill the device FIFO (NI writes the first buffer before starting) */
-    if (rc == MYDAQ_OK) {
+    if (rc == MYDAQ_OK && async) {
+        rc = async_prefill(t);
+    } else if (rc == MYDAQ_OK) {
         chunk = malloc(AO_CHUNK);
         if (!chunk)
             rc = MYDAQ_ERR_NO_MEM;
     }
-    while (rc == MYDAQ_OK) {
+    while (rc == MYDAQ_OK && !async) {
         uint64_t sent;
         md_mutex_lock(&t->lock);
         sent = t->sent_bytes;
@@ -728,7 +887,7 @@ int mydaq_ao_task_start(mydaq_ao_task *t)
         t->started = 1;
         t->start_us = md_now_us();
         md_mutex_unlock(&t->lock);
-        if (md_thread_start(&t->thread, writer_main, t) != 0)
+        if (md_thread_start(&t->thread, async ? monitor_main : writer_main, t) != 0)
             rc = MYDAQ_ERR_NO_MEM;
         else
             t->thread_running = 1;
@@ -748,7 +907,7 @@ int mydaq_ao_task_stop(mydaq_ao_task *t)
     if (!t)
         return MYDAQ_ERR_INVALID_ARG;
     md_mutex_lock(&t->op_lock);
-    if (t->hw_active || t->thread_running || t->events_on)
+    if (t->hw_active || t->thread_running || t->events_on || t->out_stream || t->pump_on)
         rc = finish(t);
     md_mutex_lock(&t->lock);
     t->ring_head = t->ring_count = 0;   /* unsent streaming data is discarded */
@@ -793,7 +952,7 @@ int mydaq_ao_task_wait_done(mydaq_ao_task *t, int timeout_ms)
     md_mutex_unlock(&t->lock);
     if (done) {   /* release the hardware now; the outputs keep the last sample */
         md_mutex_lock(&t->op_lock);
-        if (t->hw_active || t->thread_running || t->events_on)
+        if (t->hw_active || t->thread_running || t->events_on || t->out_stream || t->pump_on)
             rc = finish(t);
         md_mutex_unlock(&t->op_lock);
         if (rc == MYDAQ_OK) {

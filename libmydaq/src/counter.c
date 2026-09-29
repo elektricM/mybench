@@ -21,7 +21,8 @@
 #define FREQOUT_MAX_DIVIDER 16u
 
 #define DIO_CTR_SOURCE 0x01u   /* DIO0 = PFI0: count-edges input */
-#define DIO_CTR_GATE 0x02u     /* DIO1 = PFI1: frequency/period input (gate) */
+#define DIO_CTR_GATE 0x02u     /* DIO1 = PFI1: frequency/period input (gate), count reset, Z */
+#define DIO_CTR_AUX 0x04u      /* DIO2 = PFI2: encoder B */
 #define DIO_CTR_OUTPUT 0x08u   /* DIO3 = PFI3: pulse-train output */
 #define DIO_FREQOUT 0x10u      /* DIO4 = PFI4 */
 
@@ -29,6 +30,7 @@ struct mydaq_ctr_task {
     mydaq_device *dev;
     mydaq_ctr_config cfg;
     uint32_t low, high;       /* pulse train, ticks */
+    uint32_t delay;           /* pulse train: initial delay, ticks (2 = none, as DAQmx) */
     uint8_t dio_lines;
 
     md_mutex op_lock;
@@ -58,34 +60,6 @@ static int ctr_hex(mydaq_device *dev, uint8_t op, const char *args)
     md_put_u32(&b, OBJ_CTR0);
     md_put_hex(&b, args);
     return md_cmd(dev, MD_CH_OBJECT, op, &b, MD_TIMEOUT_CMD, 0, NULL);
-}
-
-/* 0c41.09: 9 x u32, 2 x u16 (0), 4 x u8 */
-static int ctr_configure(mydaq_device *dev, const uint32_t u[9], const char *bytes4)
-{
-    md_buf b;
-    size_t i;
-    md_buf_init(&b);
-    md_put_u32(&b, OBJ_CTR0);
-    for (i = 0; i < 9; ++i)
-        md_put_u32(&b, u[i]);
-    md_put_u16(&b, 0);
-    md_put_u16(&b, 0);
-    md_put_hex(&b, bytes4);
-    return md_cmd(dev, MD_CH_OBJECT, MD_OP_WRITE, &b, MD_TIMEOUT_CMD, 0, NULL);
-}
-
-/* 0c41.14 start: u32, u32, u16 0, 4 x u8 */
-static int ctr_start(mydaq_device *dev, uint32_t a, uint32_t b4, const char *bytes4)
-{
-    md_buf b;
-    md_buf_init(&b);
-    md_put_u32(&b, OBJ_CTR0);
-    md_put_u32(&b, a);
-    md_put_u32(&b, b4);
-    md_put_u16(&b, 0);
-    md_put_hex(&b, bytes4);
-    return md_cmd(dev, MD_CH_OBJECT, 0x14, &b, MD_TIMEOUT_CMD, 0, NULL);
 }
 
 int mydaq_ctr_coerce_pulse(double frequency, double duty, uint32_t *low_ticks, uint32_t *high_ticks,
@@ -135,51 +109,150 @@ static void on_event(void *user, const md_event *ev)
     md_mutex_unlock(&t->lock);
 }
 
-/* ---- device sequences -------------------------------------------------------------------- */
+/* ---- device sequences --------------------------------------------------------------------
+ * Every ctr0 task is the same skeleton (protocol.md 10.1): routes, reset, configure(U, B), 0a,
+ * 0b(16 u16), 0c, 0d(2, idle level), 0e, 0f(6 u16), 10(8 u16), 11, 12, [output route], 13, 12,
+ * arm. The task kinds differ only in the values below, taken from the captures named in
+ * protocol.md 10.2 / 10.5 (byte-exact replays in tests/test_replay.c). */
 
-/* Frequency / period, one-counter method: counts the 100 MHz timebase between rising edges of
- * the gate (DIO1). Frames from ctr-cifreq-pfi1-timeout; period differs only in the application
- * code (2 instead of 3; driver-notes 7.3, M). */
-static int program_period(mydaq_ctr_task *t)
+/* route ids (protocol.md 10.3 / 10.5) */
+#define R_PFI0_IN 0xc51cc492u, 0x8e309935u
+#define R_PFI1_IN 0xb21bf404u, 0xf937a9a3u
+#define R_PFI2_IN 0x2b12a5beu, 0x603ef819u
+#define R_SOURCE 0x587c6efeu, 0x37cf14ddu
+#define R_GATE 0x097d2c54u, 0x11f9be17u
+#define R_AUX 0xc7c20613u, 0x88fbba44u
+#define R_PW 0x77c75630u, 0x5d392cd4u
+#define R_LOOP 0x5e3c3848u          /* single id: the internal FREQOUT loop (value 0x24) */
+#define R_ENC_A 0x3da647a3u
+#define R_ENC_B 0xa4af1619u
+#define R_ENC_Z 0xb7c38e4fu
+#define SRC_100MHZ 0x1eu
+
+typedef struct ctr_prog {
+    uint32_t u[9];
+    uint8_t b[4];
+    uint16_t m0b[16];
+    uint16_t m0c;
+    uint16_t idle;            /* 0d second value: 1 = idle high */
+    uint16_t m0f[6];
+    uint16_t m10[8];
+    int finite;               /* 12: finite pulse train flag; 0f[5] = 7 */
+    int output;               /* pulse train: route ctr0 out -> PFI3 before arming */
+    uint32_t arm_a, arm_b;
+    uint8_t arm[4];
+} ctr_prog;
+
+static int route1(mydaq_device *dev, uint32_t id, uint32_t value)
 {
-    mydaq_device *dev = t->dev;
-    const int period = t->cfg.kind == MYDAQ_CTR_PERIOD;
-    const uint32_t u[9] = {1, 0, 1, 0, 0, 0, 0, 0, 0};
-    int rc = route2(dev, 0xb21bf404u, 0xf937a9a3u, 0, 0);                 /* PFI1: input */
+    const uint32_t w[4] = {6, id, 6, value};
+    return md_cmd_words(dev, MD_CH_OBJECT, MD_OP_WRITE, MD_OBJ_PROPERTIES, w, 4, MD_TIMEOUT_CMD, NULL);
+}
+
+static int ctr_u16s(mydaq_device *dev, uint8_t op, const uint16_t *v, size_t n)
+{
+    md_buf b;
+    size_t i;
+    md_buf_init(&b);
+    md_put_u32(&b, OBJ_CTR0);
+    for (i = 0; i < n; ++i)
+        md_put_u16(&b, v[i]);
+    return md_cmd(dev, MD_CH_OBJECT, op, &b, MD_TIMEOUT_CMD, 0, NULL);
+}
+
+/* The skeleton after the task's routes. */
+static int run_program(mydaq_device *dev, const ctr_prog *p)
+{
+    const char *m12 = p->finite ? "000000000000000001000000" : "000000000000000000000000";
+    const uint16_t m0c[2] = {p->m0c, 0};
+    const uint16_t m0d[2] = {2, p->idle};
+    md_buf b;
+    size_t i;
+    int rc = ctr_hex(dev, MD_OP_RESET, "");
+    if (rc == MYDAQ_OK) {
+        md_buf_init(&b);
+        md_put_u32(&b, OBJ_CTR0);
+        for (i = 0; i < 9; ++i)
+            md_put_u32(&b, p->u[i]);
+        md_put_u16(&b, 0);
+        md_put_u16(&b, 0);
+        for (i = 0; i < 4; ++i)
+            md_put_u8(&b, p->b[i]);
+        rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_WRITE, &b, MD_TIMEOUT_CMD, 0, NULL);
+    }
     if (rc == MYDAQ_OK)
-        rc = route2(dev, 0x097d2c54u, 0x11f9be17u, 0x02, 0);              /* gate = PFI1 */
+        rc = ctr_hex(dev, 0x0a, "00000000");
     if (rc == MYDAQ_OK)
-        rc = route2(dev, 0x587c6efeu, 0x37cf14ddu, 0x1e, 0);              /* source = 100 MHz */
+        rc = ctr_u16s(dev, 0x0b, p->m0b, 16);
     if (rc == MYDAQ_OK)
-        rc = route2(dev, 0xc7c20613u, 0x88fbba44u, 0x2f, 0);
+        rc = ctr_u16s(dev, 0x0c, m0c, 2);
     if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_RESET, "");
+        rc = ctr_u16s(dev, 0x0d, m0d, 2);
     if (rc == MYDAQ_OK)
-        rc = ctr_configure(dev, u, period ? "00020100" : "00030100");
+        rc = ctr_hex(dev, 0x0e, "");
     if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_COMMIT, "00000000");
+        rc = ctr_u16s(dev, 0x0f, p->m0f, 6);
     if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_START, "0000000000000001000000000000000300000002000000000001000000000000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_QUERY, "00010000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_STATUS, "00020000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_STOP, "");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_RELEASE, "000000000000000300000000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x10, "00000000000100000001000000000000");
+        rc = ctr_u16s(dev, 0x10, p->m10, 8);
     if (rc == MYDAQ_OK)
         rc = ctr_hex(dev, 0x11, "000000010000000000000000");
     if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x12, "000000000000000000000000");
+        rc = ctr_hex(dev, 0x12, m12);
+    if (rc == MYDAQ_OK && p->output)
+        rc = route2(dev, 0x5c159528u, 0x1739c88fu, 0x0d, 1);                /* output -> PFI3 */
     if (rc == MYDAQ_OK)
         rc = ctr_hex(dev, 0x13, "");
     if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x12, "000000000000000000000000");
+        rc = ctr_hex(dev, 0x12, m12);
+    if (rc == MYDAQ_OK) {
+        md_buf_init(&b);
+        md_put_u32(&b, OBJ_CTR0);
+        md_put_u32(&b, p->arm_a);
+        md_put_u32(&b, p->arm_b);
+        md_put_u16(&b, 0);
+        for (i = 0; i < 4; ++i)
+            md_put_u8(&b, p->arm[i]);
+        rc = md_cmd(dev, MD_CH_OBJECT, 0x14, &b, MD_TIMEOUT_CMD, 0, NULL);
+    }
+    return rc;
+}
+
+/* Application code of an input task (configure B1, arm, read). */
+static uint8_t app_code(mydaq_ctr_kind kind)
+{
+    switch (kind) {
+    case MYDAQ_CTR_COUNT_EDGES: return 1;
+    case MYDAQ_CTR_PERIOD: return 2;
+    case MYDAQ_CTR_FREQUENCY: return 3;
+    case MYDAQ_CTR_PULSE_WIDTH: return 4;
+    case MYDAQ_CTR_LINEAR_ENCODER: return 7;
+    case MYDAQ_CTR_ANGULAR_ENCODER: return 0x0e;
+    case MYDAQ_CTR_PULSE_TIME: return 0x0f;
+    default: return 0;
+    }
+}
+
+/* Gate input (the measured signal) of frequency, period, pulse width and pulse time. */
+static int route_gate(mydaq_device *dev, const mydaq_ctr_config *c, int pulse_width)
+{
+    const uint32_t pol = c->falling ? 1u : 0u;
+    int rc = MYDAQ_OK;
+    if (c->input == MYDAQ_CTR_INPUT_FREQOUT) {   /* ctr-pw-falling / ctr-pulsetime -freqout-10k */
+        if (pulse_width)
+            rc = route2(dev, R_PW, 0, 0);
+        if (rc == MYDAQ_OK)
+            rc = route1(dev, R_LOOP, 0x24);
+        if (rc == MYDAQ_OK)
+            rc = route2(dev, R_GATE, 0x29, pol);
+    } else {                                   /* ctr-cifreq-pfi1-timeout */
+        rc = route2(dev, R_PFI1_IN, 0, 0);
+        if (rc == MYDAQ_OK && pulse_width)
+            rc = route2(dev, R_PW, 0, 0);
+        if (rc == MYDAQ_OK)
+            rc = route2(dev, R_GATE, 0x02, pol);
+    }
     if (rc == MYDAQ_OK)
-        rc = ctr_start(dev, 1, 0, period ? "02000000" : "03000000");
+        rc = route2(dev, R_SOURCE, SRC_100MHZ, 0);
     return rc;
 }
 
@@ -187,71 +260,160 @@ static int program(mydaq_ctr_task *t)
 {
     mydaq_device *dev = t->dev;
     const mydaq_ctr_config *c = &t->cfg;
-    const int edges = c->kind == MYDAQ_CTR_COUNT_EDGES;
-    const int finite = !edges && c->mode == MYDAQ_FINITE;
-    const uint32_t two_n = finite ? (uint32_t)(2u * c->pulses) : 0u;
+    const uint8_t app = app_code(c->kind);
+    ctr_prog p;
     int rc = MYDAQ_OK;
 
-    if (edges) {
-        rc = route2(dev, 0xc51cc492u, 0x8e309935u, 0, 0);                   /* count edges */
-        if (rc == MYDAQ_OK)
-            rc = route2(dev, 0x587c6efeu, 0x37cf14ddu, 0x01, 0);            /* source = PFI0 */
-    } else {
-        rc = route2(dev, 0x587c6efeu, 0x37cf14ddu, 0x1e, 0);                /* 100 MHz timebase */
-    }
-    if (rc == MYDAQ_OK)
-        rc = route2(dev, 0xc7c20613u, 0x88fbba44u, 0x2f, 0);                /* gate/aux default */
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_RESET, "");
-    if (rc == MYDAQ_OK) {
-        if (edges) {
-            const uint32_t u[9] = {0};
-            rc = ctr_configure(dev, u, "00010001");
-        } else if (finite) {
-            /* U6..U8 were all 50000 at 1 kHz / 50 %: taken as (initial low, low, high) [H] */
-            const uint32_t u[9] = {2, 2, 0, two_n, 0, 0, t->low, t->low, t->high};
-            rc = ctr_configure(dev, u, "000b0001");
+    memset(&p, 0, sizeof p);
+    p.m0c = 1;
+    p.m0f[3] = 3;
+    p.m0b[12] = 1;
+    switch (c->kind) {
+    case MYDAQ_CTR_COUNT_EDGES: {   /* ctr-countedges-*, ctrloop-* */
+        static const uint32_t source[] = {0x01, 0x2b, 0x1c, 0x12};
+        if (c->reset_on_dio1) {     /* ctrloop-resetpfi1-10k */
+            rc = route2(dev, R_PFI1_IN, 0, 0);
+            if (rc == MYDAQ_OK)
+                rc = route2(dev, R_GATE, 0x02, 0);
+            p.m0b[3] = 1;
+            p.m0b[7] = 3;
+            p.m0b[9] = 2;
         } else {
-            const uint32_t u[9] = {2, 0, t->low, t->high, 0, 0, 0, 0, 0};
-            rc = ctr_configure(dev, u, "01090001");
+            p.m0b[7] = 2;
         }
+        if (rc == MYDAQ_OK && c->input == MYDAQ_CTR_INPUT_TERMINAL)
+            rc = route2(dev, R_PFI0_IN, 0, 0);
+        if (rc == MYDAQ_OK && c->input == MYDAQ_CTR_INPUT_FREQOUT)
+            rc = route1(dev, R_LOOP, 0x24);
+        if (rc == MYDAQ_OK)
+            rc = route2(dev, R_SOURCE, source[c->input], c->falling ? 1u : 0u);
+        p.u[0] = c->initial_count;
+        p.b[1] = 1;
+        p.b[3] = 1;
+        p.arm[0] = 1;
+        p.arm[1] = 1;
+        break;
+    }
+    case MYDAQ_CTR_FREQUENCY:
+    case MYDAQ_CTR_PERIOD:          /* ctr-cifreq-pfi1-timeout (period: app code 2) */
+        rc = route_gate(dev, c, 0);
+        p.u[0] = 1;
+        p.u[2] = 1;
+        p.b[1] = app;
+        p.b[2] = 1;
+        p.m0b[3] = 1;
+        p.m0b[7] = 3;
+        p.m0b[9] = 2;
+        p.m10[2] = p.m10[4] = 1;
+        p.arm_a = 1;
+        p.arm[0] = app;
+        break;
+    case MYDAQ_CTR_PULSE_WIDTH:     /* ctr-pw-falling-freqout-10k */
+        rc = route_gate(dev, c, 1);
+        p.b[1] = app;
+        p.b[3] = 1;
+        p.m0b[3] = 1;
+        p.m0b[7] = 2;
+        p.m0b[9] = 1;
+        p.m10[2] = p.m10[4] = 1;
+        p.arm[0] = app;
+        p.arm[1] = 1;
+        break;
+    case MYDAQ_CTR_PULSE_TIME:      /* ctr-pulsetime-freqout-10k */
+        rc = route_gate(dev, c, 0);
+        p.u[0] = 1;
+        p.u[2] = 1;
+        p.b[1] = app;
+        p.b[2] = 1;
+        p.b[3] = 1;
+        p.m0b[3] = 1;
+        p.m0b[7] = 3;
+        p.m0b[8] = 1;
+        p.m0b[9] = 3;
+        p.m10[2] = p.m10[4] = 1;
+        p.arm_a = 1;
+        p.arm[0] = app;
+        p.arm[1] = 1;
+        break;
+    case MYDAQ_CTR_LINEAR_ENCODER:
+    case MYDAQ_CTR_ANGULAR_ENCODER: /* ctr-linenc-x4 / -x1-z, ctr-angenc-x2 / -2pulse-freqout-10k */
+        if (c->input == MYDAQ_CTR_INPUT_FREQOUT) {
+            rc = route1(dev, R_LOOP, 0x24);
+            if (rc == MYDAQ_OK)
+                rc = route1(dev, R_ENC_A, 0x2e);
+        } else {
+            rc = route2(dev, R_PFI0_IN, 0, 0);
+            if (rc == MYDAQ_OK)
+                rc = route1(dev, R_ENC_A, 0x01);
+        }
+        if (rc == MYDAQ_OK)
+            rc = route2(dev, R_PFI2_IN, 0, 0);
+        if (rc == MYDAQ_OK)
+            rc = route1(dev, R_ENC_B, 0x03);
+        if (rc == MYDAQ_OK && c->z_index) {
+            rc = route2(dev, R_PFI1_IN, 0, 0);
+            if (rc == MYDAQ_OK)
+                rc = route1(dev, R_ENC_Z, 0x02);
+        }
+        p.u[0] = 1;
+        p.u[2] = 1;
+        p.b[1] = app;
+        p.b[2] = 2;
+        p.b[3] = 1;
+        p.m0b[7] = 3;
+        p.m0c = 2;
+        p.m0f[4] = c->z_index ? 1u : 0u;
+        p.m0f[5] = (uint16_t)(c->decoding ? c->decoding : MYDAQ_CTR_X4);
+        p.arm_a = 1;
+        p.arm[0] = app;
+        p.arm[1] = 1;
+        break;
+    case MYDAQ_CTR_PULSE_TRAIN: {   /* co-ptrain-*, co-finite-* (protocol.md 10.5) */
+        const uint32_t active = c->idle_high ? t->low : t->high;
+        const uint32_t idle = c->idle_high ? t->high : t->low;
+        const int delayed = t->delay > 2u;
+        rc = route2(dev, R_SOURCE, SRC_100MHZ, 0);
+        p.u[0] = t->delay;
+        p.b[1] = c->mode == MYDAQ_FINITE ? 0x0b : 0x09;
+        p.b[3] = 1;
+        p.m0b[0] = p.m0b[2] = p.m0b[4] = 1;
+        p.m0b[12] = 0;
+        p.m0c = 0;
+        p.idle = c->idle_high ? 1u : 0u;
+        p.output = 1;
+        p.arm[0] = p.b[1];
+        p.arm[1] = 1;
+        if (c->mode == MYDAQ_FINITE) {
+            const uint32_t two_n = (uint32_t)(2u * c->pulses);
+            p.u[1] = 2;
+            p.u[3] = two_n;
+            p.u[6] = active;   /* (active, idle, active): co-finite-10-1k-d0.25-delay5ms */
+            p.u[7] = idle;
+            p.u[8] = active;
+            p.m0b[5] = 1;
+            p.m0b[6] = 2;
+            p.m0b[15] = 2;
+            p.m0f[5] = 7;
+            p.finite = 1;
+            p.arm_b = two_n;
+        } else {
+            p.u[2] = idle;     /* time in the idle state first: co-ptrain-1k-d0.25-idlehigh */
+            p.u[3] = active;
+            p.b[0] = delayed ? 0 : 1;   /* co-ptrain-1k-d0.25-delay10ms */
+            p.m10[0] = p.m10[3] = p.m10[4] = 1;
+            p.arm_a = idle;
+            p.arm_b = active;
+            p.arm[3] = delayed ? 0 : 1;
+        }
+        break;
+    }
+    default:
+        return MYDAQ_ERR_NOT_SUPPORTED;
     }
     if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_COMMIT, "00000000");
+        rc = route2(dev, R_AUX, 0x2f, 0);                                    /* aux: none */
     if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_START,
-                     edges    ? "0000000000000000000000000000000200000000000000000001000000000000"
-                     : finite ? "0001000000010000000100010002000000000000000000000000000000000002"
-                              : "0001000000010000000100000000000000000000000000000000000000000000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_QUERY, edges ? "00010000" : "00000000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_STATUS, "00020000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_STOP, "");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, MD_OP_RELEASE, finite ? "000000000000000300000007" : "000000000000000300000000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x10, edges || finite ? "00000000000000000000000000000000"
-                                                : "00010000000000010001000000000000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x11, "000000010000000000000000");
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x12, finite ? "000000000000000001000000" : "000000000000000000000000");
-    if (rc == MYDAQ_OK && !edges)
-        rc = route2(dev, 0x5c159528u, 0x1739c88fu, 0x0d, 1);                /* output -> PFI3 */
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x13, "");                                           /* arm */
-    if (rc == MYDAQ_OK)
-        rc = ctr_hex(dev, 0x12, finite ? "000000000000000001000000" : "000000000000000000000000");
-    if (rc == MYDAQ_OK) {
-        if (edges)
-            rc = ctr_start(dev, 0, 0, "01010000");
-        else if (finite)
-            rc = ctr_start(dev, 0, two_n, "0b010000");
-        else
-            rc = ctr_start(dev, t->low, t->high, "09010001");
-    }
+        rc = run_program(dev, &p);
     return rc;
 }
 
@@ -293,18 +455,37 @@ int mydaq_ctr_task_create(mydaq_device *dev, const mydaq_ctr_config *config, myd
 {
     mydaq_ctr_task *t;
     int rc = MYDAQ_OK;
-    uint32_t low = 0, high = 0;
+    uint32_t low = 0, high = 0, delay_ticks = CTR_MIN_TICKS;
     uint8_t lines;
     if (!out)
         return MYDAQ_ERR_INVALID_ARG;
     *out = NULL;
     if (!dev || !config)
         return MYDAQ_ERR_INVALID_ARG;
-    if (config->kind == MYDAQ_CTR_COUNT_EDGES) {
-        lines = DIO_CTR_SOURCE;
-    } else if (config->kind == MYDAQ_CTR_FREQUENCY || config->kind == MYDAQ_CTR_PERIOD) {
-        lines = DIO_CTR_GATE;
-    } else if (config->kind == MYDAQ_CTR_PULSE_TRAIN) {
+    if ((unsigned)config->input > MYDAQ_CTR_INPUT_100KHZ ||
+        (config->input >= MYDAQ_CTR_INPUT_20MHZ && config->kind != MYDAQ_CTR_COUNT_EDGES))
+        return MYDAQ_ERR_INVALID_ARG;
+    switch (config->kind) {
+    case MYDAQ_CTR_COUNT_EDGES:
+        lines = config->input == MYDAQ_CTR_INPUT_TERMINAL ? DIO_CTR_SOURCE : 0;
+        if (config->reset_on_dio1)
+            lines |= DIO_CTR_GATE;
+        break;
+    case MYDAQ_CTR_FREQUENCY:
+    case MYDAQ_CTR_PERIOD:
+    case MYDAQ_CTR_PULSE_WIDTH:
+    case MYDAQ_CTR_PULSE_TIME:
+        lines = config->input == MYDAQ_CTR_INPUT_FREQOUT ? 0 : DIO_CTR_GATE;
+        break;
+    case MYDAQ_CTR_LINEAR_ENCODER:
+    case MYDAQ_CTR_ANGULAR_ENCODER:
+        if (config->decoding && (config->decoding < MYDAQ_CTR_X1 || config->decoding > MYDAQ_CTR_TWO_PULSE))
+            return MYDAQ_ERR_INVALID_ARG;
+        lines = (uint8_t)((config->input == MYDAQ_CTR_INPUT_FREQOUT ? 0 : DIO_CTR_SOURCE) | DIO_CTR_AUX |
+                          (config->z_index ? DIO_CTR_GATE : 0));
+        break;
+    case MYDAQ_CTR_PULSE_TRAIN: {
+        double delay;
         rc = mydaq_ctr_coerce_pulse(config->frequency, config->duty_cycle, &low, &high, NULL, NULL);
         if (rc != MYDAQ_OK)
             return rc;
@@ -312,9 +493,15 @@ int mydaq_ctr_task_create(mydaq_device *dev, const mydaq_ctr_config *config, myd
             return MYDAQ_ERR_INVALID_ARG;
         if (config->mode != MYDAQ_FINITE && config->mode != MYDAQ_CONTINUOUS)
             return MYDAQ_ERR_INVALID_ARG;
+        delay = floor(config->initial_delay * CTR_TIMEBASE_HZ + 0.5);
+        if (!(delay >= 0.0) || delay > 4294967295.0)
+            return MYDAQ_ERR_INVALID_ARG;
+        delay_ticks = delay < CTR_MIN_TICKS ? CTR_MIN_TICKS : (uint32_t)delay;
         lines = DIO_CTR_OUTPUT;
-    } else {
-        return MYDAQ_ERR_NOT_SUPPORTED;   /* other measurements: not decoded yet */
+        break;
+    }
+    default:
+        return MYDAQ_ERR_NOT_SUPPORTED;   /* two-edge separation: not decoded yet */
     }
     t = calloc(1, sizeof *t);
     if (!t)
@@ -323,6 +510,7 @@ int mydaq_ctr_task_create(mydaq_device *dev, const mydaq_ctr_config *config, myd
     t->cfg = *config;
     t->low = low;
     t->high = high;
+    t->delay = delay_ticks;
     t->dio_lines = lines;
     md_mutex_init(&t->op_lock);
     md_mutex_init(&t->lock);
@@ -367,8 +555,7 @@ int mydaq_ctr_task_start(mydaq_ctr_task *t)
     if (rc == MYDAQ_OK) {
         md_cmd_lock(t->dev);
         t->hw_active = 1;
-        rc = t->cfg.kind == MYDAQ_CTR_FREQUENCY || t->cfg.kind == MYDAQ_CTR_PERIOD ? program_period(t)
-                                                                                    : program(t);
+        rc = program(t);
         md_cmd_unlock(t->dev);
     }
     if (rc != MYDAQ_OK)
@@ -420,34 +607,29 @@ int mydaq_ctr_task_is_running(const mydaq_ctr_task *task)
     return r;
 }
 
-int mydaq_ctr_task_read_count(mydaq_ctr_task *t, uint32_t *count, int timeout_ms)
+/* 0c41.1d(u32 1, u32 N, u32 timeout ms, u32 1, u16 1, u8 app, u8 0) -> u32[] {N values};
+ * NI passes 10015 ms (its 10 s default + 15); pulse time asks for 2 values. */
+static int read_values(mydaq_ctr_task *t, uint32_t *values, uint32_t n, int timeout_ms)
 {
-    uint32_t args[5];
-    const uint8_t *p;
     md_resp r;
     md_buf b;
+    uint32_t i;
     int rc;
-    if (!t || !count || timeout_ms < 0)
+    if (!t || !values || timeout_ms < 0)
         return MYDAQ_ERR_INVALID_ARG;
     if (t->cfg.kind == MYDAQ_CTR_PULSE_TRAIN)
         return MYDAQ_ERR_STATE;
     if (!mydaq_ctr_task_is_running(t))
         return MYDAQ_ERR_STATE;
-    /* 0c41.1d(u32 1, u32 1, u32 timeout ms, u32 1, u16 1, u8 1, u8 0) -> u32[] {count};
-     * NI passes 10015 ms (its 10 s default + 15) */
-    args[0] = 1;
-    args[1] = 1;
-    args[2] = (uint32_t)timeout_ms;
-    args[3] = 1;
     md_buf_init(&b);
     md_put_u32(&b, OBJ_CTR0);
-    md_put_u32(&b, args[0]);
-    md_put_u32(&b, args[1]);
-    md_put_u32(&b, args[2]);
-    md_put_u32(&b, args[3]);
+    md_put_u32(&b, 1);
+    md_put_u32(&b, n);
+    md_put_u32(&b, (uint32_t)timeout_ms);
+    md_put_u32(&b, 1);
     md_put_u16(&b, 1);
-    md_put_u8(&b, t->cfg.kind == MYDAQ_CTR_COUNT_EDGES ? 1u : t->cfg.kind == MYDAQ_CTR_PERIOD ? 2u : 3u);
-    md_put_u8(&b, 0);   /* application code as the last argument */
+    md_put_u8(&b, app_code(t->cfg.kind));
+    md_put_u8(&b, 0);
     md_cmd_lock(t->dev);
     rc = md_cmd(t->dev, MD_CH_OBJECT, 0x1d, &b, (unsigned)timeout_ms + MD_TIMEOUT_CMD,
                 MD_CMD_ANY_STATUS, &r);
@@ -460,11 +642,41 @@ int mydaq_ctr_task_read_count(mydaq_ctr_task *t, uint32_t *count, int timeout_ms
         MD_ERR(t->dev->ctx, "counter read: device status %ld", (long)r.status);
         return MYDAQ_ERR_DEVICE;
     }
-    if (r.payload_len < 8 || md_get_u32(r.payload) != 6)
+    if (r.payload_len < 4 + 4u * n || md_get_u32(r.payload) != 2u + 4u * n)
         return MYDAQ_ERR_PROTOCOL;
-    p = r.payload + 4;
-    *count = md_get_u32(p);
+    for (i = 0; i < n; ++i)
+        values[i] = md_get_u32(r.payload + 4 + 4 * i);
     return MYDAQ_OK;
+}
+
+int mydaq_ctr_task_read_count(mydaq_ctr_task *t, uint32_t *count, int timeout_ms)
+{
+    uint32_t v[2];
+    int rc;
+    if (!count)
+        return MYDAQ_ERR_INVALID_ARG;
+    rc = read_values(t, v, t && t->cfg.kind == MYDAQ_CTR_PULSE_TIME ? 2u : 1u, timeout_ms);
+    if (rc == MYDAQ_OK)
+        *count = v[0];
+    return rc;
+}
+
+int mydaq_ctr_task_read_pulse_time(mydaq_ctr_task *t, uint32_t *high, uint32_t *low, int timeout_ms)
+{
+    uint32_t v[2];
+    int rc;
+    if (!t || !high || !low)
+        return MYDAQ_ERR_INVALID_ARG;
+    if (t->cfg.kind != MYDAQ_CTR_PULSE_TIME)
+        return MYDAQ_ERR_STATE;
+    rc = read_values(t, v, 2, timeout_ms);
+    if (rc == MYDAQ_OK && (v[0] == 0 || v[1] == 0))
+        rc = MYDAQ_ERR_TIMEOUT;   /* no complete period yet */
+    if (rc == MYDAQ_OK) {
+        *high = v[0];
+        *low = v[1];
+    }
+    return rc;
 }
 
 int mydaq_ctr_task_wait_done(mydaq_ctr_task *t, int timeout_ms)
@@ -510,21 +722,33 @@ int mydaq_ctr_task_wait_done(mydaq_ctr_task *t, int timeout_ms)
 
 int mydaq_ctr_task_read(mydaq_ctr_task *t, double *value, int timeout_ms)
 {
-    uint32_t n = 0;
+    uint32_t n = 0, low = 0;
     int rc;
-    if (!value)
+    if (!t || !value)
         return MYDAQ_ERR_INVALID_ARG;
+    if (t->cfg.kind == MYDAQ_CTR_PULSE_TIME) {
+        rc = mydaq_ctr_task_read_pulse_time(t, &n, &low, timeout_ms);
+        if (rc == MYDAQ_OK)
+            *value = ((double)n + (double)low) / CTR_TIMEBASE_HZ;
+        return rc;
+    }
     rc = mydaq_ctr_task_read_count(t, &n, timeout_ms);
     if (rc != MYDAQ_OK)
         return rc;
-    if (t->cfg.kind == MYDAQ_CTR_COUNT_EDGES)
+    switch (t->cfg.kind) {
+    case MYDAQ_CTR_COUNT_EDGES:
         *value = (double)n;
-    else if (n == 0)
-        return MYDAQ_ERR_TIMEOUT;   /* no complete period yet */
-    else if (t->cfg.kind == MYDAQ_CTR_PERIOD)
-        *value = (double)n / CTR_TIMEBASE_HZ;
-    else
-        *value = CTR_TIMEBASE_HZ / (double)n;
+        return MYDAQ_OK;
+    case MYDAQ_CTR_LINEAR_ENCODER:
+    case MYDAQ_CTR_ANGULAR_ENCODER:
+        *value = (double)(int32_t)n;   /* signed position counts */
+        return MYDAQ_OK;
+    default:
+        break;
+    }
+    if (n == 0)
+        return MYDAQ_ERR_TIMEOUT;   /* no complete period / pulse yet */
+    *value = t->cfg.kind == MYDAQ_CTR_FREQUENCY ? CTR_TIMEBASE_HZ / (double)n : (double)n / CTR_TIMEBASE_HZ;
     return MYDAQ_OK;
 }
 

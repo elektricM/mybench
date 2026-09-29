@@ -191,6 +191,27 @@ static void test_dmm_conversion(void)
     CHECK_RC(mydaq_dmm_convert(NULL, MYDAQ_DMM_RESISTANCE, &p, 2e3, &r));
     CHECK_NEAR(r.display, 1234.0, 1e-9);
     CHECK_INT(mydaq_dmm_cal_slot(MYDAQ_DMM_AC_VOLTS, &p), -1);
+    {   /* diode and continuity packets of ELVISmx's DMM (captures dmm-elvis-diode / -cont) */
+        static const struct {
+            const char *packet;
+            mydaq_dmm_function function;
+            double range, want;
+            int overload;
+        } dc[] = {
+            {"016181800\r\n", MYDAQ_DMM_DIODE, 2.0, 1.618, 0},
+            {"006651800\r\n", MYDAQ_DMM_DIODE, 2.0, 0.665, 0},
+            {"020001900\r\n", MYDAQ_DMM_DIODE, 2.0, 2.0, 1},            /* open: OPEN */
+            {"020005900\r\n", MYDAQ_DMM_CONTINUITY, 200.0, 200.0, 1},   /* open */
+            {"000045800\r\n", MYDAQ_DMM_CONTINUITY, 200.0, 0.0, 0},     /* wire */
+            {"014945800\r\n", MYDAQ_DMM_CONTINUITY, 200.0, 149.0, 0},   /* resistor */
+        };
+        for (i = 0; i < sizeof dc / sizeof dc[0]; ++i) {
+            CHECK_RC(mydaq_es51981_parse((const uint8_t *)dc[i].packet, 11, &p));
+            CHECK_RC(mydaq_dmm_convert(&cal, dc[i].function, &p, dc[i].range, &r));
+            CHECK_NEAR(r.value, dc[i].want, 1e-12);
+            CHECK_INT(r.overload != 0, dc[i].overload);
+        }
+    }
     CHECK_ERR(mydaq_es51981_parse((const uint8_t *)"11234>808\r\n", 11, &p), MYDAQ_OK);
     CHECK_ERR(mydaq_dmm_convert(&cal, MYDAQ_DMM_DC_VOLTS, &p, 2.0, &r), MYDAQ_ERR_PROTOCOL);
 }
@@ -215,6 +236,13 @@ static void test_dmm_ranges(void)
         total += n;
     }
     CHECK_INT(total, 21);
+    /* verified by captures: diode and continuity (ELVISmx), 20 kOhm; 200 kOhm .. 20 MOhm not yet */
+    CHECK_RC(mydaq_dmm_ranges(MYDAQ_DMM_DIODE, &r, &n));
+    CHECK(n == 1 && r[0].supported && r[0].verified);
+    CHECK_RC(mydaq_dmm_ranges(MYDAQ_DMM_CONTINUITY, &r, &n));
+    CHECK(n == 1 && r[0].supported && r[0].verified);
+    CHECK_RC(mydaq_dmm_ranges(MYDAQ_DMM_RESISTANCE, &r, &n));
+    CHECK(n == 6 && !r[0].verified && !r[2].verified && r[3].verified && r[5].verified);
     CHECK_ERR(mydaq_dmm_ranges((mydaq_dmm_function)9, &r, &n), MYDAQ_ERR_INVALID_ARG);
 }
 

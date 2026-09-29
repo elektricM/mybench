@@ -26,19 +26,19 @@ static const mydaq_dmm_range_info ranges[] = {
     {MYDAQ_DMM_RESISTANCE, 20e6, "20 MOhm", 1e4, 1, 0},
     {MYDAQ_DMM_RESISTANCE, 2e6, "2 MOhm", 1e3, 1, 0},
     {MYDAQ_DMM_RESISTANCE, 200e3, "200 kOhm", 100.0, 1, 0},
-    {MYDAQ_DMM_RESISTANCE, 20e3, "20 kOhm", 10.0, 1, 0},
+    {MYDAQ_DMM_RESISTANCE, 20e3, "20 kOhm", 10.0, 1, 1},   /* dmm-ohm-r20k-x2 */
     {MYDAQ_DMM_RESISTANCE, 2e3, "2 kOhm", 1.0, 1, 1},
     {MYDAQ_DMM_RESISTANCE, 200.0, "200 Ohm", 0.1, 1, 1},
-    {MYDAQ_DMM_DIODE, 2.0, "2 V", 0.001, 1, 0},
-    {MYDAQ_DMM_CONTINUITY, 200.0, "200 Ohm", 1.0, 1, 0},
+    {MYDAQ_DMM_DIODE, 2.0, "2 V", 0.001, 1, 1},             /* dmm-elvis-diode (ELVISmx) */
+    {MYDAQ_DMM_CONTINUITY, 200.0, "200 Ohm", 1.0, 1, 1},   /* dmm-elvis-cont (ELVISmx) */
 };
 
 #define RANGE_COUNT (sizeof ranges / sizeof ranges[0])
 
 /* dmm.set_mode byte per entry of `ranges` (docs/protocol.md 9.2; -1 = not decoded yet).
- * Captured: DC V, AC V, DC/AC A, 200 Ohm, 2 kOhm. 20 kOhm .. 20 MOhm = 16..19, diode = 20 and
- * continuity = 21 come from the driver's capability table (docs/driver-notes.md 8), not yet
- * confirmed by a capture (`verified` = 0). */
+ * Captured: DC V, AC V, DC/AC A, 200 Ohm, 2 kOhm, 20 kOhm (16), diode (20) and continuity (21,
+ * ELVISmx's own DMM: DAQmx has no route to them). 200 kOhm .. 20 MOhm = 17..19 come from the
+ * driver's capability table (docs/driver-notes.md 8), not yet confirmed (`verified` = 0). */
 static const int range_modes[RANGE_COUNT] = {
     2, 1, 0, 3,                 /* DC V 60, 20, 2, 0.2 */
     5, 4, 7,                    /* AC V 20, 2, 0.2 */

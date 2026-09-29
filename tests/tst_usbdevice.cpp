@@ -355,6 +355,66 @@ private slots:
         QCOMPARE(mydaq_mock_dio_direction(e.mock), uint8_t(0));
     }
 
+    void unsupportedFeatures()
+    {
+        // Every listed feature is refused with NotSupported, and the supported basics are not listed.
+        Emulated e;
+        const QStringList list = e.device->unsupportedFeatures();
+        auto listed = [&](const char* f) { return list.contains(QString::fromLatin1(f)); };
+        auto refusedIn = [&](auto change) {
+            CounterInputConfig c;
+            change(c);
+            return errorOf([&] { e.device->createCounterInputTask(c); }) == DeviceError::NotSupported;
+        };
+        auto refusedOut = [&](auto change) {
+            PulseOutputConfig c;
+            change(c);
+            return errorOf([&] { e.device->createCounterOutputTask(c); }) == DeviceError::NotSupported;
+        };
+        using M = CounterMeasurement;
+        QVERIFY(listed(feature::CounterTwoEdgeSeparation) && refusedIn([](auto& c) { c.measurement = M::TwoEdgeSeparation; }));
+        QVERIFY(listed(feature::CounterBuffered) && refusedIn([](auto& c) { c.buffered = true; }));
+        // Supported since the stage-3 captures: not listed, and accepted.
+        auto accepted = [&](auto change) {
+            CounterInputConfig c;
+            change(c);
+            try {
+                e.device->createCounterInputTask(c);
+                return true;
+            } catch (const DeviceError&) {
+                return false;
+            }
+        };
+        for (const char* f : {feature::CounterPulseWidth, feature::CounterSemiPeriod, feature::CounterLinearEncoder,
+                              feature::CounterAngularEncoder, feature::CounterFallingEdge, feature::CounterCountDown,
+                              feature::CounterInitialCount, feature::CounterResetOnDio, feature::PulseIdleHigh,
+                              feature::PulseInitialDelay, feature::CounterExternalDirection})
+            QVERIFY2(!listed(f), f);
+        QVERIFY(accepted([](auto& c) { c.measurement = M::PulseWidth; c.edge = Edge::Falling; }));
+        QVERIFY(accepted([](auto& c) { c.measurement = M::SemiPeriod; }));
+        QVERIFY(accepted([](auto& c) { c.measurement = M::LinearEncoder; c.zIndexEnabled = true; }));
+        QVERIFY(accepted([](auto& c) { c.measurement = M::AngularEncoder; c.decoding = CounterInputConfig::Decoding::TwoPulse; }));
+        QVERIFY(accepted([](auto& c) { c.direction = CounterInputConfig::Direction::Down; c.initialCount = 100; }));
+        QVERIFY(accepted([](auto& c) { c.resetOnDio1 = true; c.edge = Edge::Falling; }));
+        using D = CounterInputConfig::Direction;
+        QVERIFY(accepted([](auto& c) { c.direction = D::External; c.initialCount = 5; }));
+        // Combinations the emulations cannot follow are refused (not silently wrong).
+        QVERIFY(refusedIn([](auto& c) { c.direction = D::External; c.edge = Edge::Falling; }));
+        QVERIFY(refusedIn([](auto& c) { c.direction = D::External; c.resetOnDio1 = true; }));
+        QVERIFY(refusedIn([](auto& c) { c.direction = D::Down; c.resetOnDio1 = true; c.initialCount = 10; }));
+        QVERIFY(accepted([](auto& c) { c.direction = D::Down; c.resetOnDio1 = true; }));
+        QVERIFY(!refusedOut([](auto& c) { c.idleHigh = true; c.initialDelay = 0.01; }));
+        AoConfig ao;
+        ao.channels = {{AoChannel::AO0, 2.0}};
+        QVERIFY(listed(feature::AoRange2V));
+        QCOMPARE(errorOf([&] { e.device->createAoTask(ao); }), DeviceError::NotSupported);
+        QVERIFY(!listed(feature::FrequencyOutput));
+        QVERIFY(e.device->supports(QString::fromLatin1(feature::FrequencyOutput)));
+        QVERIFY(listed(feature::FrequencyOutputFastTimebases));
+        QCOMPARE(e.device->coerceFrequencyOutput(1e6), 100e3);   // 100 kHz / n only
+        QCOMPARE(list.size(), 4);
+    }
+
     void counters()
     {
         Emulated e;
@@ -380,11 +440,51 @@ private slots:
             mydaq_mock_set_counter(e.mock, 0);
             QCOMPARE(errorOf([&] { task->readScalar(100); }), DeviceError::Timeout);
         }
-        in.measurement = CounterMeasurement::PulseWidth;
+        in.measurement = CounterMeasurement::TwoEdgeSeparation;
         QCOMPARE(errorOf([&] { e.device->createCounterInputTask(in); }), DeviceError::NotSupported);
-        in.measurement = CounterMeasurement::CountEdges;
+        in.measurement = CounterMeasurement::CountEdges;   // down: initial - edges on the host
         in.direction = CounterInputConfig::Direction::Down;
-        QCOMPARE(errorOf([&] { e.device->createCounterInputTask(in); }), DeviceError::NotSupported);
+        in.initialCount = 100;
+        {
+            auto task = e.device->createCounterInputTask(in);
+            task->start();
+            mydaq_mock_set_counter(e.mock, 30);
+            QCOMPARE(task->readScalar(1000), 70.0);
+            mydaq_mock_set_counter(e.mock, 101);
+            QCOMPARE(task->readScalar(1000), 4294967295.0);   // wraps like the 32-bit counter
+        }
+        in.direction = CounterInputConfig::Direction::External;   // X1 encoder: A DIO0, B DIO2
+        {
+            auto task = e.device->createCounterInputTask(in);
+            QCOMPARE(task->dioLinesUsed(), uint8_t(0x05));
+            task->start();
+            mydaq_mock_set_counter(e.mock, 30);
+            QCOMPARE(task->readScalar(1000), 130.0);
+            mydaq_mock_set_counter(e.mock, uint32_t(-30));   // signed position: DIO2 low counts down
+            QCOMPARE(task->readScalar(1000), 70.0);
+            mydaq_mock_set_counter(e.mock, uint32_t(-101));
+            QCOMPARE(task->readScalar(1000), 4294967295.0);
+        }
+        in.direction = CounterInputConfig::Direction::Up;
+        in.initialCount = 0;
+        in.measurement = CounterMeasurement::SemiPeriod;   // pulse time: both halves, one per read
+        {
+            auto task = e.device->createCounterInputTask(in);
+            task->start();
+            mydaq_mock_set_counter(e.mock, 5000);
+            QCOMPARE(task->readScalar(1000), 50e-6);
+            QCOMPARE(task->readScalar(1000), 50e-6);
+        }
+        in.measurement = CounterMeasurement::AngularEncoder;   // counts -> degrees
+        in.decoding = CounterInputConfig::Decoding::X4;
+        in.pulsesPerRevolution = 100;
+        {
+            auto task = e.device->createCounterInputTask(in);
+            task->start();
+            mydaq_mock_set_counter(e.mock, uint32_t(-200));
+            QCOMPARE(task->readScalar(1000), -180.0);
+        }
+        in.measurement = CounterMeasurement::CountEdges;
 
         PulseOutputConfig out;
         out.frequency = 10000.0;
@@ -408,7 +508,14 @@ private slots:
             QVERIFY(task->waitUntilDone(1000));
         }
         out.idleHigh = true;
-        QCOMPARE(errorOf([&] { e.device->createCounterOutputTask(out); }), DeviceError::NotSupported);
+        out.initialDelay = 1e-3;
+        {
+            auto task = e.device->createCounterOutputTask(out);
+            task->start();
+            QVERIFY(task->waitUntilDone(1000));
+        }
+        out.initialDelay = -1;
+        QCOMPARE(errorOf([&] { e.device->createCounterOutputTask(out); }), DeviceError::InvalidConfig);
         QCOMPARE(e.device->coerceCounterFrequency(3000.0), 1e8 / 33333.0);
 
         QCOMPARE(e.device->coerceFrequencyOutput(30000.0), 100e3 / 3.0);

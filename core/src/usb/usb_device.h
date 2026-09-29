@@ -73,6 +73,10 @@ public:
 
     void reset() override;
 
+    // What the native driver cannot do (buffered counter input: not on the myDAQ) or not yet
+    // (two-edge separation, AO ±2 V range, fast FREQOUT timebases: not captured).
+    QStringList unsupportedFeatures() const override;
+
     // Provider side.
     QString location() const { return m_location; }
     uint8_t usbAddress() const { return m_address; }

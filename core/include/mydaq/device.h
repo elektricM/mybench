@@ -257,6 +257,9 @@ inline constexpr char PulseIdleHigh[] = "pulse.idleHigh";
 inline constexpr char PulseInitialDelay[] = "pulse.initialDelay";
 // FREQOUT on DIO4.
 inline constexpr char FrequencyOutput[] = "freqout";
+// FREQOUT from the 20 MHz and 10 MHz timebases (without it only 100 kHz / n, n = 1..16:
+// coerceFrequencyOutput() then returns the nearest of those).
+inline constexpr char FrequencyOutputFastTimebases[] = "freqout.fastTimebases";
 // ±2 V range of AO0/AO1 (AoChannelConfig::range = 2).
 inline constexpr char AoRange2V[] = "ao.range2V";
 }  // namespace feature

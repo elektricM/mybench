@@ -265,6 +265,22 @@ std::vector<DmmRange> UsbDevice::dmmRanges(DmmFunction function) const
     return out;
 }
 
+QStringList UsbDevice::unsupportedFeatures() const
+{
+    // Keep in sync with the NotSupported throws in usb_counter.cpp and usb_ao_task.cpp. The myDAQ
+    // cannot do buffered counter input (no counter data stream; DAQmx refuses it too); two-edge
+    // separation, the AO ±2 V range and the 20/10 MHz FREQOUT timebases are not captured yet.
+    // Count down and external direction are emulated (usb_counter.cpp).
+    static const QStringList list = [] {
+        QStringList l;
+        for (const char* f : {feature::CounterTwoEdgeSeparation, feature::CounterBuffered, feature::AoRange2V,
+                              feature::FrequencyOutputFastTimebases})
+            l << QString::fromLatin1(f);
+        return l;
+    }();
+    return list;
+}
+
 DmmReading UsbDevice::dmmRead(DmmFunction function, double rangeMax)
 {
     m_handle->requireConnected();

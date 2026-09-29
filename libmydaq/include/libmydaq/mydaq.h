@@ -475,14 +475,33 @@ int mydaq_dmm_read(mydaq_device *dev, mydaq_dmm_function function, double range,
 /* Counter ctr0 and FREQOUT (their signals use the DIO lines: PFI n = DIO n)                  */
 
 typedef enum mydaq_ctr_kind {
-    MYDAQ_CTR_COUNT_EDGES = 0,   /**< rising edges on DIO0, counting up from 0 */
-    MYDAQ_CTR_PULSE_TRAIN = 1,   /**< pulse train on DIO3 (idle low, low phase first) */
-    MYDAQ_CTR_FREQUENCY = 2,     /**< frequency of the signal on DIO1 (100 MHz ticks per period;
-                                      unverified on hardware) */
-    MYDAQ_CTR_PERIOD = 3,        /**< period of the signal on DIO1 (unverified on hardware) */
-    MYDAQ_CTR_PULSE_WIDTH = 4    /**< not decoded yet: MYDAQ_ERR_NOT_SUPPORTED (semi-period,
-                                      two-edge separation and encoders likewise) */
+    MYDAQ_CTR_COUNT_EDGES = 0,   /**< edges on DIO0 (or `input`), counting up from initial_count */
+    MYDAQ_CTR_PULSE_TRAIN = 1,   /**< pulse train on DIO3 (idle low: low phase first) */
+    MYDAQ_CTR_FREQUENCY = 2,     /**< frequency of the signal on DIO1 (100 MHz ticks per period) */
+    MYDAQ_CTR_PERIOD = 3,        /**< period of the signal on DIO1 */
+    MYDAQ_CTR_PULSE_WIDTH = 4,   /**< high time (rising `edge`) or low time (falling) on DIO1 */
+    MYDAQ_CTR_PULSE_TIME = 5,    /**< high and low time of one period on DIO1 (two values per read;
+                                      the myDAQ has no semi-period mode: derive it from these) */
+    MYDAQ_CTR_LINEAR_ENCODER = 6,  /**< quadrature position count: A DIO0, B DIO2, Z DIO1 */
+    MYDAQ_CTR_ANGULAR_ENCODER = 7, /**< same counts (only the device's application code differs) */
+    MYDAQ_CTR_TWO_EDGE_SEPARATION = 8   /**< not decoded: MYDAQ_ERR_NOT_SUPPORTED */
 } mydaq_ctr_kind;
+
+/** Signal a counter input measures (instead of its DIO terminal). */
+typedef enum mydaq_ctr_input {
+    MYDAQ_CTR_INPUT_TERMINAL = 0,   /**< the default DIO line of the measurement */
+    MYDAQ_CTR_INPUT_FREQOUT = 1,    /**< the internal FREQOUT signal (no wiring; FREQOUT must run) */
+    MYDAQ_CTR_INPUT_20MHZ = 2,      /**< count edges only: the 20 MHz timebase */
+    MYDAQ_CTR_INPUT_100KHZ = 3      /**< count edges only: the 100 kHz timebase */
+} mydaq_ctr_input;
+
+/** Encoder decoding (values as on the wire). */
+typedef enum mydaq_ctr_decoding {
+    MYDAQ_CTR_X1 = 1,
+    MYDAQ_CTR_X2 = 2,
+    MYDAQ_CTR_X4 = 3,
+    MYDAQ_CTR_TWO_PULSE = 4
+} mydaq_ctr_decoding;
 
 typedef struct mydaq_ctr_config {
     mydaq_ctr_kind kind;
@@ -490,6 +509,15 @@ typedef struct mydaq_ctr_config {
     double duty_cycle;       /**< pulse train, 0 < duty < 1 (high and low >= 2 ticks) */
     mydaq_sample_mode mode;  /**< pulse train: finite or continuous */
     uint64_t pulses;         /**< finite pulse train: number of pulses */
+    /* Added with the stage-3 counter modes (zero = the previous behaviour). */
+    int falling;             /**< inputs: count/measure falling edges; pulse width: low time */
+    mydaq_ctr_input input;   /**< count edges, frequency, period, pulse width/time, encoder A */
+    uint32_t initial_count;  /**< count edges: first value */
+    int reset_on_dio1;       /**< count edges: a rising edge on DIO1 resets the count */
+    mydaq_ctr_decoding decoding;   /**< encoders (0 = X4) */
+    int z_index;             /**< encoders: Z input on DIO1 enabled */
+    int idle_high;           /**< pulse train: output high while idle (high phase first) */
+    double initial_delay;    /**< pulse train: seconds before the first pulse (0 = none) */
 } mydaq_ctr_config;
 
 /** Low/high times in 100 MHz ticks for a pulse train, and the resulting frequency/duty. */
@@ -502,11 +530,15 @@ void mydaq_ctr_task_destroy(mydaq_ctr_task *task);
 int mydaq_ctr_task_start(mydaq_ctr_task *task);
 int mydaq_ctr_task_stop(mydaq_ctr_task *task);
 int mydaq_ctr_task_is_running(const mydaq_ctr_task *task);
-/** Raw value on demand: edge count since start, or 100 MHz ticks of the last period
- *  (frequency/period). The device waits up to timeout_ms for a value (MYDAQ_ERR_TIMEOUT: no
- *  complete period, e.g. no signal). */
+/** Raw value on demand: edge count since start, encoder position (two's complement), or 100 MHz
+ *  ticks of the last period / pulse (pulse time: the high time). The device waits up to
+ *  timeout_ms for a value (MYDAQ_ERR_TIMEOUT: no complete period, e.g. no signal). */
 int mydaq_ctr_task_read_count(mydaq_ctr_task *task, uint32_t *count, int timeout_ms);
-/** Same, in the measurement's unit: edges, Hz (frequency) or s (period). */
+/** Pulse time: high and low time of one period, in 100 MHz ticks. */
+int mydaq_ctr_task_read_pulse_time(mydaq_ctr_task *task, uint32_t *high, uint32_t *low,
+                                   int timeout_ms);
+/** Same, in the measurement's unit: edges, Hz (frequency), s (period, pulse width, pulse time:
+ *  the period), encoder counts (signed). */
 int mydaq_ctr_task_read(mydaq_ctr_task *task, double *value, int timeout_ms);
 /** Finite pulse train: waits for the last pulse (MYDAQ_ERR_TIMEOUT otherwise). */
 int mydaq_ctr_task_wait_done(mydaq_ctr_task *task, int timeout_ms);

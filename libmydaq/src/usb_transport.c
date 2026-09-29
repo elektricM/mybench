@@ -33,6 +33,11 @@ typedef struct usb_stream {
     unsigned in_flight;
     int closing;
     int stalled;           /* a transfer ended with STALL: clear the halt on close */
+    /* OUT streams */
+    mydaq_out_cb out_cb;
+    md_mutex fill_lock;    /* serialises fill + submit, so buffers go out in fill order */
+    int fill_lock_ready;
+    unsigned char *idle;   /* per transfer: not submitted (s->lock) */
 } usb_stream;
 
 int md_usb_error(int e)
@@ -111,11 +116,69 @@ static int usb_read(void *impl, uint8_t ep, mydaq_endpoint_type type, uint8_t *b
 
 /* ---- streams --------------------------------------------------------------------------- */
 
+static unsigned transfer_index(const usb_stream *s, const struct libusb_transfer *x)
+{
+    unsigned i;
+    for (i = 0; i < s->count && s->xfers[i] != x; ++i) {
+    }
+    return i;
+}
+
+/* Completion of an OUT transfer: report it and refill the buffer (fill_lock keeps the order). */
+static void out_transfer_done(usb_stream *s, struct libusb_transfer *x)
+{
+    const unsigned i = transfer_index(s, x);
+    int closing, status;
+    size_t next = 0;
+
+    md_mutex_lock(&s->lock);
+    if (x->status == LIBUSB_TRANSFER_STALL)
+        s->stalled = 1;
+    closing = s->closing;
+    md_mutex_unlock(&s->lock);
+    if (x->status != LIBUSB_TRANSFER_CANCELLED && !closing) {
+        status = transfer_status_error(x->status);
+        if (status == MYDAQ_ERR_USB)
+            MD_WARN(s->t->ctx, "stream 0x%02x: transfer status %d", s->endpoint, (int)x->status);
+        md_mutex_lock(&s->fill_lock);
+        next = s->out_cb(s->user, x->buffer, s->transfer_size,
+                         x->actual_length > 0 ? (size_t)x->actual_length : 0, status);
+        if (status != MYDAQ_OK)
+            next = 0;
+        md_mutex_lock(&s->lock);
+        if (next > 0 && !s->closing) {
+            x->length = (int)(next < s->transfer_size ? next : s->transfer_size);
+            if (libusb_submit_transfer(x) == LIBUSB_SUCCESS) {
+                md_mutex_unlock(&s->lock);
+                md_mutex_unlock(&s->fill_lock);
+                return;
+            }
+            MD_WARN(s->t->ctx, "stream 0x%02x: resubmit failed", s->endpoint);
+        }
+        if (i < s->count)
+            s->idle[i] = 1;
+        --s->in_flight;
+        md_mutex_unlock(&s->lock);
+        md_mutex_unlock(&s->fill_lock);
+        return;
+    }
+    md_mutex_lock(&s->lock);
+    if (i < s->count)
+        s->idle[i] = 1;
+    --s->in_flight;
+    md_mutex_unlock(&s->lock);
+}
+
 static void LIBUSB_CALL stream_transfer_done(struct libusb_transfer *x)
 {
     usb_stream *s = x->user_data;
     int closing, status;
     size_t next = 0;
+
+    if (s->out_cb) {
+        out_transfer_done(s, x);
+        return;
+    }
 
     md_mutex_lock(&s->lock);
     closing = s->closing;
@@ -159,6 +222,9 @@ static void stream_free(usb_stream *s)
         }
     }
     free(s->xfers);
+    free(s->idle);
+    if (s->fill_lock_ready)
+        md_mutex_destroy(&s->fill_lock);
     md_mutex_destroy(&s->lock);
     free(s);
 }
@@ -174,6 +240,12 @@ static void usb_stream_close(void *impl, void *stream)
         return;
     md_mutex_lock(&s->lock);
     s->closing = 1;
+    md_mutex_unlock(&s->lock);
+    if (s->fill_lock_ready) {   /* wait for a fill in progress: nothing is submitted after this */
+        md_mutex_lock(&s->fill_lock);
+        md_mutex_unlock(&s->fill_lock);
+    }
+    md_mutex_lock(&s->lock);
     for (i = 0; i < s->count; ++i)
         libusb_cancel_transfer(s->xfers[i]);   /* LIBUSB_ERROR_NOT_FOUND for idle ones */
     md_mutex_unlock(&s->lock);
@@ -264,6 +336,102 @@ static int usb_stream_open(void *impl, uint8_t ep, mydaq_endpoint_type type, siz
     return MYDAQ_OK;
 }
 
+static void usb_stream_kick(void *impl, void *stream)
+{
+    usb_stream *s = stream;
+    unsigned i;
+    (void)impl;
+    if (!s || !s->out_cb)
+        return;
+    md_mutex_lock(&s->fill_lock);
+    for (i = 0; i < s->count; ++i) {
+        struct libusb_transfer *x = s->xfers[i];
+        size_t n;
+        int rc;
+        md_mutex_lock(&s->lock);
+        if (s->closing) {
+            md_mutex_unlock(&s->lock);
+            break;
+        }
+        if (!s->idle[i]) {
+            md_mutex_unlock(&s->lock);
+            continue;
+        }
+        md_mutex_unlock(&s->lock);
+        n = s->out_cb(s->user, x->buffer, s->transfer_size, 0, MYDAQ_OK);
+        if (n == 0)
+            break;
+        md_mutex_lock(&s->lock);
+        if (s->closing) {
+            md_mutex_unlock(&s->lock);
+            break;
+        }
+        x->length = (int)(n < s->transfer_size ? n : s->transfer_size);
+        rc = libusb_submit_transfer(x);
+        if (rc == LIBUSB_SUCCESS) {
+            s->idle[i] = 0;
+            ++s->in_flight;
+        } else {
+            MD_WARN(s->t->ctx, "stream 0x%02x: submit failed: %s", s->endpoint,
+                    mydaq_strerror(md_usb_error(rc)));
+        }
+        md_mutex_unlock(&s->lock);
+        if (rc != LIBUSB_SUCCESS)
+            break;
+    }
+    md_mutex_unlock(&s->fill_lock);
+}
+
+static int usb_stream_open_out(void *impl, uint8_t ep, size_t transfer_size, unsigned num_transfers,
+                               mydaq_out_cb cb, void *user, void **out)
+{
+    usb_transport *t = impl;
+    usb_stream *s;
+    unsigned i;
+
+    *out = NULL;
+    if (!cb || transfer_size == 0 || transfer_size > 0x7fffffffu || num_transfers == 0)
+        return MYDAQ_ERR_INVALID_ARG;
+    s = calloc(1, sizeof *s);
+    if (!s)
+        return MYDAQ_ERR_NO_MEM;
+    s->xfers = calloc(num_transfers, sizeof *s->xfers);
+    s->idle = calloc(num_transfers, 1);
+    if (!s->xfers || !s->idle || md_mutex_init(&s->lock) != 0) {
+        free(s->xfers);
+        free(s->idle);
+        free(s);
+        return MYDAQ_ERR_NO_MEM;
+    }
+    s->t = t;
+    s->endpoint = ep;
+    s->type = MYDAQ_EP_BULK;
+    s->out_cb = cb;
+    s->user = user;
+    s->transfer_size = transfer_size;
+    s->count = num_transfers;
+    if (md_mutex_init(&s->fill_lock) != 0) {
+        stream_free(s);
+        return MYDAQ_ERR_NO_MEM;
+    }
+    s->fill_lock_ready = 1;
+    for (i = 0; i < num_transfers; ++i) {
+        unsigned char *buf = malloc(transfer_size);
+        s->xfers[i] = libusb_alloc_transfer(0);
+        if (!buf || !s->xfers[i]) {
+            free(buf);
+            stream_free(s);
+            return MYDAQ_ERR_NO_MEM;
+        }
+        libusb_fill_bulk_transfer(s->xfers[i], t->handle, ep, buf, (int)transfer_size,
+                                  stream_transfer_done, s, 0);   /* no timeout: the device paces */
+        s->idle[i] = 1;
+    }
+    usb_stream_kick(t, s);
+    *out = s;
+    return MYDAQ_OK;
+}
+
 static int usb_handle_events(void *impl, unsigned timeout_ms)
 {
     usb_transport *t = impl;
@@ -286,7 +454,8 @@ static void usb_close(void *impl)
 }
 
 static const mydaq_transport_ops usb_ops = {
-    usb_write, usb_read, usb_stream_open, usb_stream_close, usb_handle_events, usb_close,
+    usb_write,       usb_read,  usb_stream_open,     usb_stream_close,
+    usb_handle_events, usb_close, usb_stream_open_out, usb_stream_kick,
 };
 
 /* ---- enumeration and open -------------------------------------------------------------- */

@@ -6,7 +6,8 @@
  * emulates the device, so the whole library can be exercised without hardware.
  *
  * Endpoints used by the myDAQ: 0x03 bulk OUT (commands), 0x81 bulk IN (responses),
- * 0x82 interrupt IN (event frames), 0x84 bulk IN (AI samples); see docs/protocol.md.
+ * 0x82 interrupt IN (event frames), 0x84/0x85 bulk IN (AI samples), 0x04/0x05 bulk OUT (AO
+ * samples); see docs/protocol.md.
  *
  * Contract for implementations:
  *   - write/read are synchronous and may be called from any thread (the library serialises
@@ -44,6 +45,16 @@ typedef enum mydaq_endpoint_type {
 typedef size_t (*mydaq_stream_cb)(void *user, const uint8_t *data, size_t len, size_t requested,
                                   int status);
 
+/**
+ * Output stream callback (stream_open_out). Fills `buf` (capacity `cap`) with the next transfer's
+ * bytes and returns its length; 0 leaves the transfer idle until stream_kick. `done` and
+ * `status` report the previous submission of this buffer: bytes the device accepted and
+ * MYDAQ_OK or the transfer error (both 0/MYDAQ_OK when the buffer is filled for the first time
+ * or from stream_kick). Calls are serialised per stream, and the transfers are submitted in the
+ * order they were filled, so the bytes reach the endpoint in callback order.
+ */
+typedef size_t (*mydaq_out_cb)(void *user, uint8_t *buf, size_t cap, size_t done, int status);
+
 typedef struct mydaq_transport_ops {
     /** Synchronous OUT transfer. *actual (may be NULL) receives the bytes accepted, also on
      *  MYDAQ_ERR_TIMEOUT (a bulk OUT the device NAKs completes partially). */
@@ -63,6 +74,14 @@ typedef struct mydaq_transport_ops {
     int (*handle_events)(void *impl, unsigned timeout_ms);
     /** Releases the transport (called once by mydaq_close). */
     void (*close)(void *impl);
+    /** Optional (NULL: the library writes output streams synchronously with write()). Starts an
+     *  asynchronous OUT stream of up to `num_transfers` queued transfers; each buffer is filled
+     *  through `cb` right away and again after each completion. Closed with stream_close. */
+    int (*stream_open_out)(void *impl, uint8_t endpoint, size_t transfer_size,
+                           unsigned num_transfers, mydaq_out_cb cb, void *user, void **stream);
+    /** Fills and submits the stream's idle transfers (after new data became available). Must not
+     *  be called from inside a stream callback. */
+    void (*stream_kick)(void *impl, void *stream);
 } mydaq_transport_ops;
 
 /** Identification the transport provides for mydaq_get_info(). */

@@ -118,6 +118,15 @@ typedef struct mock_stream {
     size_t pending[MAX_PENDING];   /* requested lengths, oldest first */
     unsigned npending;
     int unplug_reported;
+    /* OUT streams (stream_open_out): buffers queued in fill order, the head partly accepted */
+    mydaq_out_cb out_cb;
+    uint8_t *obuf[MAX_PENDING];
+    size_t olen[MAX_PENDING];
+    unsigned oqueue[MAX_PENDING];  /* buffer indices, oldest first */
+    unsigned nqueued, nbufs;
+    unsigned char oidle[MAX_PENDING];
+    size_t ohead_done;             /* bytes of the head buffer the device accepted */
+    md_mutex fill_lock;            /* serialises fill + queue (callback order = byte order) */
 } mock_stream;
 
 struct mydaq_mock {
@@ -147,6 +156,7 @@ struct mydaq_mock {
     mydaq_mock_ai_fn ai_fn;
     void *ai_user;
     int realtime;
+    int sync_out;                  /* open without stream_open_out / stream_kick */
     uint16_t scan[2];
     size_t nscan;
     uint32_t timing_mode, divisor, samples;
@@ -713,10 +723,13 @@ static void emulate(mydaq_mock *m, const uint8_t *f, size_t len)
         const uint32_t w[1] = {m->ao_n ? 1u : 0u};
         ack_words(m, ch, w, 1);
     } else if (obj == 0x0c410000u && op == 0x1d) {                  /* ctr0 read */
-        uint8_t p[8];
-        put32(p, 6);
+        /* u32 1, u32 N values: every value is the emulated count (pulse time: high = low) */
+        const uint32_t n = blen >= 12 && be32(b + 8) == 2 ? 2u : 1u;
+        uint8_t p[12];
+        put32(p, 2 + 4 * n);
         put32(p + 4, m->ctr_count);
-        respond(m, ch, 6, 0, p, 8);
+        put32(p + 8, m->ctr_count);
+        respond(m, ch, 6, 0, p, 4 + 4 * n);
     } else if (obj == 0x0c410000u && op == 0x14 && blen >= 15) {    /* ctr0 start */
         m->ctr_started = 1;
         if (b[14] == 0x0b)   /* finite pulse train: done at once */
@@ -987,8 +1000,20 @@ static void mock_stream_close(void *impl, void *stream)
     s->closing = 1;
     while (s->in_callback)
         md_cond_wait(&m->cond, &m->lock);
+    md_mutex_unlock(&m->lock);
+    if (s->out_cb) {   /* a kick in progress finishes first; nothing is queued after closing */
+        unsigned i;
+        md_mutex_lock(&s->fill_lock);
+        md_mutex_unlock(&s->fill_lock);
+        md_mutex_destroy(&s->fill_lock);
+        for (i = 0; i < s->nbufs; ++i)
+            free(s->obuf[i]);
+    }
+    md_mutex_lock(&m->lock);
     s->used = 0;
     s->npending = 0;
+    s->nqueued = 0;
+    s->out_cb = NULL;
     md_mutex_unlock(&m->lock);
 }
 
@@ -1052,6 +1077,132 @@ static int deliver(mydaq_mock *m)
     return done;
 }
 
+/* ---- asynchronous OUT streams --------------------------------------------------------- */
+
+static void mock_stream_kick(void *impl, void *stream)
+{
+    mydaq_mock *m = impl;
+    mock_stream *s = stream;
+    unsigned i;
+    if (!s || !s->out_cb)
+        return;
+    md_mutex_lock(&s->fill_lock);
+    for (i = 0; i < s->nbufs; ++i) {
+        size_t n;
+        int idle, closing;
+        md_mutex_lock(&m->lock);
+        idle = s->oidle[i];
+        closing = s->closing;
+        md_mutex_unlock(&m->lock);
+        if (closing)
+            break;
+        if (!idle)
+            continue;
+        n = s->out_cb(s->user, s->obuf[i], s->xfer_size, 0, MYDAQ_OK);
+        if (n == 0)
+            break;
+        md_mutex_lock(&m->lock);
+        s->olen[i] = n < s->xfer_size ? n : s->xfer_size;
+        s->oidle[i] = 0;
+        s->oqueue[s->nqueued++] = i;
+        md_mutex_unlock(&m->lock);
+    }
+    md_mutex_unlock(&s->fill_lock);
+}
+
+static int mock_stream_open_out(void *impl, uint8_t ep, size_t transfer_size, unsigned num_transfers,
+                                mydaq_out_cb cb, void *user, void **out)
+{
+    mydaq_mock *m = impl;
+    mock_stream *s = NULL;
+    unsigned i;
+    *out = NULL;
+    md_mutex_lock(&m->lock);
+    if (m->unplugged) {
+        md_mutex_unlock(&m->lock);
+        return MYDAQ_ERR_NO_DEVICE;
+    }
+    for (i = 0; i < MAX_STREAMS; ++i)
+        if (!m->streams[i].used) {
+            s = &m->streams[i];
+            break;
+        }
+    if (!s) {
+        md_mutex_unlock(&m->lock);
+        return MYDAQ_ERR_NO_MEM;
+    }
+    memset(s, 0, sizeof *s);
+    s->used = 1;
+    s->ep = ep;
+    s->out_cb = cb;
+    s->user = user;
+    s->xfer_size = transfer_size;
+    s->nbufs = num_transfers < MAX_PENDING ? num_transfers : MAX_PENDING;
+    for (i = 0; i < s->nbufs; ++i) {
+        s->obuf[i] = malloc(transfer_size);
+        s->oidle[i] = 1;
+    }
+    md_mutex_init(&s->fill_lock);
+    md_mutex_unlock(&m->lock);
+    mock_stream_kick(m, s);
+    *out = s;
+    return MYDAQ_OK;
+}
+
+/* Offers the head buffer of each OUT stream to the emulated FIFO; completes it when accepted. */
+static int deliver_out(mydaq_mock *m)
+{
+    int done = 0;
+    unsigned i;
+    for (i = 0; i < MAX_STREAMS; ++i) {
+        mock_stream *s = &m->streams[i];
+        unsigned b;
+        size_t actual = 0, n;
+        int rc;
+        md_mutex_lock(&m->lock);
+        if (!s->used || s->closing || !s->out_cb || s->nqueued == 0) {
+            md_mutex_unlock(&m->lock);
+            continue;
+        }
+        b = s->oqueue[0];
+        s->in_callback = 1;
+        md_mutex_unlock(&m->lock);
+
+        md_mutex_lock(&s->fill_lock);
+        rc = ao_write(m, s->obuf[b] + s->ohead_done, s->olen[b] - s->ohead_done, &actual, 0);
+        md_mutex_lock(&m->lock);
+        s->ohead_done += actual;
+        if (rc == MYDAQ_ERR_TIMEOUT || (rc == MYDAQ_OK && s->ohead_done < s->olen[b])) {
+            s->in_callback = 0;
+            md_cond_broadcast(&m->cond);
+            md_mutex_unlock(&m->lock);
+            md_mutex_unlock(&s->fill_lock);
+            continue;   /* FIFO full: the transfer stays queued (NAK) */
+        }
+        memmove(s->oqueue, s->oqueue + 1, (s->nqueued - 1) * sizeof s->oqueue[0]);
+        --s->nqueued;
+        n = s->ohead_done;
+        s->ohead_done = 0;
+        md_mutex_unlock(&m->lock);
+
+        n = s->out_cb(s->user, s->obuf[b], s->xfer_size, n, rc);
+
+        md_mutex_lock(&m->lock);
+        if (n > 0 && rc == MYDAQ_OK && !s->closing) {
+            s->olen[b] = n < s->xfer_size ? n : s->xfer_size;
+            s->oqueue[s->nqueued++] = b;
+        } else {
+            s->oidle[b] = 1;
+        }
+        s->in_callback = 0;
+        md_cond_broadcast(&m->cond);
+        md_mutex_unlock(&m->lock);
+        md_mutex_unlock(&s->fill_lock);
+        ++done;
+    }
+    return done;
+}
+
 static int mock_handle_events(void *impl, unsigned timeout_ms)
 {
     mydaq_mock *m = impl;
@@ -1059,7 +1210,7 @@ static int mock_handle_events(void *impl, unsigned timeout_ms)
     if (!m->replay)
         ao_update(m);
     md_mutex_unlock(&m->lock);
-    if (deliver(m) == 0)
+    if (deliver(m) + deliver_out(m) == 0)
         md_sleep_ms(timeout_ms < 1 ? timeout_ms : 1);
     return MYDAQ_OK;
 }
@@ -1067,22 +1218,58 @@ static int mock_handle_events(void *impl, unsigned timeout_ms)
 static void mock_close(void *impl) { (void)impl; }
 
 static const mydaq_transport_ops ops = {
-    mock_write, mock_read, mock_stream_open, mock_stream_close, mock_handle_events, mock_close,
+    mock_write,         mock_read,  mock_stream_open,     mock_stream_close,
+    mock_handle_events, mock_close, mock_stream_open_out, mock_stream_kick,
+};
+
+/* The same transport without asynchronous OUT streams: the library then writes AO with
+ * synchronous transfers from its writer thread. */
+static const mydaq_transport_ops ops_sync_out = {
+    mock_write,         mock_read,  mock_stream_open, mock_stream_close,
+    mock_handle_events, mock_close, NULL,             NULL,
 };
 
 const mydaq_transport_ops *mydaq_mock_ops(void) { return &ops; }
 
+void mydaq_mock_set_sync_out(mydaq_mock *m, int sync_out)
+{
+    md_mutex_lock(&m->lock);
+    m->sync_out = sync_out;
+    md_mutex_unlock(&m->lock);
+}
+
+uint64_t mydaq_mock_ao_queued(const mydaq_mock *mock)
+{
+    mydaq_mock *m = (mydaq_mock *)(uintptr_t)mock;
+    uint64_t n = 0;
+    unsigned i, k;
+    md_mutex_lock(&m->lock);
+    for (i = 0; i < MAX_STREAMS; ++i) {
+        const mock_stream *s = &m->streams[i];
+        if (!s->used || !s->out_cb)
+            continue;
+        for (k = 0; k < s->nqueued; ++k)
+            n += s->olen[s->oqueue[k]];
+        if (s->nqueued)
+            n -= s->ohead_done;
+    }
+    md_mutex_unlock(&m->lock);
+    return n;
+}
+
 int mydaq_mock_open(mydaq_context *ctx, mydaq_mock *m, unsigned flags, mydaq_device **dev)
 {
     mydaq_transport_info info;
+    int sync_out;
     memset(&info, 0, sizeof info);
     md_mutex_lock(&m->lock);
     memcpy(info.serial, m->serial, sizeof info.serial);
     memcpy(info.location, m->location, sizeof info.location);
     info.bus = 1;
     info.address = m->address;
+    sync_out = m->sync_out;
     md_mutex_unlock(&m->lock);
-    return mydaq_open_transport(ctx, &ops, m, &info, flags, dev);
+    return mydaq_open_transport(ctx, sync_out ? &ops_sync_out : &ops, m, &info, flags, dev);
 }
 
 void mydaq_mock_set_address(mydaq_mock *m, uint8_t address)

@@ -54,6 +54,10 @@ typedef int16_t (*mydaq_mock_ai_fn)(void *user, int channel, int range_code, uin
 void mydaq_mock_set_ai_source(mydaq_mock *m, mydaq_mock_ai_fn fn, void *user);
 /** 1: stream samples at the configured sample rate; 0 (default): as fast as possible. */
 void mydaq_mock_set_realtime(mydaq_mock *m, int realtime);
+/** Before mydaq_mock_open: offer no asynchronous OUT streams (the library's synchronous AO path). */
+void mydaq_mock_set_sync_out(mydaq_mock *m, int sync_out);
+/** Bytes queued in asynchronous OUT transfers that the emulated device has not accepted yet. */
+uint64_t mydaq_mock_ao_queued(const mydaq_mock *m);
 /** Packet the DMM returns (11 bytes incl. CR LF). */
 void mydaq_mock_set_dmm_packet(mydaq_mock *m, const char *packet);
 /** Levels seen on lines configured as inputs. */
