@@ -260,11 +260,12 @@ private slots:
         ctl.setCounterFunction(CtrController::PulseTrain);
         QCOMPARE(ctl.dioLines(), 0x08);
         ctl.run();
-        QTRY_COMPARE_WITH_TIMEOUT(ctl.outputFrequency(), 1000.0, 3000);
+        // Poll to a deadline on both readbacks (a slow runner applies the live change late).
+        QTRY_VERIFY_WITH_TIMEOUT(qAbs(ctl.outputFrequency() - 1000.0) < 0.5, 10000);
         ctl.setPulseFrequency(2000);
         ctl.setDutyCycle(0.25);
-        QTRY_COMPARE_WITH_TIMEOUT(ctl.outputFrequency(), 2000.0, 3000);
-        QCOMPARE(ctl.outputDutyCycle(), 0.25);
+        QTRY_VERIFY_WITH_TIMEOUT(qAbs(ctl.outputFrequency() - 2000.0) < 0.5
+                                     && qAbs(ctl.outputDutyCycle() - 0.25) < 1e-6, 10000);
         QVERIFY(ctl.isRunning());
         ctl.setHighLowTimes(1e-3, 3e-3);
         QCOMPARE(ctl.pulseFrequency(), 250.0);

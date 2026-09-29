@@ -57,7 +57,7 @@ target_include_directories(mybench_plot
 target_link_libraries(mybench_plot PUBLIC Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick PRIVATE Qt6::GuiPrivate)
 target_compile_features(mybench_plot PUBLIC cxx_std_20)
 if(MSVC)
-    target_compile_options(mybench_plot PRIVATE /W4 /utf-8)
+    target_compile_options(mybench_plot PRIVATE /W4)
 else()
     target_compile_options(mybench_plot PRIVATE -Wall -Wextra)
 endif()

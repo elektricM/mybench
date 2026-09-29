@@ -35,7 +35,7 @@ qt_add_qml_module(mybench_controls
 )
 target_link_libraries(mybench_controls PUBLIC mybench_framework mybench_plot Qt6::Gui Qt6::Quick)
 if(MSVC)
-    target_compile_options(mybench_controls PRIVATE /W4 /utf-8)
+    target_compile_options(mybench_controls PRIVATE /W4)
 else()
     target_compile_options(mybench_controls PRIVATE -Wall -Wextra)
 endif()

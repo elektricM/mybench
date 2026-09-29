@@ -15,7 +15,7 @@ target_link_libraries(mybench_offscreen
 )
 target_compile_features(mybench_offscreen PUBLIC cxx_std_20)
 if(MSVC)
-    target_compile_options(mybench_offscreen PRIVATE /W4 /utf-8)
+    target_compile_options(mybench_offscreen PRIVATE /W4)
 else()
     target_compile_options(mybench_offscreen PRIVATE -Wall -Wextra)
 endif()

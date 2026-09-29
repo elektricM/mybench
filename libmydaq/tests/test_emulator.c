@@ -174,14 +174,14 @@ static void test_ai_realtime_and_timeout(void)
     EMU_OPEN(e);
     mydaq_mock_set_realtime(e.mock, 1);
     E_RC(e, mydaq_ai_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    t0 = md_now_ms();   /* before the start: the sample clock runs from there */
     E_RC(e, mydaq_ai_task_start(t), MYDAQ_OK);
     E_CHECK(e, mydaq_ai_task_is_running(t));
     /* not all there yet: times out without consuming */
     E_RC(e, mydaq_ai_task_read(t, v, 400, MYDAQ_GROUP_BY_SCAN, 20), MYDAQ_ERR_TIMEOUT);
     E_CHECK(e, mydaq_ai_task_remaining(t) == 400);
-    t0 = md_now_ms();
     E_RC(e, mydaq_ai_task_read(t, v, 400, MYDAQ_GROUP_BY_SCAN, 3000), MYDAQ_OK);
-    E_CHECK(e, md_now_ms() - t0 >= 100);   /* paced by the sample clock */
+    E_CHECK(e, md_now_ms() - t0 >= 190);   /* paced by the sample clock (0.2 s, hard lower bound) */
     E_CHECK(e, !mydaq_ai_task_is_running(t));
     /* not started: reading fails */
     E_RC(e, mydaq_ai_task_stop(t), MYDAQ_OK);

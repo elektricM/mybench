@@ -134,7 +134,7 @@ private slots:
         QList<int> values;
         connect(m_dio.get(), &DioController::writtenChanged, this, [&] { values << m_dio->writtenValue(); });
         m_dio->runOnce();
-        QTRY_VERIFY(m_dio->isIdle() && !values.isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle() && values.size() >= 2, 10000);   // both steps, however slow the runner
         QCOMPARE(values, (QList<int>{0x5, 0xA}));
         QCOMPARE(m_sim->dioDirection(), uint8_t(0x0F));   // Single done: outputs keep driving
     }

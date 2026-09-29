@@ -35,7 +35,7 @@ qt_add_qml_module(${instrument_target}
 target_link_libraries(${instrument_target} PUBLIC mybench_ui)
 target_include_directories(${instrument_target} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if(MSVC)
-    target_compile_options(${instrument_target} PRIVATE /W4 /utf-8)
+    target_compile_options(${instrument_target} PRIVATE /W4)
 else()
     target_compile_options(${instrument_target} PRIVATE -Wall -Wextra)
 endif()

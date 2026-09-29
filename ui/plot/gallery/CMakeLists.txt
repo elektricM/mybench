@@ -30,7 +30,7 @@ qt_add_qml_module(mybench-plot-gallery
 target_link_libraries(mybench-plot-gallery PRIVATE
     mybench_plot mybench_plotplugin mybench_offscreen mydaq_core Qt6::Quick Qt6::QuickControls2)
 if(MSVC)
-    target_compile_options(mybench-plot-gallery PRIVATE /W4 /utf-8)
+    target_compile_options(mybench-plot-gallery PRIVATE /W4)
 else()
     target_compile_options(mybench-plot-gallery PRIVATE -Wall -Wextra)
 endif()

@@ -216,9 +216,9 @@ private slots:
         const QStringList first = lines[3].split(u'\t');
         QCOMPARE(first.size(), 3);
         QCOMPARE(first[0], u"100.000"_s);
+        file.close();   // Windows refuses to replace a file that is still open
         c->setMapping(BodeController::Linear);
         QVERIFY(c->exportData(QUrl::fromLocalFile(path)));
-        file.close();
         QVERIFY(file.open(QIODevice::ReadOnly));
         QVERIFY(QString::fromUtf8(file.readAll()).contains(u"Gain (Linear)"_s));
         c->setMapping(BodeController::Logarithmic);

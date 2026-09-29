@@ -12,6 +12,7 @@ set(MYDAQ_CORE_TESTS
     spectrum
     trigger
     units
+    utf8
     waveform
     window
 )

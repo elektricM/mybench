@@ -8,6 +8,8 @@ set(MYBENCH_APP_ID "org.mybench.${MYBENCH_APP_NAME}" CACHE STRING "Application i
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# Sources are UTF-8 (Ω, µ, —, ± in literals): MSVC otherwise reads them in the ANSI code page.
+add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>" "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 
 find_package(Qt6 6.9 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Svg Test QuickTest)
 qt_standard_project_setup(REQUIRES 6.9)   # AUTOMOC, AUTORCC, QML module defaults

@@ -44,6 +44,18 @@ void rememberFolder(const QString& path)
         settings.setValue(u"export/lastFolder/"_s + info.suffix().toLower(), info.absolutePath());
 }
 
+// Reason text for a file that could not be written (callers prefix "Could not save <name>: ").
+// An existing target that cannot be replaced is usually open in another program (Excel on
+// Windows) or read-only, so the message names that.
+QString saveError(const QString& path, const QString& reason)
+{
+    if (QFileInfo::exists(path))
+        return QCoreApplication::translate("mybench::DataExport",
+                   "%1. The file may be open in another program (for example Excel) or read-only: close it or choose another file name.")
+            .arg(reason);
+    return reason;
+}
+
 // Delimited text: CSV (comma) or tab-separated.
 class DelimitedWriter final : public TableWriter
 {
@@ -260,14 +272,14 @@ bool DataExport::write(const QString& path, const DataTable& table, QString* err
     // log writes CR LF). Text mode would turn each LF into CR LF on Windows (CR CR LF for DSA).
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly))
-        return failed(file.errorString());
+        return failed(saveError(path, file.errorString()));
     const TableWriter* writer = writerFor(path, table.instrumentId);
     if (!writer->write(table, standardHeader(table), file, &message)) {
         file.cancelWriting();
         return failed(message);
     }
     if (!file.commit())
-        return failed(file.errorString());
+        return failed(saveError(path, file.errorString()));
 
     rememberFolder(path);
     emit lastFolderChanged();
@@ -557,7 +569,7 @@ bool DataExport::writeImage(const QUrl& file, const QString& imagePath, const QS
         image = page;
     }
     if (!image.save(path, "PNG")) {
-        setLastError(tr("Could not save %1.").arg(QFileInfo(path).fileName()));
+        setLastError(tr("Could not save %1: %2").arg(QFileInfo(path).fileName(), saveError(path, tr("The image could not be written"))));
         return false;
     }
     rememberFolder(path);

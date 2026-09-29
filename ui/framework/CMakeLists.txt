@@ -77,7 +77,7 @@ target_compile_definitions(mybench_framework PRIVATE
 )
 target_compile_features(mybench_framework PUBLIC cxx_std_20)
 if(MSVC)
-    target_compile_options(mybench_framework PRIVATE /W4 /utf-8)
+    target_compile_options(mybench_framework PRIVATE /W4)
 else()
     target_compile_options(mybench_framework PRIVATE -Wall -Wextra)
 endif()

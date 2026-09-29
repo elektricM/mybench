@@ -49,7 +49,7 @@ target_compile_features(mydaq_core PUBLIC cxx_std_20)
 
 if(MSVC)
     # Sources and headers are UTF-8 (µ, Ω in comments and literals).
-    target_compile_options(mydaq_core PUBLIC /utf-8 PRIVATE /W4)
+    target_compile_options(mydaq_core PRIVATE /W4)
 else()
     target_compile_options(mydaq_core PRIVATE -Wall -Wextra)
 endif()

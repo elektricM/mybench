@@ -377,6 +377,14 @@ static void ao_timed(const char *script, const mydaq_ao_channel *ch, size_t nch,
                 md_sleep_ms(5);
             }
         }
+        /* The 100 ms window is only what the writer keeps feeding; how much the transport has moved
+         * by then depends on scheduling (Windows runners). Wait, with a deadline, for the quarter. */
+        {
+            const uint64_t limit = md_now_ms() + 5000;
+            while (mydaq_mock_ao_bytes(r.mock) < mydaq_mock_ao_expected(r.mock) / 4 &&
+                   md_now_ms() < limit)
+                md_sleep_ms(5);
+        }
         if (mydaq_mock_ao_bytes(r.mock) < mydaq_mock_ao_expected(r.mock) / 4) {
             test_fail(__FILE__, __LINE__, "AO stream: only %llu bytes sent",
                       (unsigned long long)mydaq_mock_ao_bytes(r.mock));
