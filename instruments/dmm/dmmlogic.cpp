@@ -77,9 +77,10 @@ DisplayFormat displayFormat(mydaq::DmmFunction function, double rangeMax)
     const int exponent = engineeringExponent(rangeMax);
     const double scaled = rangeMax / std::pow(10.0, exponent);
     const int integerDigits = int(std::floor(std::log10(scaled) + 1e-9)) + 1;
-    // 3½ digits: "1999"/"1.999"-count ranges (leading digit 1 or 2) show 4 digits, the 60 V
-    // range 3 ("59.9"). Matches the ELVISmx table (%3.1f on 60 V, %2.2f on 20 V, %1.3f on 1 A ...).
-    const int digits = leadingDigit(rangeMax) <= 2 ? 4 : 3;
+    // 3½ digits: every range shows 4 digits (1999 / 5999 counts): "59.99" on 60 V, "19.99" on
+    // 20 V, "1.999" on 2 V ... ELVISmx prints the 60 V range with one decimal (%3.1f), which hides
+    // the 10 mV the meter resolves there (an open input reads -0.02 V); MYBENCH shows them.
+    const int digits = 4;
     format.divisor = std::pow(10.0, exponent);
     format.decimals = std::max(0, digits - integerDigits);
     format.unit = prefixOf(exponent) + base;
@@ -131,12 +132,53 @@ int autoRangeIndex(mydaq::DmmFunction function, const std::vector<double>& range
                 return i;
         }
     }
+    int fit = 0;   // largest, when nothing else fits
     for (int i = count - 1; i >= 0; --i) {   // smallest first
         const double limit = overloadLimit(function, ranges[size_t(i)]);
-        if (m < limit * (1.0 - 1e-9))   // ">= limit" climbs; tolerant of 19.990000000000002
-            return i;
+        if (m < limit * (1.0 - 1e-9)) {   // ">= limit" climbs; tolerant of 19.990000000000002
+            fit = i;
+            break;
+        }
     }
-    return 0;   // largest
+    // Hysteresis: leaving a range for a smaller one needs the value to be clearly below the
+    // boundary (kAutoRangeDownFraction of the next smaller range's upper limit), so an input that
+    // floats around the boundary does not hunt (every range change costs the meter ~2.6 s).
+    // Climbing and the jump to the fitting range stay immediate.
+    if (fit > currentIndex) {
+        const double boundary = overloadLimit(function, ranges[size_t(currentIndex + 1)]) * kAutoRangeDownFraction;
+        if (m >= boundary)
+            return currentIndex;
+    }
+    return fit;
+}
+
+int AutoRanger::next(mydaq::DmmFunction function, const std::vector<double>& ranges, int currentIndex,
+                     double magnitude, bool overload)
+{
+    int index = autoRangeIndex(function, ranges, currentIndex, magnitude, overload);
+    if (ranges.empty())
+        return index;
+    if (overload && index < currentIndex) {   // kicked out of currentIndex: keep away from it for a while
+        m_barredFrom = currentIndex;
+        m_barLeft = m_nextBar;
+        m_nextBar = std::min(m_nextBar * 2, kAutoRangeMaximumBar);
+        return index;
+    }
+    if (m_barLeft > 0) {
+        --m_barLeft;
+        if (m_barredFrom >= 0 && index >= m_barredFrom)
+            index = std::max(0, m_barredFrom - 1);   // the smallest range still allowed
+    }
+    // Back on the once-barred range and steady there: forget the penalty.
+    if (m_barredFrom >= 0 && m_barLeft == 0) {
+        m_held = currentIndex >= m_barredFrom && !overload ? m_held + 1 : 0;
+        if (m_held >= kAutoRangeFirstBar) {
+            m_nextBar = kAutoRangeFirstBar;
+            m_barredFrom = -1;
+            m_held = 0;
+        }
+    }
+    return index;
 }
 
 double roundToResolution(double value, const DisplayFormat& format)

@@ -18,8 +18,8 @@ spreadsheet. It is MYBENCH's version of the NI "Data Logger" featured applicatio
 
 - **AI 0 / AI 1**: differential inputs, sampled together at the same rate.
 - **DMM** logs the multimeter too: pick the function (DC/AC voltage, DC/AC current, resistance)
-  and a range, or *Auto*. It takes about 10 readings per second (3 for AC), independently of the
-  sampling rate. Use the meter's banana jacks.
+  and a range, or *Auto*. The meter delivers 2 readings per second, independently of the
+  sampling rate; a range change (also an automatic one) makes it pause for about 2.6 s. Use the meter's banana jacks.
 - **Maximum / Minimum (V)**: limits within ±2 V use the more precise ±2 V range, otherwise
   ±10 V. With *Auto-scale graph* off, they also set the chart's vertical scale.
 - Channels, rate and limits are fixed while the logger runs; stop it to change them.
@@ -47,7 +47,7 @@ spreadsheet. It is MYBENCH's version of the NI "Data Logger" featured applicatio
   arrived, with their own time.
 - Existing files are never overwritten (`_2`, `_3`… are added).
 - When AI and the DMM are logged together and the AI rate is lower than the DMM rate (the DMM
-  delivers about 10 readings per second), every DMM reading still gets a row: readings without an
+  delivers 2 readings per second), every DMM reading still gets a row: readings without an
   AI sample beside them are written on rows of their own with empty AI cells.
 - **Layout**: *MYBENCH* (above) or *ELVISmx compatible*, for scripts written for the NI Data
   Logger: a header row `Time`, `myDAQ1/ai0` (a `Time`/channel pair per AI channel), then one row

@@ -33,7 +33,7 @@ statistics, and a delimited text file written while recording.
 - Options: *Record when Run starts*, *Stop after* N minutes (closes the file and stops the run).
 - **Channels**: AI 0, AI 1 (differential, one task), **DMM** [MYBENCH extension] with function
   (DC V, AC V, DC A, AC A, Resistance) and range (Auto = software autoranging, or a fixed range,
-  largest first). The DMM is read at its own pace (~10/s DC, ~3/s AC) in the same loop.
+  largest first). The DMM is read at its own pace (the meter delivers 2 readings/s for V, A and Ω; a range change costs ~2.6 s) in the same loop.
   Resources: `AnalogInput` if an AI channel is on, `Multimeter` if the DMM is on. Channel, rate
   and limit settings are locked while running.
 - **Chart**: `TraceBuffer` recording (min/max pyramid) per channel, x = absolute time (sample

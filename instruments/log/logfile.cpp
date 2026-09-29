@@ -230,9 +230,41 @@ int autoRange(const std::vector<DmmRangeInfo>& ranges, int current, double value
             }
         }
     }
+    // Hysteresis: a smaller range only when the value is clearly below the boundary of the range
+    // under the current one (a floating input must not hunt; every change costs the meter ~2.6 s).
+    if (!overload && next < current && current > 0
+        && std::isfinite(value) && std::abs(value) >= 0.9 * 0.9995 * ranges[size_t(current - 1)].max)
+        next = current;
     if (overload && next <= current)
         next = std::min(last, current + 1);
     return next;
+}
+
+int AutoRanger::next(const std::vector<DmmRangeInfo>& ranges, int current, double value, bool overload)
+{
+    int index = autoRange(ranges, current, value, overload);
+    if (ranges.empty())
+        return index;
+    if (overload && index > current) {   // pushed out of `current`
+        m_barredUpTo = current;
+        m_barLeft = m_nextBar;
+        m_nextBar = std::min(m_nextBar * 2, kBarMaximum);
+        return index;
+    }
+    if (m_barLeft > 0) {
+        --m_barLeft;
+        if (index <= m_barredUpTo)
+            index = std::min(int(ranges.size()) - 1, m_barredUpTo + 1);   // the smallest range still allowed
+    }
+    if (m_barredUpTo >= 0 && m_barLeft == 0) {
+        m_held = current <= m_barredUpTo && !overload ? m_held + 1 : 0;
+        if (m_held >= kBarFirst) {
+            m_nextBar = kBarFirst;
+            m_barredUpTo = -1;
+            m_held = 0;
+        }
+    }
+    return index;
 }
 
 }  // namespace mybench::instruments::logger

@@ -227,6 +227,8 @@ void DeviceHub::setCurrent(const QString& deviceId, bool persist)
     }
     if (persist)
         QSettings().setValue(kCurrentKey, deviceId);
+    if (const auto toast = m_connectedToasts.take(deviceId); toast != 0)
+        Notifications::instance()->dismiss(toast);   // "<name> connected - Switch" is stale now
     emit currentChanged();
     emit connectionChanged();
 }
@@ -296,9 +298,16 @@ void DeviceHub::refresh()
                                                 u"device"_s);
             }, Qt::QueuedConnection);
         } else {
-            Notifications::instance()->show(Notifications::Info, tr("%1 connected").arg(name), {},
-                                            tr("Switch"), [self, id] { if (self) self->select(id); },
-                                            u"device"_s);
+            // Offered only if it is still not the selected device once the current event has been
+            // handled (a startup option or a session may select it right away), and withdrawn
+            // when it becomes the selection.
+            QMetaObject::invokeMethod(this, [self, id, name] {
+                if (!self || self->m_currentId == id || !self->m_presentIds.contains(id))
+                    return;
+                self->m_connectedToasts.insert(id, Notifications::instance()->show(
+                    Notifications::Info, tr("%1 connected").arg(name), {}, tr("Switch"),
+                    [self, id] { if (self) self->select(id); }, u"device"_s));
+            }, Qt::QueuedConnection);
         }
     }
     bool currentLost = false;

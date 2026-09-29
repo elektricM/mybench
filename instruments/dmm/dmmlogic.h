@@ -52,14 +52,42 @@ double overloadLimit(mydaq::DmmFunction function, double rangeMax);
 // Overload test of one reading: the device flag, or |value| above the range's upper limit.
 bool isOverload(mydaq::DmmFunction function, double rangeMax, const mydaq::DmmReading& reading);
 
+// Autoranging leaves a range downwards only when the value is below this fraction of the next
+// smaller range's upper limit (hysteresis, MYBENCH addition to the ELVISmx rule).
+inline constexpr double kAutoRangeDownFraction = 0.9;
+
 // ELVISmx software autoranging (algorithms doc 3): the range for the next reading, as an index
 // into `ranges` (largest first), from the magnitude of the last reading taken on
-// ranges[currentIndex]. No hysteresis: the smallest range whose upper limit is above the value;
+// ranges[currentIndex]. The smallest range whose upper limit is above the value, with hysteresis on
+// the way down (kAutoRangeDownFraction);
 // Resistance jumps from 20 MΩ straight to 20 kΩ below 10 kΩ. An overload counts as at least the
 // full scale of the range it was measured on, so the ranger climbs. Diode and Continuity keep
 // their single range.
 int autoRangeIndex(mydaq::DmmFunction function, const std::vector<double>& ranges, int currentIndex,
                    double magnitude, bool overload);
+
+// Autoranging with memory. The value-only rule (autoRangeIndex) cannot stop a floating input from
+// hunting: it reads ~0 V on the 2 V range but overloads the 200 mV range, so the plain rule goes
+// down, is kicked out by the overload, goes down again ... and every change costs the real meter
+// ~2.6 s. After an overload made the ranger leave a range, that range and all smaller ones are
+// barred for a number of readings; the bar doubles each time the same thing happens again (up to
+// kAutoRangeMaximumBar) and is forgotten once the range has been re-entered and held.
+inline constexpr int kAutoRangeFirstBar = 12;      // readings (about 6 s of the real meter)
+inline constexpr int kAutoRangeMaximumBar = 192;   // readings
+class AutoRanger
+{
+public:
+    // Next range index after a reading of `magnitude` (overload flag) on ranges[currentIndex].
+    int next(mydaq::DmmFunction function, const std::vector<double>& ranges, int currentIndex, double magnitude,
+             bool overload);
+    void reset() { *this = AutoRanger(); }
+
+private:
+    int m_barredFrom = -1;   // this index and every larger one (smaller ranges) are barred while m_barLeft > 0
+    int m_barLeft = 0;
+    int m_nextBar = kAutoRangeFirstBar;
+    int m_held = 0;   // readings on the once-barred range since the bar ran out
+};
 
 // Number text of a value in a format, with the value rounded to the format's resolution:
 // no leading zeros, "-" only for negative values ("-0.0" is printed "0.0"). Example: 1.2345 on

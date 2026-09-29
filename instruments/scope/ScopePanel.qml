@@ -42,7 +42,7 @@ Item {
         displayInfo: (root.controller.running && root.controller.waitingForTrigger ? qsTr("*** Waiting for Trigger ***") + "   " : "")
                      + qsTr("Sample Rate: %1").arg(root.controller.formatRate(root.controller.running ? root.controller.sampleRate
                                                                                                      : root.controller.recordRate))
-        runBar.showTimeout: true
+        runBar.showTimeout: root.edge && !root.controller.rolling   // only Edge triggering can time out
         runBar.timeoutText: qsTr("Timeout")
 
         ScopeDisplay {

@@ -154,6 +154,8 @@ void ScopeController::setTriggerType(TriggerType type)
         if (type == Edge)
             setTriggerSource(Chan0Source);   // ELVISmx: Type Edge resets the Source to Chan 0 Source
         fixTriggerSource();
+        if (type == Immediate)
+            setTimedOut(false);   // only Edge triggering can time out
         emit triggerTypeChanged();
     }
 }

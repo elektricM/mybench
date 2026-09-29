@@ -116,4 +116,23 @@ const std::vector<DmmFunctionInfo>& dmmFunctions();   // DC V, AC V, DC A, AC A,
 // reach. An overload that would keep the same range moves one range up.
 int autoRange(const std::vector<DmmRangeInfo>& ranges, int current, double value, bool overload);
 
+// autoRange with memory (the DMM instrument's AutoRanger): a floating input reads ~0 on a large
+// range but overloads a small one, so the plain rule hunts, and every range change costs the real
+// meter ~2.6 s. After an overload pushed the ranger up from a range, that range and all smaller
+// ones are barred for kBarFirst readings; the bar doubles on each repetition up to kBarMaximum and
+// is forgotten once the range has been held.
+class AutoRanger
+{
+public:
+    static constexpr int kBarFirst = 12;
+    static constexpr int kBarMaximum = 192;
+    int next(const std::vector<DmmRangeInfo>& ranges, int current, double value, bool overload);
+
+private:
+    int m_barredUpTo = -1;   // ranges 0..m_barredUpTo (smaller ones) are barred while m_barLeft > 0
+    int m_barLeft = 0;
+    int m_nextBar = kBarFirst;
+    int m_held = 0;
+};
+
 }  // namespace mybench::instruments::logger

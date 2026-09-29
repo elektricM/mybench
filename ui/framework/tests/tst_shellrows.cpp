@@ -61,6 +61,34 @@ int toastsFrom(const QString& source)
     return count;
 }
 
+// A second, pluggable device for the hot-plug toast test.
+class SecondDeviceProvider : public mydaq::DeviceProvider
+{
+public:
+    QString name() const override { return u"second"_s; }
+    QList<mydaq::DevicePtr> scan() override
+    {
+        if (!m_device)
+            m_device = std::make_shared<mydaq::SimDevice>(u"sim:1"_s, u"Second myDAQ"_s);
+        return present ? QList<mydaq::DevicePtr>{m_device} : QList<mydaq::DevicePtr>{};
+    }
+    bool present = false;
+
+private:
+    mydaq::DevicePtr m_device;
+};
+
+int switchToasts(const QString& titlePart)
+{
+    Notifications* n = Notifications::instance();
+    int count = 0;
+    for (int row = 0; row < n->count(); ++row) {
+        count += n->data(n->index(row), Notifications::ActionTextRole).toString() == u"Switch"_s
+                 && n->data(n->index(row), Notifications::TitleRole).toString().contains(titlePart);
+    }
+    return count;
+}
+
 }  // namespace
 
 class TestShellRows : public QObject
@@ -76,6 +104,14 @@ private slots:
         QCoreApplication::setApplicationName(u"tst_shellrows"_s);
         QVERIFY(DeviceHub::instance()->isConnected());
         QVERIFY(DeviceHub::instance()->isSimulated());
+        // The device that is already the selected one gets no "<name> connected - Switch" toast
+        // (the startup device arrives while nothing is selected yet, then becomes the selection).
+        QTest::qWait(300);
+        Notifications* startup = Notifications::instance();
+        for (int row = 0; row < startup->count(); ++row) {
+            QVERIFY2(startup->data(startup->index(row), Notifications::ActionTextRole).toString() != u"Switch"_s,
+                     qPrintable(startup->data(startup->index(row), Notifications::TitleRole).toString()));
+        }
 
         InstrumentRegistry* registry = InstrumentRegistry::instance();
         registry->registerInstrument({.id = u"scope"_s, .title = u"Oscilloscope"_s, .shortTitle = u"Scope"_s,
@@ -190,6 +226,44 @@ private slots:
         QCOMPARE(EventLog::errorCodeName(mydaq::DeviceError::UsbError), u"UsbError"_s);
         log->clear();
         QCOMPARE(log->warningCount(), 0);
+    }
+
+    // Another myDAQ that appears gets "<name> connected - Switch"; once it is the selected device
+    // (chosen some other way) that toast is stale and must go away, and none is shown for a device
+    // that is already selected when the toast would appear.
+    void connectedToastGoneWhenSelected()
+    {
+        DeviceHub* hub = DeviceHub::instance();
+        auto provider = std::make_unique<SecondDeviceProvider>();
+        SecondDeviceProvider* second = provider.get();
+        mydaq::DeviceManager::instance().addProvider(std::move(provider));
+        second->present = true;
+        mydaq::DeviceManager::instance().rescan();
+        QTRY_COMPARE_WITH_TIMEOUT(switchToasts(u"Second myDAQ"_s), 1, 3000);
+        hub->select(u"sim:1"_s);
+        QCOMPARE(switchToasts(u"Second myDAQ"_s), 0);
+        hub->select(u"sim:0"_s);
+
+        // Arrives while another instrument's selection already points at it: no toast at all.
+        second->present = false;
+        mydaq::DeviceManager::instance().rescan();
+        QTRY_VERIFY_WITH_TIMEOUT(!mydaq::DeviceManager::instance().device(u"sim:1"_s), 3000);
+        Notifications::instance()->clear();
+        QSignalSpy arrived(hub, &DeviceHub::deviceArrived);
+        QMetaObject::Connection link = connect(hub, &DeviceHub::deviceArrived, hub, [hub](const QString& id) {
+            QMetaObject::invokeMethod(hub, [hub, id] { hub->select(id); }, Qt::QueuedConnection);   // e.g. --device / session
+        });
+        second->present = true;
+        mydaq::DeviceManager::instance().rescan();
+        QTRY_COMPARE_WITH_TIMEOUT(arrived.count(), 1, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(hub->currentId(), u"sim:1"_s, 3000);
+        QTest::qWait(100);
+        QCOMPARE(switchToasts(u"Second myDAQ"_s), 0);
+        disconnect(link);
+        hub->select(u"sim:0"_s);
+        second->present = false;
+        mydaq::DeviceManager::instance().rescan();
+        QTRY_VERIFY_WITH_TIMEOUT(!mydaq::DeviceManager::instance().device(u"sim:1"_s), 3000);
     }
 
     // Row 27: hot-plug polling twice a second (ELVISmx rate): an unplug/replug of the simulator

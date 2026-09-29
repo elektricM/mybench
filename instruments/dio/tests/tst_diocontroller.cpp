@@ -108,13 +108,23 @@ private slots:
         QCOMPARE(m_dio->readbackErrors(), 0);
     }
 
+    // The ramp counts up through every value 0..15 and wraps. The steps are paced by the wall
+    // clock, so the test waits on a generous deadline for the events (a loaded runner may take
+    // seconds for 16 steps of 20 ms) and asserts the order, never the speed.
     void rampSteps()
     {
         m_dio->setStepInterval(20);
         m_dio->setPattern(DioController::Ramp);
+        QList<int> values;
+        connect(m_dio.get(), &DioController::writtenChanged, this, [&] { values << m_dio->writtenValue(); });
         m_dio->run();
-        QTRY_VERIFY_WITH_TIMEOUT(m_dio->writtenValue() >= 5, 2000);
-        QTRY_VERIFY_WITH_TIMEOUT(m_dio->writtenValue() == 0 && m_dio->sequenceStep() == 0, 2000);   // wraps at 15
+        QTRY_VERIFY_WITH_TIMEOUT(values.size() >= 18, 60000);
+        m_dio->stop();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle(), 10000);
+        QVERIFY(values.contains(15));
+        for (int i = 1; i < values.size(); ++i)
+            QCOMPARE(values[i], (values[i - 1] + 1) % 16);   // 0, 1, ... 15, 0 (wraps at 15)
+        QVERIFY(values.indexOf(0, 1) > 0);                    // the wrap was seen
     }
 
     void singleAlternating()

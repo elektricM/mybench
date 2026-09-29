@@ -490,12 +490,17 @@ InstrumentController::WorkerFunction DmmController::createWorker()
         // Auto: the first reading of a run (and of a function) is taken on the largest range.
         int index = autoRange ? 0 : fixedIndex;
         QElapsedTimer pace;
+        dmm::AutoRanger ranger;
         while (!ctx.stopRequested()) {
             pace.start();
             mydaq::DmmReading reading;
             bool overload = false;
             int measuredOn = index;
-            // Auto: re-read at once on the range that fits, so only settled readings are shown.
+            // Auto: every reading is displayed, also one taken on a range that is then left (as
+            // ELVISmx). A range change costs the meter ~2.6 s to settle (set_mode ~2 s plus the
+            // first packet), so a reading that is merely on a wrong range is never repeated on
+            // top of that; only an overload (nothing useful to show) and a Single reading (the one
+            // value must be the settled one) are re-read on the range that fits.
             for (int attempt = 1;; ++attempt) {
                 measuredOn = index;
                 reading = device.dmmRead(function, ranges[size_t(index)]);   // blocking, never interrupted
@@ -503,8 +508,8 @@ InstrumentController::WorkerFunction DmmController::createWorker()
                 overload = dmm::isOverload(function, ranges[size_t(index)], reading);
                 if (!autoRange)
                     break;
-                index = dmm::autoRangeIndex(function, ranges, index, std::abs(reading.value), overload);
-                if (index == measuredOn || attempt >= dmm::kMaximumAutoRangeReadings || ctx.stopRequested())
+                index = ranger.next(function, ranges, index, std::abs(reading.value), overload);
+                if (index == measuredOn || !(overload || ctx.once()) || attempt >= dmm::kMaximumAutoRangeReadings || ctx.stopRequested())
                     break;
             }
             const Reading result{reading.value, overload, measuredOn, QDateTime::currentMSecsSinceEpoch()};

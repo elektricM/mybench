@@ -60,7 +60,7 @@ part of MYBENCH but must not change the default behaviour described in sections 
 
 | Function | `DmmFunction` | Ranges (list order) | Readout format per range | Unit |
 |---|---|---|---|---|
-| DC Voltage | `DcVoltage` | 60V, 20V, 2V, 200mV | `±dd.d V`, `±dd.dd V`, `±d.ddd V`, `±ddd.d mV` | V |
+| DC Voltage | `DcVoltage` | 60V, 20V, 2V, 200mV | `±dd.dd V`, `±dd.dd V`, `±d.ddd V`, `±ddd.d mV` | V |
 | AC Voltage | `AcVoltage` | 20V, 2V, 200mV | `dd.dd V`, `d.ddd V`, `ddd.d mV` (RMS) | V |
 | DC Current | `DcCurrent` | 1A, 200mA, 20mA | `±d.ddd A`, `±ddd.d mA`, `±dd.dd mA` | A |
 | AC Current | `AcCurrent` | 1A, 200mA, 20mA | `d.ddd A`, `ddd.d mA`, `dd.dd mA` (RMS) | A |
@@ -81,8 +81,9 @@ part of MYBENCH but must not change the default behaviour described in sections 
 - Diode shows the single range `2V` in the Range combo (enabled in Specify Range, a one-item list);
   Continuity shows `No Range` (disabled) - verified in ELVISmx UI.
 - Leading zeros are suppressed (`0.0 V`, not `00.0 V`); negative values get `-`, positive values no
-  sign. The number of decimals is fixed by the range (3½ digits: resolution = range/2000, except
-  60 V: 0.1 V). The value shown is the device value rounded to that resolution.
+  sign. The number of decimals is fixed by the range (3½ digits: resolution = range/2000, 60 V: 10 mV
+  as the meter chip resolves it - **[MYBENCH deviation]** ELVISmx prints the 60 V range with one
+  decimal, which shows an open input as `0.0 V` although the device reads -0.02 V). The value shown is the device value rounded to that resolution.
 - Function order and icon colors (ELVISmx): DC Voltage (V + DC symbol, green), AC Voltage (V~, dark
   red), DC Current (A + DC symbol, dark blue), AC Current (A~, dark red), Resistance (Ω, green),
   Capacitance (capacitor, olive, disabled), Inductance (coil, tan, disabled), Diode (diode symbol,
@@ -136,7 +137,11 @@ Auto (software autoranging, one reading per displayed value). ELVISmx rule, **ve
 code** (algorithms/dmm.md 3) and **verified with NI I/O Trace** on the simulated device (section 13):
 1. The first reading of a run (or after a function change) is taken on the **largest** range.
 2. After every reading, the next range is chosen directly from `M = |raw reading|` (no step-by-step
-   climbing, no extra hysteresis): the smallest range whose 2000-count limit `M` does not reach.
+   climbing): the smallest range whose 2000-count limit `M` does not reach. **[MYBENCH]** Hysteresis
+   on the way down: a smaller range is taken only when `M` is below 90 % of the upper limit of the
+   range just under the current one (so 0.19 V stays on 2V; 0.17 V goes to 200mV), because a floating
+   input hunted between 200mV and 2V and every change costs the real meter ~2.6 s (`set_mode` ~2 s plus
+   the first packet). Climbing and the jump to the fitting range stay immediate.
    | Function | Next range |
    |---|---|
    | DC V | M ≥ 19.99 → 60V; M ≥ 1.999 → 20V; M ≥ 0.1999 → 2V; else 200mV |
@@ -150,7 +155,9 @@ code** (algorithms/dmm.md 3) and **verified with NI I/O Trace** on the simulated
    (a large value selects the largest range).
 3. A range change recreates the measurement before the next reading. **Every reading is displayed**,
    including one taken on a range that is then changed (ELVISmx has no hidden internal readings).
-   **[MYBENCH, may]** re-read at once after a range change and show only the settled reading.
+   **[MYBENCH]** Run Continuously follows this (the reading on the old range is shown, the next one is
+   taken on the new range); only an overload and a Single reading are re-read at once on the range
+   that fits, so a range change never costs two settling times.
 4. The Range control (disabled) shows the range in use; the display shows `AUTO <range>`.
 
 An overload at the largest range shows `+OVER`/`-OVER` in Auto mode too.

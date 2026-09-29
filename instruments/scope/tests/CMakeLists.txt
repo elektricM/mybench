@@ -10,3 +10,10 @@ else()
 endif()
 add_test(NAME scope COMMAND tst_scope)
 set_tests_properties(scope PROPERTIES TIMEOUT 120 ENVIRONMENT "MYBENCH_NO_USB=1;QT_QPA_PLATFORM=offscreen")
+
+# The panel loads without QML binding warnings (e.g. "Unable to assign [undefined] to QColor").
+add_test(NAME scope_qml_clean
+         COMMAND mybench-scope --screenshot ${CMAKE_CURRENT_BINARY_DIR}/qml_clean.png --delay 300)
+set_tests_properties(scope_qml_clean PROPERTIES TIMEOUT 60
+                     ENVIRONMENT "MYBENCH_NO_USB=1;QT_QPA_PLATFORM=offscreen"
+                     FAIL_REGULAR_EXPRESSION "Unable to assign|TypeError|ReferenceError|is not defined|Binding loop")

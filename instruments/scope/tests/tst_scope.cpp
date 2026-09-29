@@ -84,6 +84,7 @@ private slots:
     void controllerDefaultsAndPersistence();
     void controllerRules();
     void controllerRun();
+    void timeoutOnlyWithEdge();
     void traceStylePalettes();
     void cursorStylePalettes();
     void resetGraphProperties();
@@ -995,6 +996,28 @@ void TestScope::controllerRun()
 
 
 // Audit scope #2/#3: the Graph Properties palettes of ELVISmx.
+// The Timeout indicator belongs to Edge triggering: it never lights in Immediate, and switching to
+// Immediate after a timeout puts it out (also once the run is over).
+void TestScope::timeoutOnlyWithEdge()
+{
+    mybench::DeviceHub::instance()->select(u"sim:0"_s);
+    ScopeController c;
+    c.initialize();
+    c.run();
+    QTRY_VERIFY_WITH_TIMEOUT(c.hasRecord(), 5000);
+    QVERIFY(!c.timedOut());   // Immediate
+    c.setTriggerTimeout(0.2);
+    c.setTimePerDiv(1e-3);
+    c.setTriggerType(ScopeController::Edge);
+    c.setTriggerLevel(3.0);
+    QTRY_VERIFY_WITH_TIMEOUT(c.timedOut(), 5000);
+    c.stop();
+    QTRY_VERIFY_WITH_TIMEOUT(c.isIdle(), 5000);
+    QVERIFY(c.timedOut());   // last state of the run
+    c.setTriggerType(ScopeController::Immediate);
+    QVERIFY(!c.timedOut());
+}
+
 void TestScope::traceStylePalettes()
 {
     ScopeController c;

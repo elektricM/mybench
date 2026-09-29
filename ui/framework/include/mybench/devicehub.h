@@ -12,6 +12,7 @@
 #include <mydaq/device.h>
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QVariantList>
@@ -201,6 +202,7 @@ private:
     mydaq::DeviceInfo m_currentInfo;
     QStringList m_presentIds;
     bool m_resetting = false;
+    QHash<QString, int> m_connectedToasts;   // device id -> its "connected - Switch" toast
     QStringList m_unsupported;
     QString m_unsupportedFor;            // device id m_unsupported was read from
     mutable std::mutex m_mutex;          // guards m_device

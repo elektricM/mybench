@@ -15,6 +15,8 @@ Item {
     property real cursor1Position: NaN
     property real cursor2Position: NaN
     property var channelColors: [Theme.ch0, Theme.ch1, Theme.math]
+    // The FFT source's colour; the FFT rows are hidden while the source is Off (index -1 would be undefined).
+    readonly property color fftColor: root.controller.fftSource > 0 ? channelColors[root.controller.fftSource - 1] : channelColors[0]
 
     readonly property ScopeMath math: controller.math
     readonly property real deltaT: cursor2Position - cursor1Position
@@ -169,21 +171,21 @@ Item {
                 spacing: Theme.spacingS
                 RowTitle {
                     text: qsTr("FFT")
-                    color: root.channelColors[root.controller.fftSource - 1]
+                    color: root.fftColor
                 }
                 Flow {
                     Layout.fillWidth: true
                     spacing: 6
-                    Reading { label: qsTr("Source"); value: "CH " + (root.controller.fftSource - 1); valueColor: root.channelColors[root.controller.fftSource - 1] }
+                    Reading { label: qsTr("Source"); value: "CH " + (root.controller.fftSource - 1); valueColor: root.fftColor }
                     Reading {
                         label: qsTr("Peak")
                         value: root.controller.formatMeasurement(root.math.peakFrequency, "Hz")
-                        valueColor: root.channelColors[root.controller.fftSource - 1]
+                        valueColor: root.fftColor
                     }
                     Reading {
                         label: qsTr("Level")
                         value: isNaN(root.math.peakLevel) ? "?" : root.math.peakLevel.toFixed(2) + " dBV"
-                        valueColor: root.channelColors[root.controller.fftSource - 1]
+                        valueColor: root.fftColor
                     }
                 }
             }
@@ -232,6 +234,7 @@ Item {
             spacing: 4
             Led {
                 Layout.alignment: Qt.AlignRight
+                visible: root.controller.triggerType === ScopeController.Edge && !root.controller.rolling   // Immediate / Roll never time out
                 on: root.controller.timedOut
                 color: Theme.warning
                 text: qsTr("Timeout")

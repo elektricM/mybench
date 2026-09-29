@@ -526,6 +526,7 @@ InstrumentController::WorkerFunction LogController::createWorker()
         std::vector<RunningStats> stats(nch);
         RunningStats dmmStats;
         bool dmmOverload = false;
+        logger::AutoRanger dmmRanger;
         int dmmIndex = snap.dmmRange > 0 ? snap.dmmRange - 1 : int(snap.dmmRanges.size()) - 1;   // Auto starts on the largest
 
         LogFileWriter writer;
@@ -650,7 +651,7 @@ InstrumentController::WorkerFunction LogController::createWorker()
                 // Auto: the next range comes straight from this reading (as the DMM instrument);
                 // every reading is kept, also one taken on a range that is then left.
                 if (snap.dmmRange == 0)
-                    dmmIndex = logger::autoRange(snap.dmmRanges, dmmIndex, reading.value, reading.overload);
+                    dmmIndex = dmmRanger.next(snap.dmmRanges, dmmIndex, reading.value, reading.overload);
                 {
                     dmmOverload = reading.overload;
                     const double value = reading.overload ? qQNaN() : reading.value;

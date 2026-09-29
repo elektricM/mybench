@@ -35,10 +35,11 @@ private slots:
         auto row = [](const char* name, DmmFunction f, double range, double value, const char* text, const QString& unit) {
             QTest::newRow(name) << int(f) << range << value << QString::fromUtf8(text) << unit;
         };
-        row("dcv 60", DmmFunction::DcVoltage, 60, 1.2345, "1.2", u"V"_s);
-        row("dcv 60 zero", DmmFunction::DcVoltage, 60, 0.0, "0.0", u"V"_s);
-        row("dcv 60 neg", DmmFunction::DcVoltage, 60, -5.0, "-5.0", u"V"_s);
-        row("dcv 60 negzero", DmmFunction::DcVoltage, 60, -0.01, "0.0", u"V"_s);
+        row("dcv 60", DmmFunction::DcVoltage, 60, 1.2345, "1.23", u"V"_s);
+        row("dcv 60 zero", DmmFunction::DcVoltage, 60, 0.0, "0.00", u"V"_s);
+        row("dcv 60 neg", DmmFunction::DcVoltage, 60, -5.0, "-5.00", u"V"_s);
+        row("dcv 60 negzero", DmmFunction::DcVoltage, 60, -0.004, "0.00", u"V"_s);
+        row("dcv 60 open input", DmmFunction::DcVoltage, 60, -0.019, "-0.02", u"V"_s);   // 10 mV resolution
         row("dcv 20", DmmFunction::DcVoltage, 20, 12.345, "12.35", u"V"_s);
         row("dcv 2", DmmFunction::DcVoltage, 2, 1.2345, "1.235", u"V"_s);
         row("dcv 200m", DmmFunction::DcVoltage, 0.2, 0.12345, "123.5", u"mV"_s);
@@ -102,7 +103,8 @@ private slots:
         };
         row("dcv 1.2345 from 60", DmmFunction::DcVoltage, 0, 1.2345, false, 2.0);
         row("dcv 19.99 -> 60", DmmFunction::DcVoltage, 3, 19.99, false, 60.0);
-        row("dcv 19.98 -> 20", DmmFunction::DcVoltage, 0, 19.98, false, 20.0);
+        row("dcv 19.98 from 60 stays (hysteresis)", DmmFunction::DcVoltage, 0, 19.98, false, 60.0);
+        row("dcv 17.9 from 60 -> 20", DmmFunction::DcVoltage, 0, 17.9, false, 20.0);
         row("dcv 1.999 -> 20", DmmFunction::DcVoltage, 0, 1.999, false, 20.0);
         row("dcv 0.1999 -> 2", DmmFunction::DcVoltage, 0, 0.1999, false, 2.0);
         row("dcv 0.1998 -> 200m", DmmFunction::DcVoltage, 0, 0.1998, false, 0.2);
@@ -119,6 +121,16 @@ private slots:
         row("ohm 150k from 20M", DmmFunction::Resistance, 0, 150e3, false, 200e3);
         row("ohm open stays 20M", DmmFunction::Resistance, 0, 1e9, true, 20e6);
         row("diode fixed", DmmFunction::Diode, 0, 5, true, 2.0);
+        // Hysteresis: down only when clearly below the boundary of the next smaller range.
+        row("hyst dcv 0.19 stays on 2 V", DmmFunction::DcVoltage, 2, 0.19, false, 2.0);
+        row("hyst dcv 0.1999 stays on 2 V", DmmFunction::DcVoltage, 2, 0.1999, false, 2.0);
+        row("hyst dcv 0.17 leaves 2 V", DmmFunction::DcVoltage, 2, 0.17, false, 0.2);
+        row("hyst dcv 0.19 from 60 jumps to 200 mV", DmmFunction::DcVoltage, 0, 0.19, false, 0.2);
+        row("hyst dcv 1.9 stays on 20 V", DmmFunction::DcVoltage, 1, 1.9, false, 20.0);
+        row("hyst dcv 1.5 leaves 20 V", DmmFunction::DcVoltage, 1, 1.5, false, 2.0);
+        row("hyst dcv 0.1 from 60 jumps to 200 mV", DmmFunction::DcVoltage, 0, 0.1, false, 0.2);
+        row("hyst ohm 1.9k stays on 20k", DmmFunction::Resistance, 3, 1.9e3, false, 20e3);
+        row("hyst ohm 1.5k leaves 20k", DmmFunction::Resistance, 3, 1.5e3, false, 2e3);
     }
     void autoRange()
     {
@@ -131,6 +143,41 @@ private slots:
         const int index = dmm::autoRangeIndex(DmmFunction(function), ranges, current, magnitude, overload);
         QVERIFY(index >= 0 && size_t(index) < ranges.size());
         QCOMPARE(ranges[size_t(index)], expected);
+    }
+
+    // A floating DC V input: ~0 V on 2 V and above, but the 200 mV range overloads. The plain rule
+    // hunts between the two (each change costs the real meter ~2.6 s); the ranger settles on 2 V,
+    // retries the small range rarely (bar doubles) and never leaves 2 V for a reading of ~0.
+    void floatingInputDoesNotHunt()
+    {
+        const std::vector<double> ranges = dmm::defaultRanges(DmmFunction::DcVoltage);   // 60, 20, 2, 0.2
+        auto measure = [](double range) { return range <= 0.2 ? std::pair{0.2, true} : std::pair{0.0002, false}; };
+        auto changes = [&](bool withMemory, int readings) {
+            dmm::AutoRanger ranger;
+            int index = 0, count = 0;
+            for (int i = 0; i < readings; ++i) {
+                const auto [value, over] = measure(ranges[size_t(index)]);
+                const int next = withMemory ? ranger.next(DmmFunction::DcVoltage, ranges, index, value, over)
+                                            : dmm::autoRangeIndex(DmmFunction::DcVoltage, ranges, index, value, over);
+                count += next != index;
+                index = next;
+            }
+            return count;
+        };
+        QVERIFY(changes(false, 200) > 100);   // the plain rule changes range every other reading
+        QVERIFY2(changes(true, 200) <= 10, qPrintable(QString::number(changes(true, 200))));
+        // A genuine small signal is still reached: a bar only delays the way down.
+        dmm::AutoRanger ranger;
+        int index = 0;
+        for (int i = 0; i < 40 && index != 3; ++i)
+            index = ranger.next(DmmFunction::DcVoltage, ranges, index, 0.05, false);
+        QCOMPARE(index, 3);
+        // Overload on 200 mV bars it; 0.05 V readings stay on 2 V until the bar is over.
+        index = ranger.next(DmmFunction::DcVoltage, ranges, 3, 0.3, true);
+        QCOMPARE(index, 2);
+        for (int i = 0; i < dmm::kAutoRangeFirstBar; ++i)
+            QCOMPARE(ranger.next(DmmFunction::DcVoltage, ranges, 2, 0.05, false), 2);
+        QCOMPARE(ranger.next(DmmFunction::DcVoltage, ranges, 2, 0.05, false), 3);
     }
 
     void statistics()

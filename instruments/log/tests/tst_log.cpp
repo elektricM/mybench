@@ -119,9 +119,31 @@ private slots:
         QCOMPARE(logger::autoRange(ranges, 1, 1.998, false), 1);
         QCOMPARE(logger::autoRange(ranges, 1, 0.0, true), 2);           // overload: one range up
         QCOMPARE(logger::autoRange(ranges, 3, 70, true), 3);
+        // Hysteresis: a floating input around 0.2 V must not hunt between 200 mV and 2 V.
+        QCOMPARE(logger::autoRange(ranges, 1, 0.19, false), 1);
+        QCOMPARE(logger::autoRange(ranges, 1, 0.17, false), 0);
+        QCOMPARE(logger::autoRange(ranges, 0, 0.2005, true), 1);
+        QCOMPARE(logger::autoRange(ranges, 3, 0.19, false), 0);         // from 60 V: straight to 200 mV
         // Resistance: 8.26 k read on the 20 M range goes to 20 k at once.
         const auto& ohms = logger::dmmFunctions()[4].ranges;
         QCOMPARE(logger::autoRange(ohms, 5, 8260, false), 2);
+    }
+
+    // A floating input reads ~0 V on 2 V but overloads 200 mV: the ranger must not hunt (each change
+    // costs the real meter ~2.6 s; the Data Logger's DMM column got 2 points in 7 s).
+    void autoRangerDoesNotHunt()
+    {
+        const auto& ranges = logger::dmmFunctions()[0].ranges;   // 0.2, 2, 20, 60 V
+        logger::AutoRanger ranger;
+        int index = 3, changes = 0;
+        for (int i = 0; i < 200; ++i) {
+            const bool over = ranges[size_t(index)].max <= 0.2;
+            const int next = ranger.next(ranges, index, over ? 0.2 : 0.0002, over);
+            changes += next != index;
+            index = next;
+        }
+        QVERIFY2(changes <= 10, qPrintable(QString::number(changes)));
+        QCOMPARE(index, 1);
     }
 
     void statistics()

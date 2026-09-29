@@ -31,7 +31,7 @@ Measure resistance, diodes and continuity only on circuits that are switched off
 
 1. Plug the leads into the jacks shown in the connection card.
 2. Choose a function (keys `1` … `9` select the function buttons in order).
-3. Choose **Mode**: *Auto* lets the meter pick the range, *Specify Range* uses the one you select.
+3. Choose **Mode**: *Auto* lets the meter pick the range (it goes to a smaller range only when the value is clearly below it, and every range change makes the real myDAQ pause for about 2.5 s while it settles), *Specify Range* uses the one you select.
 4. Press **Run** (or `Space`) to measure continuously, or **Single** for one reading.
 
 ## Measurement Settings
@@ -55,7 +55,7 @@ Measure resistance, diodes and continuity only on circuits that are switched off
 ## The display
 
 - **Readout** – the value with the resolution of the range (3½ digits: e.g. `1.235 V` on 2V,
-  `12.3 mA` on 200mA, `4.70 kΩ` on 20kΩ). `---` means no reading yet.
+  `12.3 mA` on 200mA, `4.70 kΩ` on 20kΩ, `12.34 V` on 60V). `---` means no reading yet.
 - **% FS** – how much of the range the raw reading uses (0 – 100 %). A small percentage means a
   smaller range would give more resolution.
 - **+Over** – the input is beyond the range: choose a larger range or Auto. (Option **Signed
@@ -80,7 +80,7 @@ output and the `Continuity` badge lights (the dashboard tile glows too). At 15 �
 
 ## Run bar
 
-- **Run / Stop** – measure continuously (at most five readings per second), or stop. The last
+- **Run / Stop** – measure continuously (at most five readings per second; the real myDAQ delivers two per second for V, A and Ω, about ten for diode and continuity), or stop. The last
   reading stays displayed.
 - **Single** – take one reading and stop.
 - **Hold** – freezes the readout; measuring, trend, statistics and logging continue.

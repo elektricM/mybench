@@ -64,7 +64,8 @@ private slots:
     void specifyRange60V()
     {
         measureOnce();
-        QCOMPARE(m_dmm->readingText(), u"1.2"_s);
+        QVERIFY2(m_dmm->readingText() == u"1.23"_s || m_dmm->readingText() == u"1.24"_s,   // 10 mV resolution
+                 qPrintable(m_dmm->readingText()));
         QCOMPARE(m_dmm->readingUnit(), u"V"_s);
         QVERIFY(qAbs(m_dmm->fullScaleFraction() - 1.2345 / 60) < 0.001);
     }
@@ -226,6 +227,33 @@ private slots:
         // At most one displayed reading per 200 ms.
         QVERIFY2(m_dmm->statCount() >= 3 && m_dmm->statCount() <= 6, qPrintable(QString::number(m_dmm->statCount())));
         QVERIFY(m_dmm->trend()->count() == m_dmm->statCount());
+    }
+
+    // A range change costs the real meter ~2.6 s, so Run Continuously displays the reading taken on
+    // the old range at once (first on 60 V) and takes the next on the range that fits; it never
+    // repeats a reading first (that doubled the cost of every change).
+    void autoShowsEveryReadingWithoutRepeat()
+    {
+        QTemporaryDir dir;
+        m_dmm->setAutoRange(true);
+        m_dmm->setLogFile(QUrl::fromLocalFile(dir.filePath(u"auto.tsv"_s)));
+        m_dmm->setRecording(true);
+        m_dmm->run();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dmm->logCount() >= 3, 5000);
+        m_dmm->stop();
+        QTRY_VERIFY(m_dmm->isIdle());
+        m_dmm->setRecording(false);
+        QFile file(dir.filePath(u"auto.tsv"_s));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QStringList ranges;
+        for (const QByteArray& line : file.readAll().split('\n')) {
+            if (!line.isEmpty() && !line.startsWith('#') && !line.startsWith("Time"))
+                ranges << QString::fromUtf8(line).split(u'\t').value(3);
+        }
+        QVERIFY(ranges.size() >= 3);
+        QCOMPARE(ranges[0], u"60V"_s);   // shown although taken on the range that is then left
+        QCOMPARE(ranges[1], u"2V"_s);
+        QCOMPARE(ranges[2], u"2V"_s);
     }
 
     void logging()
