@@ -977,6 +977,73 @@ private slots:
         f.release();
     }
 
+    // ---- Shift-zoom axis lock ---------------------------------------------------------------------
+    void zoomDragAxisLock()
+    {
+        PlotFixture f;
+        if (!f.create("xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        Plot *plot = f.plot;
+        PlotAxis *x = plot->xAxis();
+        PlotAxis *y = plot->yAxis();
+        const QRectF area = plot->plotArea();
+        QQuickWindow *w = f.window();
+        const QPointF p0(area.left() + 40, area.top() + 50);
+
+        // Near-horizontal Shift-drag (dy small): x only.
+        drag(w, p0, p0 + QPointF(120, 6), Qt::LeftButton, Qt::ShiftModifier);
+        QVERIFY(x->zoomed());
+        QVERIFY(!y->zoomed());
+        plot->resetView();
+        f.render();
+        // Near-vertical: y only.
+        drag(w, p0, p0 + QPointF(5, 100), Qt::LeftButton, Qt::ShiftModifier);
+        QVERIFY(!x->zoomed());
+        QVERIFY(y->zoomed());
+        plot->resetView();
+        f.render();
+        // Diagonal: both.
+        drag(w, p0, p0 + QPointF(100, 80), Qt::LeftButton, Qt::ShiftModifier);
+        QVERIFY(x->zoomed() && y->zoomed());
+        plot->resetView();
+        f.release();
+    }
+
+    // ---- axis limits: max span, limit to data ------------------------------------------------------
+    void axisMaximumSpanAndDataLimits()
+    {
+        PlotAxis axis;
+        axis.setRange(0, 10);
+        axis.setMaximumSpan(20);
+        axis.setViewRange(-10, 30);          // 40 wide: cut to 20 around the centre
+        QCOMPARE(axis.max() - axis.min(), 20.0);
+        QCOMPARE(axis.min() + axis.max(), 20.0);
+        axis.setMaximumSpan(qQNaN());
+
+        // limitToData: the view may not leave the extent + 25 %.
+        axis.setRange(0, 10);
+        axis.setLimitToData(true);
+        axis.setDataExtent(0, 100);
+        axis.setViewRange(500, 510);
+        QCOMPARE(axis.max(), 125.0);
+        QCOMPARE(axis.min(), 115.0);
+        axis.setViewRange(-900, 900);
+        QCOMPARE(axis.min(), -25.0);
+        QCOMPARE(axis.max(), 125.0);
+        // An explicit limit wins for its side.
+        axis.setLowerLimit(0);
+        axis.setViewRange(-900, 900);
+        QCOMPARE(axis.min(), 0.0);
+        QCOMPARE(axis.max(), 125.0);
+
+        PlotAxis lg;
+        lg.setScale(PlotAxis::Log);
+        lg.setRange(10, 1e4);
+        lg.setMaximumSpan(2);                 // decades
+        lg.setViewRange(1, 1e6);
+        QVERIFY(std::abs(std::log10(lg.max() / lg.min()) - 2.0) < 1e-9);
+    }
+
     // ---- plot tools: zoom history -----------------------------------------------------------------
     void zoomHistory()
     {
@@ -1320,14 +1387,25 @@ private slots:
         QVERIFY(cursor->lineVisible());
         QCOMPARE(cursor->lineWidth(), 1.0);
         const QPointF mid = f.plot->mapFromValue(QPointF(5, 0));
+        // The line's exact pixel depends on the backend's rounding: look at a small neighbourhood.
+        const auto maxRed = [&](const QImage &img, int halfWidth) {
+            int best = 0;
+            for (int dy = -8; dy <= 8; dy += 4)
+                for (int dx = -halfWidth; dx <= halfWidth; ++dx)
+                    best = qMax(best, qRed(img.pixel(QPoint(qRound(mid.x()) + dx, qRound(mid.y()) + dy))));
+            return best;
+        };
         QImage image = f.grab();
-        QVERIFY2(qRed(image.pixel(mid.toPoint())) > 150, qPrintable(QString::number(image.pixel(mid.toPoint()), 16)));
+        QVERIFY2(maxRed(image, 2) > 150, qPrintable(QString::number(maxRed(image, 2))));
         cursor->setLineWidth(5);
         image = f.grab();
-        QVERIFY(qRed(image.pixel((mid + QPointF(2, 0)).toPoint())) > 150);   // 5 px wide
+        QVERIFY(maxRed(image, 3) > 150);
+        // Width 5: the pixels 2 px to each side are covered too (both, whatever the rounding).
+        QVERIFY(qRed(image.pixel(QPoint(qRound(mid.x()) - 1, qRound(mid.y())))) > 150
+                || qRed(image.pixel(QPoint(qRound(mid.x()) + 1, qRound(mid.y())))) > 150);
         cursor->setLineVisible(false);
         image = f.grab();
-        QVERIFY2(qRed(image.pixel(mid.toPoint())) < 100, qPrintable(QString::number(image.pixel(mid.toPoint()), 16)));
+        QVERIFY2(maxRed(image, 3) < 100, qPrintable(QString::number(maxRed(image, 3))));
         f.release();
     }
 };

@@ -71,7 +71,7 @@ QString AppInfo::platform() const
 
 QStringList AppInfo::valueOptions()
 {
-    return {u"instrument"_s, u"panel"_s, u"split"_s, u"run"_s, u"open"_s, u"page"_s, u"device"_s};
+    return {u"instrument"_s, u"panel"_s, u"split"_s, u"run"_s, u"open"_s, u"page"_s, u"device"_s, u"system-palette"_s};
 }
 
 QStringList AppInfo::panels() const

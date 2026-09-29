@@ -7,7 +7,8 @@ import MyBench.Framework
 import MyBench.Controls
 
 // Left navigation rail: Home, one button per instrument (with its run state), help at the bottom.
-// Click opens/focuses an instrument; Ctrl/⌘+click opens it in the other split pane.
+// Click opens or focuses an instrument (a dot shows it is running); Ctrl+click (⌘ on macOS) opens it in
+// the other split pane. Closing is done on the tab (x, middle click, Ctrl+W), which also stops it.
 Rectangle {
     id: rail
 
@@ -169,9 +170,13 @@ Rectangle {
                 required property bool running
                 required property bool paused
                 required property bool hasError
+                objectName: "railButton-" + instrumentId
                 text: shortTitle
                 iconName: model.icon
-                toolTip: title
+                // The rail opens or focuses an instrument (it never closes one: close the tab).
+                readonly property bool hasTab: rail.workspace.indexOf(instrumentId) >= 0
+                toolTip: (!hasTab ? qsTr("Open %1") : rail.workspace.isVisible(instrumentId) ? qsTr("%1 (shown)") : qsTr("Show %1")).arg(title)
+                         + (running ? qsTr(" - running") : paused ? qsTr(" - paused") : "")
                 shortcutText: index < 9 ? Theme.keys("Ctrl+" + (index + 1)) : ""
                 selected: rail.workspace.isVisible(instrumentId)
                 stateColor: running ? Theme.success : paused ? Theme.warning : hasError ? Theme.danger : "transparent"

@@ -58,7 +58,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libusb-1.0-0-dev \
+          sudo apt-get install -y --no-install-recommends ninja-build spirv-tools pkg-config libusb-1.0-0-dev \
             libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libfontconfig1-dev \
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 \
             libxcb-randr0 libxcb-render-util0 libxcb-image0 libpulse0 libvulkan-dev xvfb \

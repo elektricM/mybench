@@ -19,6 +19,58 @@ T.ComboBox {
     padding: 4
     spacing: 4
     hoverEnabled: true
+    // Like the native combo on Linux and Windows: the wheel over a closed combo steps through the
+    // entries (macOS pop-up buttons do not).
+    wheelEnabled: !Theme.macShortcuts
+
+    // Press-drag-release: pressing the combo and dragging onto the list opens it and highlights the
+    // entry under the pointer; releasing over an entry selects it (releasing on the combo itself
+    // keeps the normal click behavior).
+    property int dragIndex: -1
+    readonly property ListView dragList: popup.contentItem as ListView
+    function delegateAt(scenePoint: point): var {
+        if (!popup.visible || !dragList)
+            return null
+        const local = dragList.mapFromItem(null, scenePoint.x, scenePoint.y)
+        if (local.x < 0 || local.y < 0 || local.x > dragList.width || local.y > dragList.height)
+            return null
+        return dragList.itemAt(local.x + dragList.contentX, local.y + dragList.contentY)
+    }
+    PointHandler {
+        id: dragSelect
+        acceptedButtons: Qt.LeftButton
+        enabled: control.enabled
+        property bool openedByDrag: false
+        function overCombo(): bool {
+            return control.contains(control.mapFromItem(null, point.scenePosition.x, point.scenePosition.y))
+        }
+        onActiveChanged: {
+            if (active) {
+                openedByDrag = false
+                return
+            }
+            const item = overCombo() ? null : control.delegateAt(point.scenePosition)
+            control.dragIndex = -1
+            if (openedByDrag && !overCombo()) {
+                if (item !== null)
+                    item.click()
+                else
+                    control.popup.close()
+            }
+            openedByDrag = false
+        }
+        onPointChanged: {
+            if (!active)
+                return
+            const below = control.mapFromItem(null, point.scenePosition.x, point.scenePosition.y).y > control.height
+            if (!overCombo() && below && !control.popup.visible) {
+                openedByDrag = true
+                control.popup.open()
+            }
+            const item = openedByDrag && !overCombo() ? control.delegateAt(point.scenePosition) : null
+            control.dragIndex = item ? item.index : -1
+        }
+    }
 
     delegate: ItemDelegate {
         required property var model
@@ -27,7 +79,7 @@ T.ComboBox {
         width: ListView.view.width
         text: model[control.textRole]
         font.weight: control.currentIndex === index ? Font.DemiBold : Font.Normal
-        highlighted: control.highlightedIndex === index
+        highlighted: control.highlightedIndex === index || control.dragIndex === index
         hoverEnabled: control.hoverEnabled
         checkable: true
         checked: control.currentIndex === index

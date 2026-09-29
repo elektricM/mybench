@@ -12,7 +12,7 @@ device connection, one resource arbiter, one session file and one design system.
   registration from C++, `pragma ComponentBehavior: Bound`, required properties, no context
   properties).
 - Our own design system on top of the Controls **Basic**/Templates style (consistent on every OS),
-  dark theme by default (instrument displays), light theme available; theme = QML singleton.
+  follows the system light/dark setting and accent color by default (Preferences: System / Light / Dark); instrument displays keep their own colors; theme = QML singleton.
 - **Qt Quick Shapes** (curve renderer) for knobs/gauges, **Qt Quick Effects** (`MultiEffect`) for
   subtle glow/shadow, **VectorImage**/SVG icons tinted by the theme, animations/transitions,
   **Qt Quick Dialogs** (file/color/message), `QtCore.Settings` for UI preferences, Markdown
@@ -30,7 +30,7 @@ device connection, one resource arbiter, one session file and one design system.
 ┌──────┬──────────────────────────────────────────────────────────┬───────────┐
 │ nav  │ top bar: device ▾ (myDAQ 036CD1C6 ● / Simulated), resource │ dashboard │
 │ rail │ usage chips (AI: Scope · AO: Generator), Stop all, session, │ (pinnable │
-│      │ theme, help                                                 │  tiles:   │
+│      │ help                                                        │  tiles:   │
 │ Home │───────────────────────────────────────────────────────────  │  DMM      │
 │ DMM  │ workspace: instrument panels as tabs; any panel can be      │  reading, │
 │ Scope│ split beside another (SplitView) — e.g. Scope | Generator   │  DIO LEDs,│

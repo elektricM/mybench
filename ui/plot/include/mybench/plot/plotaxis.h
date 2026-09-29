@@ -43,6 +43,13 @@ class PlotAxis : public QObject
     Q_PROPERTY(double lowerLimit READ lowerLimit WRITE setLowerLimit NOTIFY limitsChanged FINAL)
     Q_PROPERTY(double upperLimit READ upperLimit WRITE setUpperLimit NOTIFY limitsChanged FINAL)
     Q_PROPERTY(double minimumSpan READ minimumSpan WRITE setMinimumSpan NOTIFY limitsChanged FINAL)
+    // Largest visible span (linear: axis units; log: decades). NaN: unlimited.
+    Q_PROPERTY(double maximumSpan READ maximumSpan WRITE setMaximumSpan NOTIFY limitsChanged FINAL)
+    // Keep the view over the data: interactive pan/zoom stays within the extent of the traces
+    // (all x, resp. all y) plus `limitMargin` x that extent on each side, so the data can never
+    // scroll out of sight. An explicit lowerLimit/upperLimit wins for its side.
+    Q_PROPERTY(bool limitToData READ limitToData WRITE setLimitToData NOTIFY limitsChanged FINAL)
+    Q_PROPERTY(double limitMargin READ limitMargin WRITE setLimitMargin NOTIFY limitsChanged FINAL)
     Q_PROPERTY(bool autoScale READ autoScale WRITE setAutoScale NOTIFY autoScaleChanged FINAL)
     Q_PROPERTY(double autoScaleMargin READ autoScaleMargin WRITE setAutoScaleMargin NOTIFY autoScaleChanged FINAL)
     Q_PROPERTY(bool follow READ follow WRITE setFollow NOTIFY followChanged FINAL)
@@ -105,6 +112,14 @@ public:
     // widen around the data centre (e.g. 1 mV for a DMM trend of a near-constant voltage).
     double minimumSpan() const { return m_minimumSpan; }
     void setMinimumSpan(double v);
+    double maximumSpan() const { return m_maximumSpan; }
+    void setMaximumSpan(double v);
+    bool limitToData() const { return m_limitToData; }
+    void setLimitToData(bool on);
+    double limitMargin() const { return m_limitMargin; }
+    void setLimitMargin(double f);
+    // Data extent for limitToData (set by the Plot on every update).
+    void setDataExtent(double lo, double hi);
     // Follow the data of the traces on this axis (range = data range + margin), every update.
     bool autoScale() const { return m_autoScale; }
     void setAutoScale(bool on);
@@ -183,6 +198,11 @@ private:
     double m_lowerLimit = qQNaN();
     double m_upperLimit = qQNaN();
     double m_minimumSpan = 0.0;
+    double m_maximumSpan = qQNaN();
+    bool m_limitToData = false;
+    double m_limitMargin = 0.25;
+    double m_dataLo = qQNaN();
+    double m_dataHi = qQNaN();
     bool m_autoScale = false;
     double m_autoScaleMargin = 0.08;
     bool m_follow = false;

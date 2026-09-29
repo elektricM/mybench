@@ -56,39 +56,75 @@ void PlotAxis::clampToLimits(double &min, double &max) const
     if (isLog()) {
         min = std::max(min, 1e-300);
         max = std::max(max, min * (1 + 1e-9));
-    } else if (span < minSpan) {
-        const double c = 0.5 * (min + max);
-        min = c - 0.5 * minSpan;
-        max = c + 0.5 * minSpan;
-        span = minSpan;
+        if (std::isfinite(m_maximumSpan) && m_maximumSpan > 0 && std::log10(max / min) > m_maximumSpan) {
+            const double c = 0.5 * (std::log10(min) + std::log10(max));
+            min = std::pow(10.0, c - 0.5 * m_maximumSpan);
+            max = std::pow(10.0, c + 0.5 * m_maximumSpan);
+        }
+    } else {
+        if (span < minSpan) {
+            const double c = 0.5 * (min + max);
+            min = c - 0.5 * minSpan;
+            max = c + 0.5 * minSpan;
+        }
+        if (std::isfinite(m_maximumSpan) && m_maximumSpan > 0 && max - min > m_maximumSpan) {
+            const double c = 0.5 * (min + max);
+            min = c - 0.5 * m_maximumSpan;
+            max = c + 0.5 * m_maximumSpan;
+        }
     }
-    const bool lo = std::isfinite(m_lowerLimit), hi = std::isfinite(m_upperLimit);
-    if (lo && hi && (m_upperLimit - m_lowerLimit) <= (max - min)) {
-        min = m_lowerLimit;
-        max = m_upperLimit;
+    // Effective limits: the explicit ones, else (limitToData) the data extent plus the margin.
+    double lower = m_lowerLimit, upper = m_upperLimit;
+    if (m_limitToData && std::isfinite(m_dataLo) && std::isfinite(m_dataHi) && m_dataHi >= m_dataLo) {
+        if (isLog() && m_dataLo > 0) {
+            const double pad = std::pow(m_dataHi / m_dataLo, m_limitMargin);
+            if (!std::isfinite(lower))
+                lower = m_dataLo / pad;
+            if (!std::isfinite(upper))
+                upper = m_dataHi * pad;
+        } else if (!isLog()) {
+            const double pad = std::max(m_dataHi - m_dataLo, minSpan) * m_limitMargin;
+            if (!std::isfinite(lower))
+                lower = m_dataLo - pad;
+            if (!std::isfinite(upper))
+                upper = m_dataHi + pad;
+        }
+    }
+    const bool lo = std::isfinite(lower), hi = std::isfinite(upper);
+    if (lo && hi && (upper - lower) <= (max - min)) {
+        min = lower;
+        max = upper;
         return;
     }
     if (isLog()) {
-        if (lo && min < m_lowerLimit) {
-            const double f = m_lowerLimit / min;
+        if (lo && min < lower) {
+            const double f = lower / min;
             min *= f;
             max *= f;
         }
-        if (hi && max > m_upperLimit) {
-            const double f = m_upperLimit / max;
+        if (hi && max > upper) {
+            const double f = upper / max;
             min *= f;
             max *= f;
         }
         return;
     }
-    if (lo && min < m_lowerLimit) {
-        max += m_lowerLimit - min;
-        min = m_lowerLimit;
+    if (lo && min < lower) {
+        max += lower - min;
+        min = lower;
     }
-    if (hi && max > m_upperLimit) {
-        min -= max - m_upperLimit;
-        max = m_upperLimit;
+    if (hi && max > upper) {
+        min -= max - upper;
+        max = upper;
     }
+}
+
+void PlotAxis::setDataExtent(double lo, double hi)
+{
+    if (m_dataLo == lo && m_dataHi == hi)
+        return;
+    m_dataLo = lo;
+    m_dataHi = hi;
 }
 
 void PlotAxis::setViewRange(double min, double max)
@@ -172,6 +208,9 @@ void PlotAxis::setInteractive(bool on) { MYBENCH_AXIS_SETTER(on, m_interactive, 
 void PlotAxis::setLowerLimit(double v) { MYBENCH_AXIS_SETTER(v, m_lowerLimit, limitsChanged) }
 void PlotAxis::setUpperLimit(double v) { MYBENCH_AXIS_SETTER(v, m_upperLimit, limitsChanged) }
 void PlotAxis::setMinimumSpan(double v) { v = std::max(0.0, v); MYBENCH_AXIS_SETTER(v, m_minimumSpan, limitsChanged) }
+void PlotAxis::setMaximumSpan(double v) { MYBENCH_AXIS_SETTER(v, m_maximumSpan, limitsChanged) }
+void PlotAxis::setLimitToData(bool on) { MYBENCH_AXIS_SETTER(on, m_limitToData, limitsChanged) }
+void PlotAxis::setLimitMargin(double f) { f = std::clamp(f, 0.0, 10.0); MYBENCH_AXIS_SETTER(f, m_limitMargin, limitsChanged) }
 void PlotAxis::setAutoScale(bool on) { MYBENCH_AXIS_SETTER(on, m_autoScale, autoScaleChanged) }
 void PlotAxis::setFollow(bool on) { MYBENCH_AXIS_SETTER(on, m_follow, followChanged) }
 void PlotAxis::setAutoScaleMargin(double f) { f = std::clamp(f, 0.0, 1.0); MYBENCH_AXIS_SETTER(f, m_autoScaleMargin, autoScaleChanged) }

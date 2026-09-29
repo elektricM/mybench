@@ -64,7 +64,7 @@ ApplicationWindow {
     Settings {
         id: prefs
         category: "appearance"
-        property bool darkTheme: true
+        property string themeMode: "system"     // system | light | dark (Preferences)
     }
     Settings {
         id: behaviour
@@ -122,18 +122,9 @@ ApplicationWindow {
             }
         })
     }
-    Binding {
-        target: Theme
-        property: "dark"
-        value: window.themeFromCommandLine ? AppInfo.theme === "dark" : prefs.darkTheme
-    }
-    Binding {
-        target: Theme
-        property: "animations"
-        value: AppInfo.animations
-    }
-    function toggleTheme() {
-        prefs.darkTheme = !Theme.dark
+    ThemeSync { mode: window.themeFromCommandLine ? AppInfo.theme : prefs.themeMode }
+    function setThemeMode(mode: string) {
+        prefs.themeMode = mode
         themeFromCommandLine = false
     }
 
@@ -173,6 +164,8 @@ ApplicationWindow {
             workspace.dashboardPinned = true
         if (AppInfo.flag("show-help"))
             workspace.showHelp(window.focusedController ? (InstrumentRegistry.info(workspace.focused).helpId ?? "app") : "app")
+        if (AppInfo.flag("preferences"))
+            preferences.open()
         if (AppInfo.flag("palette"))
             palette.open()
         if (AppInfo.flag("log"))
@@ -211,7 +204,6 @@ ApplicationWindow {
                 workspace: workspace
                 onPaletteRequested: palette.open()
                 onMoveWindowRequested: window.startSystemMove()
-                onThemeToggleRequested: window.toggleTheme()
                 onNewSessionRequested: window.newSession()
                 onOpenSessionRequested: window.openSession()
                 onOpenRecentRequested: file => window.openRecent(file)
@@ -360,7 +352,8 @@ ApplicationWindow {
     }
     PreferencesDialog {
         id: preferences
-        onThemeToggleRequested: window.toggleTheme()
+        themeMode: prefs.themeMode
+        onThemeModeRequested: mode => window.setThemeMode(mode)
     }
     DeviceInfoDialog { id: deviceInfo }
     AboutDialog { id: about }
@@ -542,10 +535,10 @@ ApplicationWindow {
             onActivated: window.openByIndex(index)
         }
     }
-    Shortcut { sequences: ["Ctrl+W"]; enabled: !workspace.home; onActivated: workspace.closeTab(workspace.currentIndex) }
+    Shortcut { sequences: [StandardKey.Close]; enabled: !workspace.home; onActivated: workspace.closeTab(workspace.currentIndex) }
     Shortcut { sequences: ["Ctrl+Tab"]; onActivated: workspace.select(workspace.currentIndex + 1 < workspace.tabs.length ? workspace.currentIndex + 1 : -1) }
     Shortcut { sequences: ["Ctrl+Shift+Tab"]; onActivated: workspace.select(workspace.currentIndex > -1 ? workspace.currentIndex - 1 : workspace.tabs.length - 1) }
-    Shortcut { sequences: [StandardKey.HelpContents, "F1"]; onActivated: workspace.toggleHelp() }
+    Shortcut { sequences: Theme.macShortcuts ? [StandardKey.HelpContents, "F1"] : [StandardKey.HelpContents]; onActivated: workspace.toggleHelp() }
     Shortcut { sequences: ["Ctrl+Shift+D"]; onActivated: workspace.toggleDashboard() }
     Shortcut {
         sequences: ["Shift+Space"]
@@ -555,7 +548,7 @@ ApplicationWindow {
     Shortcut { sequences: ["Ctrl+\\"]; onActivated: window.toggleSplit() }
     Shortcut { sequences: ["Ctrl+I"]; enabled: window.focusedController !== null; onActivated: ShellActions.inspectorToggleRequested(window.focusedController.instrumentId) }
     Shortcut { sequences: ["Ctrl+L"]; enabled: window.focusedController !== null; onActivated: ShellActions.exportDataRequested(window.focusedController.instrumentId) }
-    Shortcut { sequences: ["Ctrl+P"]; enabled: window.focusedController !== null; onActivated: ShellActions.printRequested(window.focusedController.instrumentId) }
+    Shortcut { sequences: [StandardKey.Print]; enabled: window.focusedController !== null; onActivated: ShellActions.printRequested(window.focusedController.instrumentId) }
     Shortcut {
         sequences: ["Ctrl+Shift+F"]
         enabled: window.focusedController !== null
@@ -566,7 +559,6 @@ ApplicationWindow {
     Shortcut { sequences: [StandardKey.New]; onActivated: window.newSession() }
     Shortcut { sequences: [StandardKey.Quit]; onActivated: window.close() }
     Shortcut { sequences: ["Ctrl+,"]; onActivated: preferences.open() }
-    Shortcut { sequences: ["Ctrl+Shift+L"]; onActivated: window.toggleTheme() }
     Shortcut { sequences: [StandardKey.Save]; onActivated: window.saveSession() }
     Shortcut { sequences: ["Ctrl+Shift+S"]; onActivated: window.saveSessionAs() }
     Shortcut { sequences: [StandardKey.Open]; onActivated: window.openSession() }
@@ -615,9 +607,11 @@ ApplicationWindow {
             }
         }
         list.push({ title: qsTr("Stop all instruments"), icon: "stop-filled", keys: "Ctrl+.", run: () => InstrumentRegistry.stopAll() })
-        list.push({ title: Theme.dark ? qsTr("Switch to light theme") : qsTr("Switch to dark theme"),
-                    icon: Theme.dark ? "sun" : "moon", keys: "Ctrl+Shift+L", keywords: "theme appearance",
-                    run: () => window.toggleTheme() })
+        for (const mode of [{ id: "system", text: qsTr("Theme: follow the system") },
+                            { id: "light", text: qsTr("Theme: light") },
+                            { id: "dark", text: qsTr("Theme: dark") }])
+            list.push({ title: mode.text, icon: mode.id === "light" ? "sun" : mode.id === "dark" ? "moon" : "settings",
+                        keywords: "theme appearance color scheme", run: () => window.setThemeMode(mode.id) })
         list.push({ title: workspace.dashboardPinned ? qsTr("Unpin dashboard") : qsTr("Pin dashboard"),
                     icon: "sidebar-right", keys: "Ctrl+Shift+D", run: () => workspace.toggleDashboard() })
         list.push({ title: workspace.helpOpen ? qsTr("Hide help") : qsTr("Show help"), icon: "help-circle", keys: "F1",

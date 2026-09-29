@@ -108,7 +108,7 @@ Rectangle {
                     : root.plot.zoomAxes === Plot.ZoomX ? "zoom-x" : "zoom-y"
             checked: zoomTool
             toolTip: qsTr("Zoom")
-            shortcutText: Qt.platform.os === "osx" ? qsTr("⌘-drag") : qsTr("Ctrl+drag")
+            shortcutText: Theme.macShortcuts ? qsTr("⌘-drag") : qsTr("Ctrl+drag")
             onClicked: zoomMenu.popup(zoomButton, 0, zoomButton.height + 4)
 
             Menu {

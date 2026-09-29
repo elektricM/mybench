@@ -612,6 +612,17 @@ void Plot::autoscale()
 
 void PlotPrivate::applyAutoScale()
 {
+    // limitToData: the extent of all data bounds interactive pan/zoom.
+    if (xAxis && xAxis->limitToData()) {
+        double lo, hi;
+        if (dataXRange(&lo, &hi))
+            xAxis->setDataExtent(lo, hi);
+    }
+    if (yAxis && yAxis->limitToData()) {
+        double lo, hi;
+        if (dataYRange(-1e300, 1e300, &lo, &hi))
+            yAxis->setDataExtent(lo, hi);
+    }
     if (xLock) {
         fitX();
     } else if (xAxis && xAxis->follow()) {
@@ -841,8 +852,10 @@ void Plot::mousePressEvent(QMouseEvent *event)
                           || d->dragMode == Zoom;
     if (event->button() == Qt::MiddleButton || (!zoomDrag && d->dragMode == Pan))
         d->drag = PlotPrivate::Drag::Pan;
-    else if (zoomDrag && d->dragMode != NoDrag)
+    else if (zoomDrag && d->dragMode != NoDrag) {
         d->drag = PlotPrivate::Drag::Zoom;
+        d->dragAxes = d->zoomAxes;
+    }
     if (d->drag == PlotPrivate::Drag::Pan)
         setCursor(Qt::ClosedHandCursor);
     event->accept();
@@ -946,9 +959,20 @@ void Plot::mouseMoveEvent(QMouseEvent *event)
     }
     case PlotPrivate::Drag::Zoom:
         d->rubberRect = QRectF(d->pressPos, p).normalized().intersected(d->area);
-        if (d->zoomAxes == ZoomX)
+        // A near-horizontal or near-vertical drag zooms only that axis (axis lock).
+        d->dragAxes = d->zoomAxes;
+        if (d->dragAxes == ZoomXY) {
+            const double ax = std::abs(p.x() - d->pressPos.x()), ay = std::abs(p.y() - d->pressPos.y());
+            if (std::max(ax, ay) >= 12) {
+                if (ay < 0.3 * ax)
+                    d->dragAxes = ZoomX;
+                else if (ax < 0.3 * ay)
+                    d->dragAxes = ZoomY;
+            }
+        }
+        if (d->dragAxes == ZoomX)
             d->rubberRect = QRectF(d->rubberRect.left(), d->area.top(), d->rubberRect.width(), d->area.height());
-        else if (d->zoomAxes == ZoomY)
+        else if (d->dragAxes == ZoomY)
             d->rubberRect = QRectF(d->area.left(), d->rubberRect.top(), d->area.width(), d->rubberRect.height());
         requestUpdate();
         break;
@@ -976,8 +1000,8 @@ void Plot::mouseReleaseEvent(QMouseEvent *event)
     if (drag == PlotPrivate::Drag::Zoom) {
         const QRectF r = d->rubberRect;
         d->rubberRect = QRectF();
-        const bool zx = d->zoomAxes != ZoomY && r.width() > 4 && d->xAxis && d->xAxis->interactive();
-        const bool zy = d->zoomAxes != ZoomX && r.height() > 4 && d->yAxis && d->yAxis->interactive();
+        const bool zx = d->dragAxes != ZoomY && r.width() > 4 && d->xAxis && d->xAxis->interactive();
+        const bool zy = d->dragAxes != ZoomX && r.height() > 4 && d->yAxis && d->yAxis->interactive();
         if (zx || zy)
             d->pushHistory();
         if (zx) {

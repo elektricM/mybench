@@ -10,7 +10,9 @@ import MyBench.Controls
 Dialog {
     id: dialog
 
-    signal themeToggleRequested()
+    // "system" (default), "light" or "dark"; the shell stores it and drives Theme.mode.
+    property string themeMode: "system"
+    signal themeModeRequested(string mode)
 
     anchors.centerIn: Overlay.overlay
     width: 480
@@ -55,10 +57,28 @@ Dialog {
 
     contentItem: ColumnLayout {
         spacing: Theme.spacingL
-        PreferenceRow {
-            title: qsTr("Dark theme")
-            checked: Theme.dark
-            onToggled: dialog.themeToggleRequested()
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingM
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+                Text { text: qsTr("Appearance"); color: Theme.text; font.pixelSize: Theme.fontSizeBody }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("System follows the light or dark setting and the accent color of your desktop.")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeM
+                    wrapMode: Text.WordWrap
+                }
+            }
+            SegmentedControl {
+                objectName: "themeModeControl"
+                readonly property var modes: ["system", "light", "dark"]
+                model: [qsTr("System"), qsTr("Light"), qsTr("Dark")]
+                currentIndex: Math.max(0, modes.indexOf(dialog.themeMode))
+                onActivated: index => dialog.themeModeRequested(modes[index])
+            }
         }
         PreferenceRow {
             title: qsTr("Restore the last session on start")

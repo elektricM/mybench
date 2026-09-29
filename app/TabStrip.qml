@@ -67,6 +67,13 @@ Rectangle {
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
 
+        // Middle click closes the tab, like a browser tab (Home is not closable).
+        TapHandler {
+            acceptedButtons: Qt.MiddleButton
+            enabled: tab.closable
+            onTapped: tab.closeRequested()
+        }
+
         background: Item {
             Rectangle {
                 anchors.fill: parent
@@ -129,7 +136,7 @@ Rectangle {
                 size: 20
                 iconSize: 12
                 iconName: "close"
-                toolTip: qsTr("Close tab")
+                toolTip: qsTr("Close tab (stops the instrument)")
                 shortcutText: Theme.keys("Ctrl+W")
                 onClicked: tab.closeRequested()
             }
@@ -162,6 +169,7 @@ Rectangle {
             model: strip.workspace.tabs
             delegate: StripTab {
                 id: instrumentTab
+                objectName: "instrumentTab-" + modelData.primary
                 required property var modelData
                 required property int index
                 readonly property var primary: InstrumentRegistry.info(modelData.primary)

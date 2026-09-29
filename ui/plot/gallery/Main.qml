@@ -110,7 +110,7 @@ Rectangle {
                 }
                 Text {
                     Layout.leftMargin: 6
-                    text: "Wheel: zoom · drag: pan\nCtrl/⌘-drag: zoom box\nDouble-click: reset"
+                    text: "Wheel: zoom · drag: pan\nCtrl-drag (⌘ on macOS): zoom box\nDouble-click: reset"
                     color: root.theme.muted
                     font.pixelSize: 11
                     lineHeight: 1.25

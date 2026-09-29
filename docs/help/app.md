@@ -21,17 +21,18 @@ used the NI ELVISmx instruments, you will find the same instruments, settings an
 
 ## The window
 
-- **Navigation rail** (left): Home and one button per instrument. A dot shows that an instrument is
+- **Navigation rail** (left): Home and one button per instrument. A click opens the instrument or
+  brings its tab to the front (it never closes anything; close the tab for that). A dot shows that an instrument is
   running (green), paused (amber) or stopped by an error (red).
 - **Top bar**: the **device** in use, chips showing which instrument uses which part of the myDAQ
-  (`AI: Scope`, `AO: Generator` ...), **Stop all**, the **session** menu, the theme and help buttons.
-- **Workspace**: instruments open as tabs. Use the split button (or `Ctrl/⌘+\`) to show two side by
-  side, for example the Generator next to the Scope. `Ctrl/⌘`+click an instrument in the rail to
+  (`AI: Scope`, `AO: Generator` ...), **Stop all**, the **session** menu and the help button.
+- **Workspace**: instruments open as tabs. Use the split button (or `Ctrl+\`) to show two side by
+  side, for example the Generator next to the Scope. `Ctrl`+click an instrument in the rail to
   open it in the other pane. Drag a tab to reorder it, or drop it on the left or right half of the
-  workspace to show it there. Closing a tab stops that instrument and puts its outputs in a safe
+  workspace to show it there. Middle-click a tab, or use its **x** or `Ctrl+W`, to close it. Closing a tab stops that instrument and puts its outputs in a safe
   state (digital lines back to inputs, analog outputs to 0 V).
 - **Resource chips**: right-click one to stop or show that instrument.
-- **Dashboard column** (right, optional, `Ctrl/⌘+Shift+D`): small live tiles, always visible next
+- **Dashboard column** (right, optional, `Ctrl+Shift+D`): small live tiles, always visible next
   to the panel you work in. It starts with the DMM and DIO tiles; **+** adds another instrument, the
   **×** of a tile removes it, and the small grip at the top of a tile drags it to another place. The
   choice is kept with the layout and in sessions.
@@ -117,7 +118,7 @@ Every graph has a small toolbar that appears at its top right when the pointer i
 zoom in, zoom out, undo zoom, reset) and **pan**, then **X** and **Y autoscale**. Click an autoscale
 button to fit that axis to the data once; click its lock to keep fitting it as new data arrive (any
 zoom or pan of that axis turns the lock off). Without the toolbar: wheel zooms time/frequency,
-`Shift`+wheel zooms vertically, `Ctrl/⌘`+drag draws a zoom box, dragging pans, double-click resets.
+`Shift`+wheel zooms vertically, `Ctrl`+drag draws a zoom box, dragging pans, double-click resets.
 **Undo zoom** steps back through your zooms.
 
 Right-click a graph for Autoscale X/Y, the autoscale locks, Undo and Reset zoom, Cursors on/off
@@ -128,28 +129,36 @@ or to the top of the graph); changes show immediately, Cancel undoes them.
 
 ## Saving results
 
-- **Export data** (`Ctrl/⌘+L`) saves the last measurement as CSV or TSV, with a header describing
+- **Export data** (`Ctrl+L`) saves the last measurement as CSV or TSV, with a header describing
   the settings and the device.
-- **Export image… / Export PDF… / Print…** (`Ctrl/⌘+P` prints) first show the print options
+- **Export image… / Export PDF… / Print…** (`Ctrl+P` prints) first show the print options
   (like the ELVISmx Print dialog): what to include (the display or the whole panel), **Ink saver**
   (white background, dark grid and text, traces in colour), your **user name**, the **computer
   name**, a **time stamp** and the **settings table**, then the page orientation and, for printing,
   the printer and number of copies. The choices are remembered. Export dialogs start in the folder
   you last used for that kind of file.
 
+## Appearance
+
+**Preferences** (`Ctrl+,`) has the appearance: **System** (the default: follows the light or dark
+setting and the accent color of your desktop), **Light** or **Dark**. Instrument displays keep
+their own display colors in every mode.
+
 ## Keyboard shortcuts
+
+Shortcuts use `Ctrl`; on macOS the same keys use `⌘` (Command) instead. The hints in tooltips and the command palette show the keys of your system.
 
 | Keys | Action |
 |---|---|
 | `Space` / `Shift+Space` | Run/Stop / Single for the current instrument |
-| `Ctrl/⌘+.` | Stop all |
-| `Ctrl/⌘+K` | command palette (type to find any command) |
+| `Ctrl+.` | Stop all |
+| `Ctrl+K` | command palette (type to find any command) |
 | `F1` | help |
-| `Ctrl/⌘+0` ... `6` | Home, DMM, Scope, Gen, Bode, Spec, DIO |
-| `Ctrl/⌘+\` | split view |
-| `Ctrl/⌘+Shift+F`, `Esc` | focus mode (display only) on/off |
-| `Ctrl/⌘+L`, `Ctrl/⌘+P` | export data, print (options for image / PDF / printer) |
-| `Ctrl/⌘+S`, `Ctrl/⌘+O`, `Ctrl/⌘+N` | save, open, new session |
+| `Ctrl+0` ... `6` | Home, DMM, Scope, Gen, Bode, Spec, DIO |
+| `Ctrl+\` | split view |
+| `Ctrl+Shift+F`, `Esc` | focus mode (display only) on/off |
+| `Ctrl+L`, `Ctrl+P` | export data, print (options for image / PDF / printer) |
+| `Ctrl+S`, `Ctrl+O`, `Ctrl+N` | save, open, new session |
 
 ## Tips
 
@@ -157,7 +166,7 @@ or to the top of the graph); changes show immediately, Cancel undoes them.
   that digit (no need to click first); the tooltip shows the allowed range.
 - Knobs work with drag, mouse wheel and arrow keys; double-click returns a knob to its default
   (where the instrument defines one).
-- The command palette (`Ctrl/⌘+K`) also lists each instrument's own commands; some ask for a value
+- The command palette (`Ctrl+K`) also lists each instrument's own commands; some ask for a value
   (type it and press Enter).
 - `Space` runs/stops the instrument, except while a button, switch, list or text field has the
   keyboard focus (then Space belongs to that control).

@@ -166,6 +166,7 @@ struct PlotPrivate {
     QPointer<PlotElement> selected;
     std::vector<HitArea> hits;
     QRectF rubberRect;
+    Plot::ZoomAxes dragAxes = Plot::ZoomXY;   // axes of the zoom drag in progress (axis lock)
     Plot::ZoomAxes zoomAxes = Plot::ZoomXY;
     bool panPushed = false;  // the current pan drag has pushed its history entry
 

@@ -29,21 +29,12 @@ ApplicationWindow {
     Settings {
         id: prefs
         category: "appearance"
-        property bool darkTheme: true
+        property string themeMode: "system"
     }
-    Binding {
-        target: Theme
-        property: "dark"
-        value: window.themeFromCommandLine ? AppInfo.theme === "dark" : prefs.darkTheme
-    }
-    Binding {
-        target: Theme
-        property: "animations"
-        value: AppInfo.animations
-    }
+    ThemeSync { mode: window.themeFromCommandLine ? AppInfo.theme : prefs.themeMode }
 
     function toggleTheme() {
-        prefs.darkTheme = !Theme.dark
+        prefs.themeMode = Theme.dark ? "light" : "dark"
         themeFromCommandLine = false
     }
 
@@ -61,7 +52,7 @@ ApplicationWindow {
         onActivated: window.controller.toggle()
     }
     Shortcut {
-        sequences: [StandardKey.HelpContents, "F1"]
+        sequences: Theme.macShortcuts ? [StandardKey.HelpContents, "F1"] : [StandardKey.HelpContents]
         onActivated: window.helpOpen = !window.helpOpen
     }
 

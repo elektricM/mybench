@@ -3,7 +3,6 @@
 #include <QJsonArray>
 #include <QMetaEnum>
 #include <QObject>
-#include <QMetaSequence>
 #include <QVariant>
 
 #include <cmath>
@@ -45,11 +44,11 @@ QJsonValue fromVariant(const QVariant& value)
     }
     if (value.typeId() == QMetaType::QVariantMap)
         return QJsonObject::fromVariantMap(value.toMap());
-    if (value.canConvert<QMetaSequence::Iterable>()) {
+    if (value.canConvert<QVariantList>()) {
         QJsonArray array;
-        const QMetaSequence::Iterable iterable = value.value<QMetaSequence::Iterable>();
-        for (auto it = iterable.constBegin(); it != iterable.constEnd(); ++it) {
-            const QJsonValue v = fromVariant(QVariant(*it));
+        const QVariantList list = value.toList();
+        for (const QVariant& item : list) {
+            const QJsonValue v = fromVariant(item);
             array.append(v.isUndefined() ? QJsonValue() : v);
         }
         return array;

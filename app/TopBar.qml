@@ -7,7 +7,7 @@ import MyBench.Framework
 import MyBench.Controls
 
 // Top bar: device selector and status, resource chips, command palette, Stop all, session
-// menu, dashboard pin, theme, help. Doubles as the window's title bar on macOS.
+// menu, dashboard pin, help. Doubles as the window's title bar on macOS.
 Rectangle {
     id: bar
 
@@ -15,7 +15,6 @@ Rectangle {
 
     signal paletteRequested()
     signal moveWindowRequested()
-    signal themeToggleRequested()
     signal newSessionRequested()
     signal openSessionRequested()
     signal openRecentRequested(url file)
@@ -168,12 +167,6 @@ Rectangle {
             toolTip: bar.workspace.dashboardPinned ? qsTr("Unpin dashboard") : qsTr("Pin dashboard")
             shortcutText: Theme.keys("Ctrl+Shift+D")
             onClicked: bar.workspace.toggleDashboard()
-        }
-        IconButton {
-            iconName: Theme.dark ? "sun" : "moon"
-            toolTip: Theme.dark ? qsTr("Light theme") : qsTr("Dark theme")
-            shortcutText: Theme.keys("Ctrl+Shift+L")
-            onClicked: bar.themeToggleRequested()
         }
         IconButton {
             iconName: "help-circle"

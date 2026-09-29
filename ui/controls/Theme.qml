@@ -7,42 +7,71 @@ QtObject {
     id: theme
 
     // --- Appearance ------------------------------------------------------------------------
-    property bool dark: true
+    // "system" (default: follow the platform's light/dark setting), "light" or "dark".
+    property string mode: "system"
+    // The platform's palette (KDE, macOS, Windows, GNOME through QPalette). Overridable so tests
+    // can play any platform. `platformProvided` is false where Qt reports no color scheme
+    // (offscreen): the built-in colors are used there.
+    property color systemWindow: sysPalette.window
+    property color systemBase: sysPalette.base
+    property color systemText: sysPalette.windowText
+    property color systemAccent: sysPalette.accent
+    property bool platformProvided: Application.styleHints.colorScheme !== Qt.Unknown
+    readonly property bool systemDark: Application.styleHints.colorScheme !== Qt.Light
+    readonly property bool dark: mode === "dark" || (mode === "system" && systemDark)
     readonly property bool light: !dark
+    // The platform palette is used only when it matches the chosen light/dark look (a "Dark"
+    // choice on a light desktop uses the built-in dark colors, keeping every color readable).
+    readonly property bool followSystem: platformProvided && (luminance(systemWindow) < 0.5) === dark
     // Animations can be turned off globally (screenshots, reduced motion).
     property bool animations: true
 
+    property SystemPalette sysPalette: SystemPalette { colorGroup: SystemPalette.Active }
+
     // --- Surfaces --------------------------------------------------------------------------
-    readonly property color window: dark ? "#0A0B0E" : "#EEF0F3"          // behind everything
-    readonly property color chrome: dark ? "#0F1014" : "#F7F8FA"          // nav rail, top/status bar
-    readonly property color surface: dark ? "#131519" : "#FFFFFF"         // panels, inspector
-    readonly property color surfaceRaised: dark ? "#191B21" : "#FFFFFF"   // cards, popups, menus
-    readonly property color surfaceSunken: dark ? "#0E0F13" : "#F4F5F7"   // input wells, tracks
-    readonly property color surfaceHover: dark ? "#1F2229" : "#EFF1F4"
-    readonly property color surfacePressed: dark ? "#262A32" : "#E5E8EC"
-    readonly property color surfaceSelected: dark ? "#232735" : "#E8EDFD"
-    readonly property color display: dark ? "#060709" : "#FCFCFD"         // instrument display areas
+    // With the platform palette: window = the system window color; surfaces are shades of it.
+    readonly property color window: followSystem ? (dark ? mix(systemWindow, "#000000", 0.25) : systemWindow)
+                                                 : (dark ? "#0A0B0E" : "#EEF0F3")          // behind everything
+    readonly property color chrome: followSystem ? (dark ? mix(systemWindow, "#000000", 0.12) : mix(systemWindow, "#FFFFFF", 0.45))
+                                                 : (dark ? "#0F1014" : "#F7F8FA")          // nav rail, top/status bar
+    readonly property color surface: followSystem ? (dark ? systemWindow : mix(systemWindow, systemBase, 0.75))
+                                                  : (dark ? "#131519" : "#FFFFFF")         // panels, inspector
+    readonly property color surfaceRaised: followSystem ? (dark ? mix(systemWindow, "#FFFFFF", 0.05) : systemBase)
+                                                        : (dark ? "#191B21" : "#FFFFFF")   // cards, popups, menus
+    readonly property color surfaceSunken: followSystem ? (dark ? mix(systemWindow, "#000000", 0.2) : mix(systemWindow, systemBase, 0.5))
+                                                        : (dark ? "#0E0F13" : "#F4F5F7")   // input wells, tracks
+    readonly property color surfaceHover: followSystem ? mix(surface, systemText, dark ? 0.08 : 0.06)
+                                                       : (dark ? "#1F2229" : "#EFF1F4")
+    readonly property color surfacePressed: followSystem ? mix(surface, systemText, dark ? 0.14 : 0.11)
+                                                         : (dark ? "#262A32" : "#E5E8EC")
+    readonly property color surfaceSelected: followSystem ? mix(surface, accent, dark ? 0.2 : 0.14)
+                                                          : (dark ? "#232735" : "#E8EDFD")
+    readonly property color display: dark ? "#060709" : "#FCFCFD"         // instrument display areas (fixed)
     readonly property color displayBorder: dark ? "#1B1E25" : "#DFE2E8"
     readonly property color displayGrid: dark ? "#1A1F24" : "#E7EAEE"
-    readonly property color border: dark ? "#23262E" : "#E1E4E9"
-    readonly property color borderStrong: dark ? "#323641" : "#C9CED6"
-    readonly property color divider: dark ? "#1C1F25" : "#E8EAEE"
+    readonly property color border: followSystem ? mix(surface, systemText, dark ? 0.14 : 0.14)
+                                                 : (dark ? "#23262E" : "#E1E4E9")
+    readonly property color borderStrong: followSystem ? mix(surface, systemText, dark ? 0.26 : 0.26)
+                                                       : (dark ? "#323641" : "#C9CED6")
+    readonly property color divider: followSystem ? mix(surface, systemText, 0.09)
+                                                  : (dark ? "#1C1F25" : "#E8EAEE")
     readonly property color overlay: dark ? Qt.rgba(0, 0, 0, 0.55) : Qt.rgba(0.07, 0.08, 0.11, 0.25)
     readonly property color shadow: dark ? Qt.rgba(0, 0, 0, 0.65) : Qt.rgba(0.09, 0.11, 0.16, 0.16)
 
     // --- Text ------------------------------------------------------------------------------
-    readonly property color text: dark ? "#E7E9EE" : "#14161B"
-    readonly property color textSecondary: dark ? "#A1A7B3" : "#4B5261"
-    readonly property color textMuted: dark ? "#6B717E" : "#7F8695"
-    readonly property color textDisabled: dark ? "#454A55" : "#B4B9C3"
-    readonly property color textOnAccent: "#FFFFFF"
+    readonly property color text: followSystem ? systemText : (dark ? "#E7E9EE" : "#14161B")
+    readonly property color textSecondary: followSystem ? mix(systemText, surface, 0.25) : (dark ? "#A1A7B3" : "#4B5261")
+    readonly property color textMuted: followSystem ? mix(systemText, surface, 0.46) : (dark ? "#6B717E" : "#7F8695")
+    readonly property color textDisabled: followSystem ? mix(systemText, surface, 0.68) : (dark ? "#454A55" : "#B4B9C3")
+    readonly property color textOnAccent: onColor(accent)
 
     // --- Accent and status -------------------------------------------------------------------
-    readonly property color accent: dark ? "#6D8BFF" : "#3A5BD9"
-    readonly property color accentHover: dark ? "#8BA3FF" : "#2F4DC4"
-    readonly property color accentPressed: dark ? "#5673E6" : "#2843AD"
+    // The platform accent (or highlight) color, nudged until it is readable on the surfaces.
+    readonly property color accent: platformProvided ? readable(systemAccent, surface, 3) : (dark ? "#6D8BFF" : "#3A5BD9")
+    readonly property color accentHover: dark ? mix(accent, "#FFFFFF", 0.2) : mix(accent, "#000000", 0.14)
+    readonly property color accentPressed: dark ? mix(accent, "#000000", 0.14) : mix(accent, "#000000", 0.28)
     readonly property color accentMuted: alpha(accent, dark ? 0.18 : 0.11)
-    readonly property color focusRing: dark ? "#8BA3FF" : "#3A5BD9"
+    readonly property color focusRing: accentHover
     readonly property color success: dark ? "#3DD68C" : "#0F9D58"
     readonly property color warning: dark ? "#F2B340" : "#B86E00"
     readonly property color danger: dark ? "#F0625D" : "#D7372F"
@@ -147,6 +176,23 @@ QtObject {
         if (name.indexOf(":") >= 0 || name.indexOf("/") >= 0)
             return name
         return "qrc:/qt/qml/MyBench/Controls/icons/" + name + ".svg"
+    }
+    // Relative luminance (WCAG) and contrast ratio of two colors.
+    function luminance(c: color): real {
+        const lin = v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+        return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+    }
+    function contrast(a: color, b: color): real {
+        const la = luminance(a), lb = luminance(b)
+        return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+    }
+    // `c` moved toward white (dark) / black (light) until it has `ratio` contrast on `bg`.
+    function readable(c: color, bg: color, ratio: real): color {
+        const target = luminance(bg) < 0.4 ? "#FFFFFF" : "#000000"
+        let result = c
+        for (let i = 0; i < 12 && contrast(result, bg) < ratio; ++i)
+            result = mix(result, target, 0.12)
+        return result
     }
     function alpha(c: color, a: real): color {
         return Qt.rgba(c.r, c.g, c.b, a)
