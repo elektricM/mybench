@@ -29,7 +29,7 @@ qt_add_qml_module(mybench_controls
     OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml/MyBench/Controls
     IMPORT_PATH ${CMAKE_BINARY_DIR}/qml
     DEPENDENCIES QtQuick MyBench.Framework MyBench.Plot
-    SOURCES fonts.h fonts.cpp
+    SOURCES fonts.h fonts.cpp wheelguard.h wheelguard.cpp
     QML_FILES ${MYBENCH_CONTROLS_QML}
     RESOURCES ${MYBENCH_ICONS}
 )

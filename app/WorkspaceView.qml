@@ -185,12 +185,18 @@ Item {
             Loader {
                 id: loader
                 anchors.fill: parent
-                asynchronous: false
+                // Compiled and created in slices between frames: opening never blocks the UI.
+                asynchronous: true
             }
-            BusyIndicator {
-                anchors.centerIn: parent
-                running: loader.status === Loader.Loading
-                visible: running
+            // Light placeholder while the panel is created in the background.
+            Rectangle {
+                anchors.fill: parent
+                visible: loader.status === Loader.Loading
+                color: Theme.surface
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    running: parent.visible
+                }
             }
             EmptyState {
                 anchors.centerIn: parent

@@ -86,6 +86,7 @@ Rectangle {
             interactive: !tiles.dragging
             clip: true
             ScrollBar.vertical: ScrollBar {}
+            WheelScroll { flickable: flick }
 
             ColumnLayout {
                 id: tiles

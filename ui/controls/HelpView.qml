@@ -118,6 +118,7 @@ Rectangle {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
+            WheelScroll { flickable: flick }
 
             TextEdit {
                 id: page

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Templates as T
+import MyBench.Controls
 
 T.ScrollView {
     id: control
@@ -8,6 +9,18 @@ T.ScrollView {
                             contentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              contentHeight + topPadding + bottomPadding)
+
+    // Native wheel/touchpad scrolling and no rubber band on the Flickable inside (WheelScroll).
+    WheelScroll {
+        flickable: control.contentItem as Flickable
+        enabled: flickable !== null
+    }
+
+    Component.onCompleted: {
+        const flick = contentItem as Flickable
+        if (flick)
+            flick.boundsBehavior = Flickable.StopAtBounds
+    }
 
     ScrollBar.vertical: ScrollBar {
         parent: control

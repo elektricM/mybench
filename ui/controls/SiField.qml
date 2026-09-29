@@ -8,8 +8,8 @@ import MyBench.Framework
 // - Shows the value with an SI prefix and unit ("1.000 kHz"); accepts typed prefixes ("1.5k",
 //   "20m", "4,7 k", "1e3") — Enter or focus loss commits, Escape reverts.
 // - Per-digit tuning: Up/Down change the digit left of the cursor (highlighted), Left/Right pick
-//   the digit, PageUp/PageDown step ten times; the wheel over a digit (hovered, focus not needed)
-//   changes that digit; the small arrows step by `stepSize` (or the selected digit).
+//   the digit, PageUp/PageDown step ten times; the wheel over a digit changes that digit when the field has focus or the
+//   wheel gesture starts over it (a scroll passing over keeps scrolling the view, WheelGuard); the small arrows step by `stepSize` (or the selected digit).
 // - `label` is the control's name (accessible name, app.md 7.4). Without a `toolTip`, the tooltip
 //   is "<label> (from <from> to <to>)" built from the range and unit (app.md 7.1).
 // - Out-of-range values are coerced to [from, to] (LabVIEW behaviour), with a short flash.
@@ -293,7 +293,9 @@ T.TextField {
     }
 
     WheelHandler {
+        // native etiquette: a scroll passing over the field keeps scrolling its view
         enabled: (control.hovered || control.activeFocus) && control.enabled && !control.readOnly
+                 && (control.activeFocus || WheelGuard.freshGesture)
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
             control.wheelAccumulator += event.angleDelta.y

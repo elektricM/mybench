@@ -23,6 +23,7 @@ Rectangle {
         boundsBehavior: Flickable.StopAtBounds
         clip: true
         ScrollBar.vertical: ScrollBar { policy: flick.contentHeight > flick.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+        WheelScroll { flickable: flick }
 
         ColumnLayout {
             id: column

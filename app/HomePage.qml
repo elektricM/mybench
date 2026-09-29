@@ -158,6 +158,7 @@ Rectangle {
         boundsBehavior: Flickable.StopAtBounds
         clip: true
         ScrollBar.vertical: ScrollBar {}
+        WheelScroll { flickable: flick }
 
         ColumnLayout {
             id: page

@@ -85,9 +85,11 @@ Rectangle {
             Notifications.notify(Notifications.Info, qsTr("Nothing to export yet"), qsTr("Run the instrument first."))
             return
         }
-        dataDialog.currentFolder = DataExport.lastFolderFor("csv")
-        dataDialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, "csv")
-        dataDialog.open()
+        dataLoader.active = true
+        const dialog = dataLoader.item as FileDialog
+        dialog.currentFolder = DataExport.lastFolderFor("csv")
+        dialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, "csv")
+        dialog.open()
     }
     // Export image… / Export PDF… / Print… (app.md 10.2): the Print options first (PrintDialog:
     // ink saver, user/computer/time stamp, settings table, orientation, printer, copies), then
@@ -99,21 +101,25 @@ Rectangle {
         openPrintDialog(DataExport.printingAvailable ? "printer" : "pdf")
     }
     function openPrintDialog(destination: string) {
-        printDialog.destination = destination
-        printDialog.open()
+        printLoader.active = true
+        const dialog = printLoader.item as PrintDialog
+        dialog.destination = destination
+        dialog.open()
     }
     function continuePrint() {
-        const options = printDialog.options()
+        const options = (printLoader.item as PrintDialog).options()
         if (options.destination === "printer") {
             writeImage("", options)
             return
         }
         const pdf = options.destination === "pdf"
-        imageDialog.pdf = pdf
-        imageDialog.exportOptions = options
-        imageDialog.currentFolder = DataExport.lastFolderFor(pdf ? "pdf" : "png")
-        imageDialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, pdf ? "pdf" : "png")
-        imageDialog.open()
+        imageLoader.active = true
+        const dialog = imageLoader.item as FileDialog
+        dialog.pdf = pdf
+        dialog.exportOptions = options
+        dialog.currentFolder = DataExport.lastFolderFor(pdf ? "pdf" : "png")
+        dialog.selectedFile = DataExport.suggestedFileUrl(instrumentId, pdf ? "pdf" : "png")
+        dialog.open()
     }
     // Grabs the display (or the whole panel, options.target) at 2x and writes it. `options`:
     // PrintDialog.options(), or a bool for the old signature (true = PDF, default options).
@@ -162,27 +168,37 @@ Rectangle {
         active: false
         sourceComponent: TraceStyleDialog { entries: root.traceStyles }
     }
-    FileDialog {
-        id: dataDialog
-        title: qsTr("Export %1 data").arg(root.controller ? root.controller.title : "")
-        fileMode: FileDialog.SaveFile
-        nameFilters: DataExport.nameFiltersFor(root.instrumentId)
-        onAccepted: root.controller.exportData(selectedFile)
+    // Export/print dialogs are created on first use, not with the panel (panel opening time).
+    Loader {
+        id: dataLoader
+        active: false
+        sourceComponent: FileDialog {
+            title: qsTr("Export %1 data").arg(root.controller ? root.controller.title : "")
+            fileMode: FileDialog.SaveFile
+            nameFilters: DataExport.nameFiltersFor(root.instrumentId)
+            onAccepted: root.controller.exportData(selectedFile)
+        }
     }
-    PrintDialog {
-        id: printDialog
-        instrumentTitle: root.controller ? root.controller.title : ""
-        onAccepted: root.continuePrint()
+    Loader {
+        id: printLoader
+        active: false
+        sourceComponent: PrintDialog {
+            instrumentTitle: root.controller ? root.controller.title : ""
+            onAccepted: root.continuePrint()
+        }
     }
-    FileDialog {
-        id: imageDialog
-        property bool pdf: false
-        property var exportOptions: ({})
-        title: pdf ? qsTr("Export PDF") : qsTr("Export image")
-        fileMode: FileDialog.SaveFile
-        nameFilters: pdf ? [qsTr("PDF (*.pdf)")] : [qsTr("PNG image (*.png)")]
-        defaultSuffix: pdf ? "pdf" : "png"
-        onAccepted: root.writeImage(selectedFile, exportOptions)
+    Loader {
+        id: imageLoader
+        active: false
+        sourceComponent: FileDialog {
+            property bool pdf: false
+            property var exportOptions: ({})
+            title: pdf ? qsTr("Export PDF") : qsTr("Export image")
+            fileMode: FileDialog.SaveFile
+            nameFilters: pdf ? [qsTr("PDF (*.pdf)")] : [qsTr("PNG image (*.png)")]
+            defaultSuffix: pdf ? "pdf" : "png"
+            onAccepted: root.writeImage(selectedFile, exportOptions)
+        }
     }
 
     Keys.onEscapePressed: event => {

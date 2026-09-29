@@ -291,6 +291,10 @@ T.Control {
                     control.setPosition(startPosition + (startY - mouse.y) / travel)
                 }
                 onWheel: wheel => {
+                    if (!WheelGuard.allows(control.activeFocus)) {
+                        wheel.accepted = false
+                        return
+                    }
                     const n = wheel.angleDelta.y > 0 ? 1 : wheel.angleDelta.y < 0 ? -1 : 0
                     control.step(n, (wheel.modifiers & Qt.ShiftModifier) !== 0)
                 }

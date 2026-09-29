@@ -19,9 +19,33 @@ T.ComboBox {
     padding: 4
     spacing: 4
     hoverEnabled: true
-    // Like the native combo on Linux and Windows: the wheel over a closed combo steps through the
-    // entries (macOS pop-up buttons do not).
-    wheelEnabled: !Theme.macShortcuts
+    // Native wheel etiquette (KDE/Breeze, Qt Widgets): the wheel steps through the entries only
+    // when the combo has focus or the wheel gesture starts over it; a scroll that passes over the
+    // combo keeps scrolling its view (WheelGuard). macOS pop-up buttons never take the wheel.
+    // T.ComboBox's own wheel handling stays off: it would take the events unconditionally.
+    property bool wheelChanges: !Theme.macShortcuts
+    wheelEnabled: false
+    property real wheelAccumulator: 0
+    WheelHandler {
+        // A disabled handler lets the event through to the enclosing scroll view.
+        enabled: control.wheelChanges && control.enabled && !control.popup.visible
+                 && (control.activeFocus || WheelGuard.freshGesture)
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        onWheel: event => {
+            control.wheelAccumulator += event.angleDelta.y
+            const steps = Math.trunc(control.wheelAccumulator / 120)
+            if (steps === 0)
+                return
+            control.wheelAccumulator -= steps * 120
+            // wheel up = previous entry (the C++ steppers keep bindings on currentIndex intact)
+            for (let i = 0; i < Math.abs(steps); ++i) {
+                if (steps > 0)
+                    control.decrementCurrentIndex()
+                else
+                    control.incrementCurrentIndex()
+            }
+        }
+    }
 
     // Press-drag-release: pressing the combo and dragging onto the list opens it and highlights the
     // entry under the pointer; releasing over an entry selects it (releasing on the combo itself
