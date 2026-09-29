@@ -16,7 +16,7 @@ include(GNUInstallDirs)
 set(MYBENCH_VENDOR "MYBENCH contributors" CACHE STRING "Package vendor / copyright holder")
 set(MYBENCH_MAINTAINER "MYBENCH maintainers <maintainers@mybench.invalid>" CACHE STRING
     "Package maintainer (Debian control, RPM packager)")
-set(MYBENCH_HOMEPAGE "https://github.com/mybench/mybench" CACHE STRING "Project homepage")
+set(MYBENCH_HOMEPAGE "https://github.com/elektricM/mybench" CACHE STRING "Project homepage")
 set(MYBENCH_SUMMARY "Instrument suite for the NI myDAQ (DMM, scope, generator, Bode, spectrum, DIO)")
 
 if(APPLE OR WIN32)
