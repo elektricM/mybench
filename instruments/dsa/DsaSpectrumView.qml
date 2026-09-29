@@ -28,6 +28,8 @@ Item {
         title: qsTr("Frequency")
         lowerLimit: 0
         upperLimit: root.controller.frequencyMaximum
+        // Zooming in stops at a few hundred bins' worth of span (no infinite zoom).
+        minimumSpan: Math.max(root.controller.frequencyMaximum - root.controller.frequencyMinimum, 1e-6) / 500
     }
 
     ColumnLayout {
@@ -96,6 +98,10 @@ Item {
                 yAxis {
                     min: root.controller.spectrumMinimum
                     max: root.controller.spectrumMaximum
+                    // Pan/zoom stay over the data (± half its extent) and cannot zoom in or out endlessly.
+                    limitToData: true
+                    limitMargin: 0.5
+                    minimumSpan: Math.max(root.controller.spectrumMaximum - root.controller.spectrumMinimum, 1e-9) / 200
                     title: qsTr("Magnitude")
                     unit: root.controller.magnitudeUnit
                     labelFormat: root.controller.logarithmicUnits ? PlotAxis.Fixed : PlotAxis.Engineering
@@ -299,7 +305,7 @@ Item {
             leftMargin: root.leftMargin
             hoverReadout: true
             xAxis { min: 0; max: root.timeMaximum; unit: "s"; title: qsTr("Time"); lowerLimit: 0; upperLimit: root.timeMaximum }
-            yAxis { autoScale: true; min: -1; max: 1; unit: "V"; title: qsTr("Amplitude"); tickSpacing: 30 }
+            yAxis { autoScale: true; min: -1; max: 1; unit: "V"; title: qsTr("Amplitude"); tickSpacing: 30; limitToData: true; limitMargin: 1; minimumSpan: 1e-6 }
             PlotTrace {
                 id: timeTrace
                 buffer: root.controller.timeSignal

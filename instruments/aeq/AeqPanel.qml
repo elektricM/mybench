@@ -155,8 +155,8 @@ Item {
                         hoverReadout: true
                         legendVisible: true
                         placeholderText: root.controller.running ? qsTr("Collecting…") : qsTr("Press Run to stream the input to the output")
-                        xAxis { scale: PlotAxis.Log; min: 20; max: root.topFrequency; unit: "Hz"; unitInLabels: true }
-                        yAxis { autoScale: root.controller.autoScaleSpectrum; min: -110; max: 10; unit: "dBV"; unitInLabels: true }
+                        xAxis { scale: PlotAxis.Log; min: 20; max: root.topFrequency; unit: "Hz"; unitInLabels: true; lowerLimit: 10; upperLimit: root.topFrequency * 1.5 }
+                        yAxis { autoScale: root.controller.autoScaleSpectrum; min: -110; max: 10; unit: "dBV"; unitInLabels: true; limitToData: true; limitMargin: 0.5; minimumSpan: 3 }
                         PlotTrace {
                             visible: root.controller.showInput
                             name: qsTr("Input")
@@ -315,7 +315,7 @@ Item {
                             Layout.fillWidth: true
                             model: root.controller.sourceNames
                             currentIndex: root.controller.inputLeft
-                            onActivated: index => root.controller.inputLeft = index
+                            onActivated: index => root.controller.chooseInput(0, index)
                         }
                     }
                     Field {
@@ -324,13 +324,13 @@ Item {
                             Layout.fillWidth: true
                             model: root.controller.sourceNames
                             currentIndex: root.controller.inputRight
-                            onActivated: index => root.controller.inputRight = index
+                            onActivated: index => root.controller.chooseInput(1, index)
                         }
                     }
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("±2 V inputs. With one input, it feeds both outputs.")
+                    text: qsTr("±2 V inputs. With one input, it feeds both outputs. AI 0/1 and the audio inputs share the converters: choosing one kind moves the other side to it.")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeS
                     wrapMode: Text.WordWrap
@@ -346,7 +346,7 @@ Item {
                             Layout.fillWidth: true
                             model: root.controller.sinkNames
                             currentIndex: root.controller.outputLeft
-                            onActivated: index => root.controller.outputLeft = index
+                            onActivated: index => root.controller.chooseOutput(0, index)
                         }
                     }
                     Field {
@@ -355,9 +355,16 @@ Item {
                             Layout.fillWidth: true
                             model: root.controller.sinkNames
                             currentIndex: root.controller.outputRight
-                            onActivated: index => root.controller.outputRight = index
+                            onActivated: index => root.controller.chooseOutput(1, index)
                         }
                     }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("AO 0/1 and the audio outputs share the converters too: both sides follow the same kind.")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeS
+                    wrapMode: Text.WordWrap
                 }
                 Text {
                     visible: root.controller.routingError.length > 0

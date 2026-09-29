@@ -213,11 +213,21 @@ private slots:
         QVERIFY(ctl.resources().testFlag(ResourceArbiter::AnalogInput));
         QVERIFY(ctl.resources().testFlag(ResourceArbiter::AnalogOutput));
         QVERIFY(ctl.feedbackInSimulator());
-        ctl.setInputRight(AeqController::SourceAI1);
-        QVERIFY(!ctl.routingError().isEmpty());   // mixes AI and audio inputs
+        // AI and audio inputs share the converters: the other side follows to the same kind (as the
+        // Scope does), so a mixed selection cannot be made.
+        ctl.chooseInput(1, AeqController::SourceAI1);
+        QCOMPARE(ctl.inputLeft(), AeqController::SourceAI0);
+        QVERIFY(ctl.routingError().isEmpty());
+        // Nothing to play: the run is refused with a warning, not a device rejection.
+        ctl.setInputLeft(AeqController::SourceNone);
+        ctl.setInputRight(AeqController::SourceNone);
+        QVERIFY(!ctl.routingError().isEmpty());
         ctl.run();
         QVERIFY(ctl.isIdle());
+        QVERIFY(!ctl.hasError());
+        QVERIFY(!ctl.inputWarning().isEmpty());
         ctl.setInputLeft(AeqController::SourceNone);
+        ctl.setInputRight(AeqController::SourceAI1);
         QVERIFY(ctl.routingError().isEmpty());
         ctl.setOutputRight(AeqController::SinkAudioOutLeft);
         QVERIFY(!ctl.routingError().isEmpty());   // same output twice

@@ -40,7 +40,7 @@ channel moves the other channel to an audio input too (and back to AI when you c
 - Markers on the edges can be dragged: **0 / 1 / M** on the left move a trace (Vertical Position),
   **T** on the right sets the trigger level, **T** at the top sets the Horizontal Position.
 - Mouse wheel over the graph changes Time/Div (up = zoom in); Shift + wheel changes Volts/Div of
-  the channel whose zero line is nearest the pointer. Ctrl/⌘ + drag zooms into a region and
+  the channel whose zero line is nearest the pointer. Ctrl + drag zooms into a region and
   **Reset zoom** or a double-click returns to the full screen. The trigger level line is red.
 - Under the graph: the cursor line (when Cursors On), one measurement line per channel in the
   channel's color, the math line, and the **Timeout** LED.
@@ -54,10 +54,11 @@ channel moves the other channel to an audio input too (and back to AI when you c
   The settings of a disabled channel can still be changed.
 - **Source** – AI 0, AI 1, AudioInput Left or AudioInput Right. If both channels use the same
   source it is acquired once and shown twice.
-- **Probe** – always 1x on the myDAQ. **Coupling** – set by the source: DC for AI inputs, AC for the
-  audio inputs (the average of the record is removed).
+- A line under the source tells the fixed facts as information: coupling (DC for AI inputs, AC for the
+  audio inputs, whose average is removed), the 1x probe and the input range. They are not settings.
 - **Scale Volts/Div** – knob and list, 10 mV to 5 V per division for AI inputs, 10 mV to 1 V for
-  audio. The input range follows: ±10 V from 500 mV/div, ±2 V below (finer resolution).
+  audio. The knob turns like a bench scope: clockwise = smaller Volts/Div (more sensitive), the same
+  as the mouse wheel over the graph; the list shows the largest scale first. The input range follows: ±10 V from 500 mV/div, ±2 V below (finer resolution).
 - **Vertical Position (Div)** – −5 to +5 divisions. It only moves the trace; data, measurements and
   cursor values are unchanged.
 
@@ -73,20 +74,30 @@ channel moves the other channel to an audio input too (and back to AI when you c
 ### Trigger
 
 - **Type** – *Immediate*: each screen is shown as acquired. *Edge*: each screen is aligned on a
-  crossing of the trigger level; choosing Edge selects *Chan 0 Source*. (*Digital* exists only on NI ELVIS.)
-- **Source** – *Chan 0 Source* or *Chan 1 Source*: the signal of that channel (it must be enabled).
+  crossing of the trigger level.
+- **Source** – *CH 0* or *CH 1*: the signal of that channel (it must be enabled).
 - **Slope** – rising or falling edge.
 - **Level (V)** – the voltage the signal must cross (drag the **T** marker on the right).
 - **Horizontal Position (%)** – where the trigger point sits on the screen: 0 % left edge, 50 % the
   middle (you see what happened before and after it), 100 % the right edge.
-- The myDAQ triggers in software on a record twice as long as the screen: a crossing must occur within
-  about one screen. Use a slower Time/Div if the trace does not trigger.
+- **Mode** – *Normal* waits for the trigger indefinitely and keeps the last triggered trace on screen
+  (a dimmed trace and "Waiting for trigger" tell you that no new edge has arrived). *Auto* free-runs
+  and shows untriggered records once the timeout has passed, so the trace never freezes.
+- **Timeout** – 100 ms to 10 s or *Never*: how long a missing trigger is tolerated before Auto free-runs
+  (or the waiting state and Timeout LED show). Nothing changes on screen before that, so rare events
+  no longer replace the trace with a "waiting" message.
+- **Holdoff** – 0 to 10 s minimum time between two displayed triggers (steadies bursts).
+- The trigger is found in software. Every acquisition holds two screens; while no
+  edge turns up the search window grows (up to about a quarter of a second of samples) so that rare
+  events are caught even on fast time bases, and it shrinks again after a run of triggered screens.
+- The edge is placed with sub-sample accuracy: the crossing sits exactly at the trigger position on
+  every screen, however few samples the time base has (no jitter, even at 5 µs/div).
 
 ### Timeout LED
 
-Lights when the Edge trigger found no crossing in the last acquisition (level outside the signal,
-wrong slope or source). As in ELVISmx the graph is then cleared until the next triggered record;
-Advanced Settings can keep the last trace (dimmed) or show untriggered records instead.
+Lights when the Edge trigger found no crossing for longer than the Timeout (level outside the signal,
+wrong slope or source). In Normal mode the last trace stays; **Advanced Settings › On timeout** can
+also clear the graph (ELVISmx) or free-run.
 
 ### Measurements
 
@@ -99,7 +110,12 @@ For each enabled channel ticked in **Display Measurements**:
 
 Values are written like ELVISmx: `707.11 mV`, `1.000 kHz`, `?` when undefined. **Graph Properties ›
 Measurements** hides items and adds Mean, Minimum, Maximum, Amplitude (high − low), Period, Frequency
-(counter), Duty Cycle, Rise and Fall Time (10–90 %) and the positive and negative pulse widths.
+(counter), Duty Cycle, Rise and Fall Time (10–90 %), the positive and negative pulse widths, AC RMS
+(DC removed), Crest factor (peak / RMS), Overshoot and Preshoot (% of the amplitude), Slew rate
+(mean slope of the rising edge, 10–90 %) and Phase (CH 1 relative to CH 0, corrected for the inter-channel
+delay; needs both channels and a periodic signal; the CH 0 readout shows the opposite sign).
+
+Hover over the graph: a crosshair with a tooltip shows the value of every trace at the pointer.
 
 ### Cursors Settings
 
@@ -108,6 +124,8 @@ Measurements** hides items and adds Mean, Minimum, Maximum, Amplitude (high − 
 - **C1 / C2** – the trace each cursor reads (CH 0, CH 1, or Math).
 - The cursor line shows each cursor's voltage, **dT** (time between the cursors), **1/dT** and
   **ΔV**. A cursor on a disabled channel reads 0.00 V.
+- **Level cursors** – two horizontal lines H1 and H2 on the chosen trace (drag them at the right
+  edge); the readout shows both voltages and their difference ΔV.
 
 ### Math
 
@@ -115,6 +133,12 @@ Switch it on to draw an amber trace computed from the displayed record: **CH 0 +
 **CH 0 − CH 1**, **CH 0 × CH 1**, **−CH 0**, **−CH 1** (with its own scale and position), or the
 **FFT** of CH 0 or CH 1: a magnitude spectrum in dBV under the graph with the strongest peak marked.
 For averaging, windows and distortion measurements use the Spectrum Analyzer.
+
+### FFT (directly above the graph)
+
+The **FFT** switch above the graph (*Off*, *CH 0*, *CH 1*) opens the spectrum pane of that channel
+without touching the math trace, with the peak frequency and level in the readout row. The pane can
+only be panned and zoomed within the spectrum (plus a margin) and to a sensible minimum span.
 
 ### Reference Traces
 
@@ -126,7 +150,11 @@ position it had. The eye button hides it, the arrows save it to or load it from 
 
 - **Mode** – *YT* (voltage versus time) or *XY* (CH 1 vertically versus CH 0 horizontally, with each
   channel's Volts/Div and position), e.g. for Lissajous figures or I–V curves.
-- **Persistence** – previous traces fade out over the chosen time (phosphor look).
+- **Averaging** – off, or a running mean of the last 2 … 64 triggered records of each channel: less
+  noise on repetitive signals. It restarts when a scale, the time base, a source or the trigger changes.
+- **Persistence** – previous traces fade out over the chosen time (phosphor look). Changing any
+  display setting (Volts/Div, Time/Div, position, trigger, source, mode) clears the afterglow so old
+  traces of another scale never stay on screen.
 
 ### Graph Properties
 
@@ -142,10 +170,9 @@ position it had. The eye button hides it, the arrows save it to or load it from 
 ### Advanced Settings
 
 - **Input Range** – *Auto* (from Volts/Div, as ELVISmx) or force ±10 V / ±2 V. Audio is always ±2 V.
-- **Vertical Offset** and **20MHz Filter** exist only on NI ELVIS II+ (shown disabled).
 - **Hysteresis (div)** – 0 = ELVISmx. Larger values make the trigger ignore noise around the level.
-- **No trigger** – *Clear (ELVISmx)*, *Keep last* (the last triggered trace stays, dimmed) or *Auto*
-  (untriggered records are shown).
+- **On timeout** – what happens once the Trigger timeout has passed without a crossing: *Clear graph*
+  (ELVISmx), *Keep last trace* (Normal, default) or *Free-run (Auto)*.
 - **Record length** – *Standard (2500 points)* as ELVISmx, or *High resolution* (up to 100 000
   points per screen, 200 kS/s up to 50 ms/div) for zooming and FFT.
 - **Frequency method** – *Tone* (ELVISmx) or *Edge counting*.

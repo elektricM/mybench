@@ -28,7 +28,7 @@ The display shows the reminder `Connections: AI 0 - AO 0   AI 1 - Signal`.
 
 ### Measurement Settings
 
-- **Stimulus Channel** / **Response Channel** – fixed to AI 0 and AI 1 on the myDAQ.
+- A note states the fixed wiring: stimulus on AI 0, response on AI 1 (not settings).
 - **Start Frequency**, **Stop Frequency** – the sweep range, 1 Hz to 20 kHz. Start must not be above
   Stop (the field turns red and Run is refused).
 - **Steps (per decade)** – number of points in each factor-of-ten of frequency (1 to 1000). With 5

@@ -29,8 +29,11 @@ is not perfectly flat around the band edges, like the original.
 
 - **Input (L/R)**: AI 0, AI 1, AudioInput Left/Right or None; **Output (L/R)**: AO 0, AO 1,
   AudioOutput Left/Right or None. Inputs must be both analog inputs or both audio inputs (they
-  share the converters); the same holds for the outputs. With a single input, both outputs play
-  it.
+  share the converters); the same holds for the outputs. Choosing one kind for a side moves the
+  other side to the same kind (AI 0 ↔ AudioInput Left, AI 1 ↔ AudioInput Right, and likewise for the
+  outputs) with a short notice, as the Oscilloscope does, so a mixed setting can never be run. With a
+  single input, both outputs play it. If another instrument holds the analog input or output, it is
+  paused with a reason and can be resumed afterwards.
 - Levels are limited to ±2 V; louder output is clipped and the **Clip** light turns red: lower
   the volume or the gains.
 - **Sample Rate** 50 kS/s (as the original), 100 or 200 kS/s. **Output Buffer** is the silence

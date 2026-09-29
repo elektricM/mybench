@@ -107,6 +107,34 @@ Item {
                     }
                 }
             }
+            RowLayout {
+                visible: root.controller.levelCursorsOn
+                Layout.fillWidth: true
+                spacing: Theme.spacingS
+                RowTitle {
+                    text: qsTr("Levels")
+                    color: Theme.text
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    readonly property string unit: root.controller.levelCursorChannel === 2 ? root.math.unit : "V"
+                    Reading {
+                        label: "H1"
+                        value: root.controller.formatMeasurement(root.controller.levelCursor1, parent.unit)
+                        valueColor: Theme.cursor1
+                    }
+                    Reading {
+                        label: "H2"
+                        value: root.controller.formatMeasurement(root.controller.levelCursor2, parent.unit)
+                        valueColor: Theme.cursor2
+                    }
+                    Reading {
+                        label: "ΔV"
+                        value: root.controller.formatMeasurement(root.controller.levelCursor2 - root.controller.levelCursor1, parent.unit)
+                    }
+                }
+            }
             Repeater {
                 model: 2
                 delegate: RowLayout {
@@ -132,6 +160,30 @@ Item {
                                 valueColor: root.channelColors[channelRow.index]
                             }
                         }
+                    }
+                }
+            }
+            RowLayout {
+                visible: root.controller.fftSource !== ScopeController.FftOff && !(root.math.enabled && root.math.fft)
+                Layout.fillWidth: true
+                spacing: Theme.spacingS
+                RowTitle {
+                    text: qsTr("FFT")
+                    color: root.channelColors[root.controller.fftSource - 1]
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Reading { label: qsTr("Source"); value: "CH " + (root.controller.fftSource - 1); valueColor: root.channelColors[root.controller.fftSource - 1] }
+                    Reading {
+                        label: qsTr("Peak")
+                        value: root.controller.formatMeasurement(root.math.peakFrequency, "Hz")
+                        valueColor: root.channelColors[root.controller.fftSource - 1]
+                    }
+                    Reading {
+                        label: qsTr("Level")
+                        value: isNaN(root.math.peakLevel) ? "?" : root.math.peakLevel.toFixed(2) + " dBV"
+                        valueColor: root.channelColors[root.controller.fftSource - 1]
                     }
                 }
             }
@@ -185,7 +237,7 @@ Item {
                 text: qsTr("Timeout")
                 labelFirst: true
                 ToolTip.visible: timeoutHover.hovered
-                ToolTip.text: root.controller.timedOut ? qsTr("No trigger edge in the last acquisition") : qsTr("Timeout: off")
+                ToolTip.text: root.controller.timedOut ? qsTr("No trigger edge within the timeout") : qsTr("Timeout: off")
                 HoverHandler { id: timeoutHover }
             }
         }

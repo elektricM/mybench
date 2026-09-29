@@ -78,7 +78,7 @@ run at the same time, and you can start, stop or change one without disturbing t
   up to 4 Vpp, no offset).
 - **Duty Cycle** 0 to 100 % (square only), **Phase** in degrees (useful for two channels at the same
   frequency, e.g. 90° for quadrature).
-- **Modulation Type** and **Manual Mode** belong to the NI ELVIS II hardware and are grayed.
+- There is no modulation or front-panel manual mode: those belong to the NI ELVIS II hardware.
 - **"Generates …"** under the frequency tells the exact frequency you get. The stream gives the
   requested frequency; with the **Regenerate** engine the buffer rate must be 100 MHz divided by a
   whole number, so some frequencies are slightly different (3 Hz becomes 3.0003 Hz).
@@ -104,7 +104,7 @@ run at the same time, and you can start, stop or change one without disturbing t
   warning tells how many. (ELVISmx accepts any gain and then fails when it runs; MYBENCH limits it.)
 - **Waveform Points**: number of samples, and how long one pass lasts at the Update Rate.
 - **Update Rate**: samples per second, 0.1 S/s to 200 kS/s.
-- **Trigger Source**: always Immediate (the myDAQ has no generator trigger input).
+- The generator always starts immediately (the myDAQ has no generator trigger input).
 - **Generation Mode**: **Run Continuously** loops; **Run Once** plays once and holds the last value
   (`Done`, amber LED) until you switch the channel off or press **Stop**, which return it to 0 V.
 - **Return to 0 V after Run Once**: the ELVISmx behaviour: after one pass the output goes back to

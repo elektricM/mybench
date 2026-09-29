@@ -260,6 +260,12 @@ QString ScopeChannel::measurementLabel(Measurement m)
     case FallTime: return tr("Fall");
     case PositiveWidth: return tr("+Width");
     case NegativeWidth: return tr("−Width");
+    case AcRms: return tr("AC RMS");
+    case CrestFactor: return tr("Crest");
+    case Overshoot: return tr("Overshoot");
+    case Preshoot: return tr("Preshoot");
+    case SlewRate: return tr("Slew");
+    case Phase: return tr("Phase");
     }
     return {};
 }
@@ -274,7 +280,12 @@ QString ScopeChannel::measurementUnit(Measurement m)
     case FallTime:
     case PositiveWidth:
     case NegativeWidth: return u"s"_s;
-    case DutyCycle: return u"%"_s;
+    case DutyCycle:
+    case Overshoot:
+    case Preshoot: return u"%"_s;
+    case CrestFactor: return {};
+    case SlewRate: return u"V/s"_s;
+    case Phase: return u"°"_s;
     default: return u"V"_s;
     }
 }
@@ -296,6 +307,12 @@ double ScopeChannel::measurementValue(const scope::Measurements& r, Measurement 
     case FallTime: return r.fallTime;
     case PositiveWidth: return r.positiveWidth;
     case NegativeWidth: return r.negativeWidth;
+    case AcRms: return r.acRms;
+    case CrestFactor: return r.crestFactor;
+    case Overshoot: return r.overshoot;
+    case Preshoot: return r.preshoot;
+    case SlewRate: return r.slewRate;
+    case Phase: return r.phase;
     }
     return scope::kNaN;
 }
@@ -317,6 +334,12 @@ QString ScopeChannel::measurementName(Measurement m)
     case FallTime: return tr("Fall Time (90–10 %)");
     case PositiveWidth: return tr("Positive Pulse Width");
     case NegativeWidth: return tr("Negative Pulse Width");
+    case AcRms: return tr("AC RMS Voltage (DC removed)");
+    case CrestFactor: return tr("Crest Factor (peak / RMS)");
+    case Overshoot: return tr("Overshoot (above high level)");
+    case Preshoot: return tr("Preshoot (below low level)");
+    case SlewRate: return tr("Slew Rate (10–90 % rising)");
+    case Phase: return tr("Phase versus the other channel");
     }
     return {};
 }
@@ -324,7 +347,7 @@ QString ScopeChannel::measurementName(Measurement m)
 QVariantList ScopeChannel::measurementCatalog()
 {
     QVariantList list;
-    for (int bit = 0; bit < 14; ++bit) {
+    for (int bit = 0; bit < kMeasurementCount; ++bit) {
         const auto m = Measurement(1 << bit);
         list.append(QVariantMap{{u"flag"_s, int(m)}, {u"label"_s, measurementLabel(m)}, {u"name"_s, measurementName(m)},
                                 {u"extension"_s, (int(m) & kElvisMeasurements) == 0}});
@@ -335,7 +358,7 @@ QVariantList ScopeChannel::measurementCatalog()
 QVariantList ScopeChannel::readouts() const
 {
     QVariantList list;
-    for (int bit = 0; bit < 14; ++bit) {
+    for (int bit = 0; bit < kMeasurementCount; ++bit) {
         const auto m = Measurement(1 << bit);
         if (!(m_measurementMask & m))
             continue;
@@ -348,6 +371,9 @@ QVariantList ScopeChannel::readouts() const
         } else if (m == DutyCycle) {
             const double d = m_results.dutyCycle;
             text = std::isfinite(d) ? QString::number(d * 100.0, 'f', 1) + u" %"_s : u"?"_s;
+        } else if (m == Overshoot || m == Preshoot || m == Phase) {
+            const double d = measurementValue(m_results, m);
+            text = std::isfinite(d) ? QString::number(d, 'f', 1) + (m == Phase ? u" °"_s : u" %"_s) : u"?"_s;
         } else {
             text = scope::formatMeasurement(measurementValue(m_results, m), measurementUnit(m));
         }

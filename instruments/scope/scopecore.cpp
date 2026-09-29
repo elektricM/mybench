@@ -9,6 +9,7 @@
 #include <array>
 #include <cfenv>
 #include <cmath>
+#include <numbers>
 #include <numeric>
 
 using namespace Qt::StringLiterals;
@@ -270,6 +271,18 @@ std::optional<int64_t> findTrigger(const std::vector<double>& x, int64_t recordL
     return std::nullopt;
 }
 
+double triggerSubSample(const std::vector<double>& x, int64_t index, double level)
+{
+    if (index < 1 || index >= int64_t(x.size()))
+        return 0.0;
+    const double previous = x[size_t(index - 1)];
+    const double current = x[size_t(index)];
+    if (previous == current)
+        return 0.0;
+    const double f = std::clamp((level - previous) / (current - previous), 0.0, 1.0);
+    return 1.0 - f;
+}
+
 // ---------------------------------------------------------------------------------------------
 
 Measurements measure(const std::vector<double>& x, double sampleRate, double voltsPerDiv)
@@ -291,6 +304,9 @@ Measurements measure(const std::vector<double>& x, double sampleRate, double vol
     m.minimum = mn;
     m.maximum = mx;
     m.peakToPeak = mx - mn;
+    m.acRms = std::sqrt(std::max(0.0, sum2 / n - m.mean * m.mean));
+    if (m.rms > 0)
+        m.crestFactor = std::max(std::abs(mx), std::abs(mn)) / m.rms;
 
     const mydaq::dsp::Tone tone = mydaq::dsp::extractSingleTone(x, sampleRate);
     if (std::isfinite(tone.frequency) && tone.amplitude > 0.2 * voltsPerDiv)
@@ -343,8 +359,42 @@ Measurements measure(const std::vector<double>& x, double sampleRate, double vol
     if (m.high > m.low) {
         m.riseTime = transitionTime(x, m.low, m.high, true) / sampleRate;
         m.fallTime = transitionTime(x, m.low, m.high, false) / sampleRate;
+        const double amplitude = m.high - m.low;
+        m.overshoot = std::max(0.0, mx - m.high) / amplitude * 100.0;
+        m.preshoot = std::max(0.0, m.low - mn) / amplitude * 100.0;
+        if (m.riseTime > 0)
+            m.slewRate = 0.8 * amplitude / m.riseTime;   // mean slope between 10 % and 90 %
     }
     return m;
+}
+
+double phaseBetween(const std::vector<double>& a, const std::vector<double>& b, double sampleRate,
+                    double frequency, double delay)
+{
+    const size_t n = std::min(a.size(), b.size());
+    if (n < 4 || !(sampleRate > 0) || !(frequency > 0) || !std::isfinite(frequency))
+        return kNaN;
+    const double samplesPerPeriod = sampleRate / frequency;
+    const size_t whole = size_t(std::floor(double(n) / samplesPerPeriod)) ;
+    if (whole < 1)
+        return kNaN;
+    const size_t length = std::min(n, size_t(std::llround(double(whole) * samplesPerPeriod)));
+    const double w = 2.0 * std::numbers::pi * frequency / sampleRate;
+    double ar = 0, ai = 0, br = 0, bi = 0;
+    for (size_t i = 0; i < length; ++i) {
+        const double c = std::cos(w * double(i)), s = -std::sin(w * double(i));
+        ar += a[i] * c;
+        ai += a[i] * s;
+        br += b[i] * c;
+        bi += b[i] * s;
+    }
+    if (std::hypot(ar, ai) < 1e-9 || std::hypot(br, bi) < 1e-9)
+        return kNaN;
+    // arg(B / A): positive when b is ahead of a. b's samples were taken `delay` later than a's.
+    double degrees = (std::atan2(bi, br) - std::atan2(ai, ar)) * 180.0 / std::numbers::pi;
+    degrees -= 360.0 * frequency * delay;
+    degrees = std::remainder(degrees, 360.0);
+    return degrees == -180.0 ? 180.0 : degrees;
 }
 
 QString formatMeasurement(double value, const QString& unit)
@@ -520,6 +570,17 @@ FftResult fftAnalyse(const std::vector<double>& x, double sampleRate)
 
 // ---------------------------------------------------------------------------------------------
 
+bool Snapshot::sameDisplay(const Snapshot& other) const
+{
+    for (int ch = 0; ch < 2; ++ch)
+        if (channel[ch].source != other.channel[ch].source || channel[ch].enabled != other.channel[ch].enabled
+            || channel[ch].voltsPerDiv != other.channel[ch].voltsPerDiv)
+            return false;
+    return timePerDiv == other.timePerDiv && sampling == other.sampling && roll == other.roll
+           && triggerType == other.triggerType && triggerSource == other.triggerSource && slope == other.slope
+           && level == other.level && horizontalPercent == other.horizontalPercent;
+}
+
 QString validate(const Snapshot& s)
 {
     const bool e0 = s.channel[0].enabled, e1 = s.channel[1].enabled;
@@ -621,7 +682,19 @@ std::vector<std::vector<double>> Acquirer::readChunked(mydaq::AiTask& task, int6
 CycleResult Acquirer::acquire(mydaq::Device& device, const Snapshot& snapshot, const StopFn& stop)
 {
     CycleResult result;
-    const AcquisitionPlan plan = planAcquisition(snapshot, device);
+    AcquisitionPlan plan = planAcquisition(snapshot, device);
+    if (plan.edge) {
+        AcquisitionPlan base = plan;
+        base.config.samplesPerChannel = 0;
+        if (!sameTask(base, m_basePlan)) {
+            m_basePlan = base;
+            m_searchFactor = 1;
+            m_triggeredStreak = 0;
+        }
+        const int64_t n = plan.recordLength;
+        const int64_t cap = std::max<int64_t>(n, std::min<int64_t>(int64_t(plan.config.sampleRate * 0.25), 200000));
+        plan.config.samplesPerChannel = n + std::min(n * m_searchFactor, cap);
+    }
     if (!m_task || !sameTask(plan, m_plan)) {
         m_task.reset();   // one AI task at a time: release before creating the new one
         m_task = device.createAiTask(plan.config);
@@ -649,12 +722,20 @@ CycleResult Acquirer::acquire(mydaq::Device& device, const Snapshot& snapshot, c
         std::vector<double>& triggerData = data[size_t(plan.column[tc])];
         if (isAudio(snapshot.channel[tc].source))
             removeMean(triggerData);
-        const auto k = findTrigger(triggerData, n, pre, trigger);
+        const auto k = findTrigger(triggerData, int64_t(triggerData.size()) - n + 1, pre, trigger);   // whole search window
         if (k) {
+            if (++m_triggeredStreak >= 8 && m_searchFactor > 1) {
+                m_searchFactor = std::max<int64_t>(1, m_searchFactor / 2);
+                m_triggeredStreak = 0;
+            }
             start = *k;
             record.triggered = true;
             record.triggerIndex = pre;
+            record.triggerShift = triggerSubSample(triggerData, pre + *k, trigger.level);
         } else {
+            m_triggeredStreak = 0;
+            if (m_searchFactor < 4096)
+                m_searchFactor *= 2;
             result.timedOut = true;
             if (snapshot.noTrigger != NoTrigger::Auto)
                 return result;   // ELVISmx: nothing to display (the caller clears or keeps)
@@ -682,11 +763,63 @@ void Acquirer::reset()
 {
     m_task.reset();
     m_plan = {};
+    m_basePlan = {};
+    m_searchFactor = 1;
+    m_triggeredStreak = 0;
 }
 
 double Acquirer::sampleRate() const
 {
     return m_task ? m_task->sampleRate() : 0.0;
+}
+
+// ---------------------------------------------------------------------------------------------
+
+void RecordAverager::setWindow(int records)
+{
+    records = std::max(1, records);
+    if (records != m_window) {
+        m_window = records;
+        reset();
+    }
+}
+
+void RecordAverager::reset()
+{
+    m_count = 0;
+    m_rate = 0;
+    m_mean[0].clear();
+    m_mean[1].clear();
+}
+
+int RecordAverager::apply(Record& record)
+{
+    if (m_window <= 1)
+        return 1;
+    bool same = m_count > 0 && m_rate == record.sampleRate;
+    for (int ch = 0; ch < 2 && same; ++ch)
+        same = m_mean[ch].size() == record.data[ch].size();
+    if (!same)
+        reset();
+    m_rate = record.sampleRate;
+    m_count = std::min(m_count + 1, m_window);
+    for (int ch = 0; ch < 2; ++ch) {
+        auto& x = record.data[ch];
+        auto& mean = m_mean[ch];
+        if (x.empty()) {
+            mean.clear();
+            continue;
+        }
+        if (m_count == 1 || mean.size() != x.size()) {
+            mean = x;
+        } else {
+            const double k = 1.0 / double(m_count);
+            for (size_t i = 0; i < x.size(); ++i)
+                mean[i] += (x[i] - mean[i]) * k;
+        }
+        x = mean;
+    }
+    return m_count;
 }
 
 // ---------------------------------------------------------------------------------------------

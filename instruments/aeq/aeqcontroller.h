@@ -159,6 +159,10 @@ public:
     Q_INVOKABLE void flat();
     // Simulator convenience: AI 0 / AI 1 inputs (their built-in test signals) instead of the
     // audio inputs, which the simulator wires to the audio outputs.
+    // UI selection of an input / output side (0 = L, 1 = R): the other side follows to the same kind
+    // (AI vs audio share the converters), with a notice. The plain setters do not.
+    Q_INVOKABLE void chooseInput(int side, int source);
+    Q_INVOKABLE void chooseOutput(int side, int sink);
     Q_INVOKABLE void useAnalogInputs();
 
 signals:

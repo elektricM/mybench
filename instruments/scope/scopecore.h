@@ -88,6 +88,10 @@ int64_t pretriggerSamples(int64_t recordLength, double horizontalPercent);
 // inside the window: the displayed record is x[k, k + N), whose sample `pre` is the trigger.
 std::optional<int64_t> findTrigger(const std::vector<double>& x, int64_t recordLength, int64_t pre,
                                    const TriggerSettings& trigger);
+// Sub-sample refinement for a crossing found at absolute sample index `index` (>= 1): the number
+// of samples, in [0, 1), between the interpolated level crossing and the sample at `index`
+// (0 = the sample is exactly on the level).
+double triggerSubSample(const std::vector<double>& x, int64_t index, double level);
 
 // ---------------------------------------------------------------------------------------------
 // Measurements (ELVISmx subUIDisplay + MYBENCH extensions)
@@ -111,9 +115,22 @@ struct Measurements {
     double fallTime = kNaN;     // s, 90 % → 10 %
     double positiveWidth = kNaN;    // s, at the mid level
     double negativeWidth = kNaN;    // s
+    double acRms = kNaN;            // V, RMS without the DC part
+    double crestFactor = kNaN;      // peak / RMS
+    double overshoot = kNaN;        // %, of the high - low amplitude, above the high level
+    double preshoot = kNaN;         // %, below the low level
+    double slewRate = kNaN;         // V/s, mean slope of the rising edge between 10 % and 90 %
+    double phase = kNaN;            // degrees, filled by phaseBetween (needs both channels)
 };
 // `voltsPerDiv` sets the Freq threshold (tone amplitude must exceed 0.2 × V/div).
 Measurements measure(const std::vector<double>& x, double sampleRate, double voltsPerDiv);
+
+// Phase of `b` relative to `a` in degrees, (-180, 180]: positive = b leads a (b reaches its peak
+// first), negative = b lags. Both records share the sample rate; `delay` (s) is the display time offset of b relative to a (inter-channel skew).
+// Uses the single-bin DFT at `frequency` over a whole number of periods; NaN when the record holds
+// less than one period or either channel is silent.
+double phaseBetween(const std::vector<double>& a, const std::vector<double>& b, double sampleRate,
+                    double frequency, double delay = 0.0);
 
 // ELVISmx measurement text: SI prefix, 3 decimals when |value| ≥ 1 (in base units), else 2;
 // "?" for NaN/infinity ("707.11 mV", "1.000 kHz", "0.00 V", "25.00 µs").
@@ -189,8 +206,16 @@ struct Snapshot {
     double horizontalPercent = 50;
     double hysteresisDiv = 0;       // Advanced; 0 = ELVISmx
     NoTrigger noTrigger = NoTrigger::Clear;   // Advanced; Clear = ELVISmx
+    int averaging = 1;              // records averaged (1 = off)
+    int fftSource = -1;             // scope channel shown in the FFT pane (-1: none)
+    double holdoff = 0;             // s, minimum time between two displayed triggered records
+    double triggerTimeout = 1.0;    // s without a trigger before Auto free-runs / Clear clears (0: never)
     bool mathEnabled = false;
     MathFunction mathFunction = MathFunction::Sum;
+
+    // True when a record of `other` can be averaged with one of this snapshot (same scales,
+    // channels, timebase and trigger).
+    bool sameDisplay(const Snapshot& other) const;
 };
 
 // Validation message (empty when the snapshot can run): no channel, AI mixed with audio.
@@ -215,6 +240,11 @@ struct Record {
     double skew[2] = {0, 0};         // display time offset of each channel (inter-channel skew)
     bool triggered = false;          // Edge: a crossing was found
     int64_t triggerIndex = -1;       // index of the trigger sample in the record (Edge)
+    // Sub-sample trigger alignment: the true crossing lies (1 - f) samples before the trigger
+    // sample (f = interpolated position between the previous and the trigger sample). Display the
+    // record `triggerShift` samples later (x0 = triggerShift / rate) and the crossing sits exactly
+    // at the trigger position on every frame instead of jittering by up to one sample.
+    double triggerShift = 0;
     bool enabled(int ch) const { return !data[ch].empty(); }
 };
 
@@ -239,6 +269,11 @@ public:
     void reset();
     double sampleRate() const;
     const AcquisitionPlan& plan() const { return m_plan; }
+    // Extra search length of an Edge acquisition, in records (1 = the ELVISmx 2N window). It
+    // doubles after every cycle without a trigger, up to about a quarter of a second of samples,
+    // so rare events are caught; it falls back to 1 after a run of triggered cycles and whenever
+    // the plan changes.
+    int64_t searchFactor() const { return m_searchFactor; }
 
     // Reads `total` samples per channel of a started finite task in chunks. Empty when stopped.
     static std::vector<std::vector<double>> readChunked(mydaq::AiTask& task, int64_t total, const StopFn& stop);
@@ -246,6 +281,9 @@ public:
 private:
     std::unique_ptr<mydaq::AiTask> m_task;
     AcquisitionPlan m_plan;
+    AcquisitionPlan m_basePlan;      // m_plan without the search length (detects real plan changes)
+    int64_t m_searchFactor = 1;
+    int m_triggeredStreak = 0;
 };
 
 // AC coupling (audio sources): subtract the record mean in place.
@@ -260,6 +298,24 @@ struct AutoscaleResult {
 };
 std::optional<AutoscaleResult> runAutoscale(mydaq::Device& device, const Snapshot& snapshot,
                                             const Acquirer::StopFn& stop);
+
+// Waveform averaging (OpenHantek "average"): a running mean of the last `window` records of each
+// channel, in place. The average restarts when the length, rate or enabled channels change.
+class RecordAverager
+{
+public:
+    void setWindow(int records);   // 1 = off
+    int window() const { return m_window; }
+    void reset();
+    // Averages `record` in place; returns the number of records in the mean.
+    int apply(Record& record);
+
+private:
+    int m_window = 1;
+    int m_count = 0;
+    double m_rate = 0;
+    std::vector<double> m_mean[2];
+};
 
 // Roll mode: a continuous task and a sliding window of the last N samples.
 class Roller

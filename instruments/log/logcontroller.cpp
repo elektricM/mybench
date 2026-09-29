@@ -422,7 +422,7 @@ void LogController::clearChart()
 InstrumentController::WorkerFunction LogController::createWorker()
 {
     if (!m_ai0Enabled && !m_ai1Enabled && !m_dmmEnabled)
-        throw mydaq::DeviceError(mydaq::DeviceError::InvalidConfig, tr("enable at least one channel to log"));
+        throw InvalidInput(tr("Enable at least one channel to log."));
     if (!(m_minimum < m_maximum))
         throw InvalidInput(tr("Minimum must be below Maximum."));
     updateResources();

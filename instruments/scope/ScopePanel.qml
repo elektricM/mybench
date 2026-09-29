@@ -72,13 +72,15 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.spacingL
                     Knob {
+                        // Bench-scope direction: clockwise = smaller Time/Div (faster), as the wheel.
+                        readonly property int last: root.controller.timeDivLabels.length - 1
                         label: qsTr("Time/Div")
-                        values: root.controller.timeDivValues
-                        labels: root.controller.timeDivLabels
-                        currentIndex: root.controller.timeDivIndex
+                        values: root.controller.timeDivValues.slice().reverse()
+                        labels: root.controller.timeDivLabels.slice().reverse()
+                        currentIndex: last - root.controller.timeDivIndex
                         showValue: false
                         diameter: 62
-                        onIndexMoved: index => root.controller.timeDivIndex = index
+                        onIndexMoved: index => root.controller.timeDivIndex = last - index
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
@@ -119,16 +121,12 @@ Item {
                 FieldRow {
                     Field {
                         label: qsTr("Type")
-                        ScopeCombo {
-                            model: [qsTr("Immediate"), qsTr("Digital"), qsTr("Edge")]
-                            disabledIndices: [1]
-                            currentIndex: root.edge ? 2 : 0
-                            onActivated: index => {
-                                if (index === 1)
-                                    currentIndex = Qt.binding(() => root.edge ? 2 : 0)
-                                else
-                                    root.controller.triggerType = index === 2 ? ScopeController.Edge : ScopeController.Immediate
-                            }
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [{ text: qsTr("Immediate"), toolTip: qsTr("Free-running: every record is displayed") },
+                                    { text: qsTr("Edge"), toolTip: qsTr("Trigger on a slope crossing the level") }]
+                            currentIndex: root.edge ? 1 : 0
+                            onActivated: index => root.controller.triggerType = index === 1 ? ScopeController.Edge : ScopeController.Immediate
                         }
                     }
                     Field {
@@ -150,22 +148,23 @@ Item {
                         disabled: !root.edge
                         ScopeCombo {
                             enabled: root.edge
-                            model: ["TRIG", "SYNC", qsTr("Chan 0 Source"), qsTr("Chan 1 Source")]
+                            model: [qsTr("CH 0"), qsTr("CH 1")]
                             disabledIndices: {
-                                let list = [0, 1]
+                                let list = []
                                 if (!root.ch0.enabled)
-                                    list.push(2)
+                                    list.push(0)
                                 if (!root.ch1.enabled)
-                                    list.push(3)
+                                    list.push(1)
                                 return list
                             }
-                            currentIndex: root.edge ? root.controller.triggerSource + 2 : 0
+                            disabledToolTip: qsTr("Enable the channel first")
+                            currentIndex: root.controller.triggerSource
                             toolTip: qsTr("The trigger uses the signal of the chosen channel (which must be enabled)")
                             onActivated: index => {
                                 if (isDisabled(index))
-                                    currentIndex = Qt.binding(() => root.edge ? root.controller.triggerSource + 2 : 0)
+                                    currentIndex = Qt.binding(() => root.controller.triggerSource)
                                 else
-                                    root.controller.triggerSource = index - 2
+                                    root.controller.triggerSource = index
                             }
                         }
                     }
@@ -214,6 +213,51 @@ Item {
                             toolTip: qsTr("Where the trigger point sits on the screen (drag the T marker at the top)")
                             onValueModified: v => root.controller.horizontalPosition = v
                         }
+                    }
+                }
+                FieldRow {
+                    Field {
+                        label: qsTr("Mode")
+                        disabled: !root.edge
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            enabled: root.edge
+                            model: [{ text: qsTr("Auto"), toolTip: qsTr("Free-run (untriggered) after the timeout, so the trace never freezes") },
+                                    { text: qsTr("Normal"), toolTip: qsTr("Wait for the trigger indefinitely; the last triggered trace stays on screen") }]
+                            currentIndex: root.controller.noTriggerMode === ScopeController.ShowUntriggered ? 0
+                                          : root.controller.noTriggerMode === ScopeController.KeepLastTrace ? 1 : -1
+                            onActivated: index => root.controller.noTriggerMode = index === 0 ? ScopeController.ShowUntriggered
+                                                                                              : ScopeController.KeepLastTrace
+                        }
+                    }
+                    Field {
+                        label: qsTr("Timeout")
+                        disabled: !root.edge
+                        ScopeCombo {
+                            readonly property var values: [0.1, 0.25, 0.5, 1, 2, 5, 10, 0]
+                            enabled: root.edge
+                            model: ["100 ms", "250 ms", "500 ms", "1 s", "2 s", "5 s", "10 s", qsTr("Never")]
+                            currentIndex: Math.max(0, values.indexOf(root.controller.triggerTimeout))
+                            toolTip: qsTr("How long a missing trigger is tolerated before Auto free-runs (or the waiting state shows). Rare events: use Normal with a long timeout.")
+                            onActivated: index => root.controller.triggerTimeout = values[index]
+                        }
+                    }
+                }
+                Field {
+                    label: qsTr("Holdoff")
+                    disabled: !root.edge
+                    Layout.fillWidth: true
+                    SiField {
+                        Layout.fillWidth: true
+                        enabled: root.edge
+                        unit: "s"
+                        from: 0
+                        to: 10
+                        stepSize: 0.01
+                        digits: 3
+                        value: root.controller.triggerHoldoff
+                        toolTip: qsTr("Minimum time between two displayed triggers: 0 … 10 s (slows the update, steadies bursts)")
+                        onValueModified: v => root.controller.triggerHoldoff = v
                     }
                 }
                 Text {
@@ -280,6 +324,28 @@ Item {
                         tone: "ghost"
                         enabled: root.controller.cursorsOn
                         onClicked: root.controller.resetCursors()
+                    }
+                }
+                Divider { Layout.fillWidth: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingS
+                    ToggleSwitch {
+                        text: qsTr("Level cursors")
+                        checked: root.controller.levelCursorsOn
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Two horizontal lines (H1, H2) with their voltage difference; drag them on the graph")
+                        onToggled: root.controller.levelCursorsOn = checked
+                    }
+                    Item { Layout.fillWidth: true }
+                    ScopeCombo {
+                        Layout.preferredWidth: 96
+                        enabled: root.controller.levelCursorsOn
+                        model: ["CH 0", "CH 1", qsTr("Math")]
+                        disabledIndices: root.math.enabled && !root.math.fft ? [] : [2]
+                        disabledToolTip: qsTr("Enable the math trace first")
+                        currentIndex: root.controller.levelCursorChannel
+                        onActivated: index => root.controller.levelCursorChannel = index
                     }
                 }
             },
@@ -491,6 +557,18 @@ Item {
                         }
                     }
                 }
+                Field {
+                    label: qsTr("Averaging")
+                    Layout.fillWidth: true
+                    ScopeCombo {
+                        readonly property var values: [1, 2, 4, 8, 16, 32, 64]
+                        model: [qsTr("Off"), qsTr("2 records"), qsTr("4 records"), qsTr("8 records"),
+                                qsTr("16 records"), qsTr("32 records"), qsTr("64 records")]
+                        currentIndex: Math.max(0, values.indexOf(root.controller.averaging))
+                        toolTip: qsTr("Running mean of the last triggered records of each channel: less noise on repetitive signals. Restarts when a scale, the time base or the trigger changes.")
+                        onActivated: index => root.controller.averaging = values[index]
+                    }
+                }
             },
 
             ScopeGraphProperties {
@@ -529,24 +607,6 @@ Item {
                                     onActivated: index => advancedChannel.channel.inputRange = index
                                 }
                             }
-                            Field {
-                                label: qsTr("Vertical Offset (V)")
-                                disabled: true
-                                SiField {
-                                    Layout.fillWidth: true
-                                    enabled: false
-                                    value: 0
-                                    unit: "V"
-                                    toolTip: qsTr("NI ELVIS II+ only")
-                                }
-                            }
-                        }
-                        CheckBox {
-                            text: qsTr("20MHz Filter")
-                            enabled: false
-                            checked: false
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("NI ELVIS II+ only")
                         }
                     }
                 }
@@ -573,11 +633,11 @@ Item {
                         }
                     }
                     Field {
-                        label: qsTr("No trigger")
+                        label: qsTr("On timeout")
                         ScopeCombo {
-                            model: [qsTr("Clear (ELVISmx)"), qsTr("Keep last"), qsTr("Auto")]
+                            model: [qsTr("Clear graph"), qsTr("Keep last trace"), qsTr("Free-run (Auto)")]
                             currentIndex: root.controller.noTriggerMode
-                            toolTip: qsTr("What an Edge acquisition without crossing shows: an empty graph (ELVISmx), the last triggered trace (dimmed), or the untriggered record")
+                            toolTip: qsTr("What an Edge acquisition shows once the trigger timeout has passed without a crossing: an empty graph (ELVISmx), the last triggered trace (dimmed), or the untriggered record")
                             onActivated: index => root.controller.noTriggerMode = index
                         }
                     }

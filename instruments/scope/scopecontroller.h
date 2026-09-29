@@ -53,15 +53,29 @@ class ScopeController : public InstrumentController
     Q_PROPERTY(double horizontalPosition READ horizontalPosition WRITE setHorizontalPosition NOTIFY horizontalPositionChanged)
     Q_PROPERTY(double triggerHysteresis READ triggerHysteresis WRITE setTriggerHysteresis NOTIFY triggerHysteresisChanged)
     Q_PROPERTY(NoTriggerMode noTriggerMode READ noTriggerMode WRITE setNoTriggerMode NOTIFY noTriggerModeChanged)
+    // FFT pane of a channel next to the graph (independent of the math channel).
+    Q_PROPERTY(int averaging READ averaging WRITE setAveraging NOTIFY averagingChanged)   // records averaged: 1, 2, 4 … 64
+    Q_PROPERTY(FftSource fftSource READ fftSource WRITE setFftSource NOTIFY fftSourceChanged)
+    Q_PROPERTY(bool fftShown READ fftShown NOTIFY fftShownChanged STORED false)
+    Q_PROPERTY(double triggerTimeout READ triggerTimeout WRITE setTriggerTimeout NOTIFY triggerTimeoutChanged)   // s, 0 = never
+    Q_PROPERTY(double triggerHoldoff READ triggerHoldoff WRITE setTriggerHoldoff NOTIFY triggerHoldoffChanged)   // s
     // Measurements / autoscale options (MYBENCH, Advanced)
     Q_PROPERTY(FrequencyMethod frequencyMethod READ frequencyMethod WRITE setFrequencyMethod NOTIFY frequencyMethodChanged)
     Q_PROPERTY(bool autoscaleSetsLevel READ autoscaleSetsLevel WRITE setAutoscaleSetsLevel NOTIFY autoscaleSetsLevelChanged)
     // Cursors
     Q_PROPERTY(bool cursorsOn READ cursorsOn WRITE setCursorsOn NOTIFY cursorsOnChanged)
+    // Level (horizontal) cursors: two voltage levels of one trace, with their difference.
+    Q_PROPERTY(bool levelCursorsOn READ levelCursorsOn WRITE setLevelCursorsOn NOTIFY levelCursorsChanged)
+    Q_PROPERTY(int levelCursorChannel READ levelCursorChannel WRITE setLevelCursorChannel NOTIFY levelCursorsChanged)   // 0, 1, 2 = math
+    Q_PROPERTY(double levelCursor1 READ levelCursor1 WRITE setLevelCursor1 NOTIFY levelCursorsChanged)   // V
+    Q_PROPERTY(double levelCursor2 READ levelCursor2 WRITE setLevelCursor2 NOTIFY levelCursorsChanged)   // V
     Q_PROPERTY(bool showDeltaTime READ showDeltaTime WRITE setShowDeltaTime NOTIFY showDeltaTimeChanged)
     // Display
     Q_PROPERTY(DisplayMode displayMode READ displayMode WRITE setDisplayMode NOTIFY displayModeChanged)
     Q_PROPERTY(int persistence READ persistence WRITE setPersistence NOTIFY persistenceChanged)   // ms, 0 = off
+    // Counts the display-affecting setting changes (scales, positions, timebase, trigger, mode,
+    // channels): persistence afterglow of an older setting must not stay on screen, the view resets.
+    Q_PROPERTY(int persistenceEpoch READ persistenceEpoch NOTIFY persistenceEpochChanged STORED false)
     Q_PROPERTY(Background background READ background WRITE setBackground NOTIFY backgroundChanged)
 
     // --- Value lists and derived values -------------------------------------------------------
@@ -118,9 +132,12 @@ public:
     Q_ENUM(Slope)
     enum SamplingMode { Standard, HighResolution };
     Q_ENUM(SamplingMode)
-    // What an Edge acquisition without crossing shows: ELVISmx clears the graph.
+    // What an Edge acquisition without crossing shows after the trigger timeout: the last triggered
+    // trace (Normal, default), an empty graph (ELVISmx) or the untriggered record (Auto).
     enum NoTriggerMode { ClearGraph, KeepLastTrace, ShowUntriggered };
     Q_ENUM(NoTriggerMode)
+    enum FftSource { FftOff, FftChannel0, FftChannel1 };
+    Q_ENUM(FftSource)
     enum FrequencyMethod { ToneFrequency, EdgeFrequency };
     Q_ENUM(FrequencyMethod)
     enum DisplayMode { YT, XY };
@@ -159,6 +176,23 @@ public:
     void setHorizontalPosition(double percent);
     double triggerHysteresis() const { return m_triggerHysteresis; }
     void setTriggerHysteresis(double divisions);
+    bool levelCursorsOn() const { return m_levelCursorsOn; }
+    void setLevelCursorsOn(bool on);
+    int levelCursorChannel() const { return m_levelCursorChannel; }
+    void setLevelCursorChannel(int channel);
+    double levelCursor1() const { return m_levelCursor[0]; }
+    void setLevelCursor1(double volts);
+    double levelCursor2() const { return m_levelCursor[1]; }
+    void setLevelCursor2(double volts);
+    int averaging() const { return m_averaging; }
+    void setAveraging(int records);
+    FftSource fftSource() const { return m_fftSource; }
+    void setFftSource(FftSource source);
+    bool fftShown() const { return m_fftSource != FftOff || (m_math.enabled() && m_math.fft()); }
+    double triggerTimeout() const { return m_triggerTimeout; }
+    void setTriggerTimeout(double seconds);
+    double triggerHoldoff() const { return m_triggerHoldoff; }
+    void setTriggerHoldoff(double seconds);
     NoTriggerMode noTriggerMode() const { return m_noTriggerMode; }
     void setNoTriggerMode(NoTriggerMode mode);
     FrequencyMethod frequencyMethod() const { return m_frequencyMethod; }
@@ -172,6 +206,7 @@ public:
     DisplayMode displayMode() const { return m_displayMode; }
     void setDisplayMode(DisplayMode mode);
     int persistence() const { return m_persistence; }
+    int persistenceEpoch() const { return m_persistenceEpoch; }
     void setPersistence(int ms);
     Background background() const { return m_background; }
     void setBackground(Background background);
@@ -268,12 +303,19 @@ signals:
     void horizontalPositionChanged();
     void triggerHysteresisChanged();
     void noTriggerModeChanged();
+    void triggerTimeoutChanged();
+    void fftSourceChanged();
+    void averagingChanged();
+    void levelCursorsChanged();
+    void fftShownChanged();
+    void triggerHoldoffChanged();
     void frequencyMethodChanged();
     void autoscaleSetsLevelChanged();
     void cursorsOnChanged();
     void showDeltaTimeChanged();
     void displayModeChanged();
     void persistenceChanged();
+    void persistenceEpochChanged();
     void backgroundChanged();
     void planChanged();
     void waitingForTriggerChanged();
@@ -310,6 +352,7 @@ private:
     void setAutoscaling(bool on);
     void fixTriggerSource();
     void clampCursors();
+    void bumpPersistenceEpoch();
 
     ScopeChannel m_channel0{0, ScopeChannel::AI0, true};
     ScopeChannel m_channel1{1, ScopeChannel::AI1, false};
@@ -328,7 +371,14 @@ private:
     double m_triggerLevel = 0.0;
     double m_horizontalPosition = 50.0;
     double m_triggerHysteresis = 0.0;
-    NoTriggerMode m_noTriggerMode = ClearGraph;
+    NoTriggerMode m_noTriggerMode = KeepLastTrace;   // "Normal": the last triggered trace stays
+    int m_averaging = 1;
+    FftSource m_fftSource = FftOff;
+    bool m_levelCursorsOn = false;
+    int m_levelCursorChannel = 0;
+    double m_levelCursor[2] = {1.0, -1.0};
+    double m_triggerTimeout = 1.0;
+    double m_triggerHoldoff = 0.0;
     FrequencyMethod m_frequencyMethod = ToneFrequency;
     bool m_autoscaleSetsLevel = false;
     // Last AI / audio source chosen per channel (the other channel follows to the same kind).
@@ -338,6 +388,7 @@ private:
     bool m_showDeltaTime = true;
     DisplayMode m_displayMode = YT;
     int m_persistence = 0;
+    int m_persistenceEpoch = 0;
     Background m_background = ThemeBackground;
 
     bool m_waitingForTrigger = false;

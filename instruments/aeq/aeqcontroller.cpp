@@ -1,6 +1,7 @@
 #include "aeqcontroller.h"
 
 #include <mybench/devicehub.h>
+#include <mybench/notifications.h>
 #include <mybench/units.h>
 
 #include <mydaq/dsp/fft.h>
@@ -110,6 +111,44 @@ AeqController::~AeqController()
 
 // --- Settings ---------------------------------------------------------------------------------
 
+namespace {
+
+bool isAudioSource(AeqController::Source s)
+{
+    return s == AeqController::SourceAudioInLeft || s == AeqController::SourceAudioInRight;
+}
+bool isAudioSink(AeqController::Sink s)
+{
+    return s == AeqController::SinkAudioOutLeft || s == AeqController::SinkAudioOutRight;
+}
+// The same side of the other kind: AI 0 <-> AudioInput Left, AI 1 <-> AudioInput Right.
+AeqController::Source counterpart(AeqController::Source s)
+{
+    switch (s) {
+    case AeqController::SourceAI0: return AeqController::SourceAudioInLeft;
+    case AeqController::SourceAI1: return AeqController::SourceAudioInRight;
+    case AeqController::SourceAudioInLeft: return AeqController::SourceAI0;
+    case AeqController::SourceAudioInRight: return AeqController::SourceAI1;
+    case AeqController::SourceNone: break;
+    }
+    return s;
+}
+AeqController::Sink counterpart(AeqController::Sink s)
+{
+    switch (s) {
+    case AeqController::SinkAO0: return AeqController::SinkAudioOutLeft;
+    case AeqController::SinkAO1: return AeqController::SinkAudioOutRight;
+    case AeqController::SinkAudioOutLeft: return AeqController::SinkAO0;
+    case AeqController::SinkAudioOutRight: return AeqController::SinkAO1;
+    case AeqController::SinkNone: break;
+    }
+    return s;
+}
+
+}  // namespace
+
+// Plain setters (settings and session restore write the four routing properties one at a time and
+// must not rewrite each other). The UI uses chooseInput/chooseOutput below.
 void AeqController::setInputLeft(Source source)
 {
     if (source == m_inputLeft)
@@ -142,6 +181,42 @@ void AeqController::setOutputRight(Sink sink)
     if (sink == m_outputRight)
         return;
     m_outputRight = sink;
+    emit routingChanged();
+    restart();
+}
+
+// AI 0/1 and the audio inputs share the converters (one AI task): choosing one kind for a side
+// moves the other side to the same kind, like the Scope does, instead of failing at Run.
+void AeqController::chooseInput(int side, int choice)
+{
+    const Source source = Source(std::clamp(choice, 0, int(SourceNone)));
+    Source& other = side == 0 ? m_inputRight : m_inputLeft;
+    const Source before = other;
+    if (source != SourceNone && other != SourceNone && isAudioSource(other) != isAudioSource(source))
+        (side == 0 ? m_inputRight : m_inputLeft) = counterpart(other);
+    const bool followed = other != before;
+    (side == 0 ? m_inputLeft : m_inputRight) = source;
+    if (followed)
+        Notifications::instance()->notify(Notifications::Info, title(),
+            tr("Input (%1) switched to %2: AI 0/AI 1 and the audio inputs share the converters and cannot be mixed")
+                .arg(side == 0 ? u"R"_s : u"L"_s, sourceNames().value(int(other))));
+    emit routingChanged();
+    restart();
+}
+
+void AeqController::chooseOutput(int side, int choice)
+{
+    const Sink sink = Sink(std::clamp(choice, 0, int(SinkNone)));
+    Sink& other = side == 0 ? m_outputRight : m_outputLeft;
+    const Sink before = other;
+    if (sink != SinkNone && other != SinkNone && isAudioSink(other) != isAudioSink(sink))
+        other = counterpart(other);
+    const bool followed = other != before;
+    (side == 0 ? m_outputLeft : m_outputRight) = sink;
+    if (followed)
+        Notifications::instance()->notify(Notifications::Info, title(),
+            tr("Output (%1) switched to %2: AO 0/AO 1 and the audio outputs share the converters and cannot be mixed")
+                .arg(side == 0 ? u"R"_s : u"L"_s, sinkNames().value(int(other))));
     emit routingChanged();
     restart();
 }
@@ -407,7 +482,7 @@ void AeqController::resetMeters()
 InstrumentController::WorkerFunction AeqController::createWorker()
 {
     if (const QString error = routingError(); !error.isEmpty())
-        throw mydaq::DeviceError(mydaq::DeviceError::InvalidConfig, error);
+        throw InvalidInput(error);
 
     struct Snapshot {
         std::vector<mydaq::AiChannel> inputs;   // task channels (unique)

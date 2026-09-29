@@ -78,6 +78,26 @@ ScopeController::ScopeController() : InstrumentController(u"scope"_s)
             m_live->post(snapshot());
     });
     connect(this, &ScopeController::timePerDivChanged, this, &ScopeController::clampCursors);
+    connect(this, &ScopeController::averagingChanged, this, &ScopeController::bumpPersistenceEpoch);
+    connect(this, &ScopeController::fftSourceChanged, this, &ScopeController::fftShownChanged);
+    connect(&m_math, &ScopeMath::enabledChanged, this, &ScopeController::fftShownChanged);
+    connect(&m_math, &ScopeMath::operationChanged, this, &ScopeController::fftShownChanged);
+    for (auto signal : {&ScopeController::timePerDivChanged, &ScopeController::samplingModeChanged,
+                        &ScopeController::rollModeChanged, &ScopeController::triggerTypeChanged,
+                        &ScopeController::triggerSourceChanged, &ScopeController::triggerSlopeChanged,
+                        &ScopeController::triggerLevelChanged, &ScopeController::horizontalPositionChanged,
+                        &ScopeController::displayModeChanged})
+        connect(this, signal, this, &ScopeController::bumpPersistenceEpoch);
+    for (ScopeChannel* c : {&m_channel0, &m_channel1}) {
+        connect(c, &ScopeChannel::sourceChanged, this, &ScopeController::bumpPersistenceEpoch);
+        connect(c, &ScopeChannel::enabledChanged, this, &ScopeController::bumpPersistenceEpoch);
+        connect(c, &ScopeChannel::voltsPerDivChanged, this, &ScopeController::bumpPersistenceEpoch);
+        connect(c, &ScopeChannel::positionChanged, this, &ScopeController::bumpPersistenceEpoch);
+    }
+    connect(&m_math, &ScopeMath::enabledChanged, this, &ScopeController::bumpPersistenceEpoch);
+    connect(&m_math, &ScopeMath::operationChanged, this, &ScopeController::bumpPersistenceEpoch);
+    connect(&m_math, &ScopeMath::voltsPerDivChanged, this, &ScopeController::bumpPersistenceEpoch);
+    connect(&m_math, &ScopeMath::positionChanged, this, &ScopeController::bumpPersistenceEpoch);
     setSummary({});
 }
 
@@ -175,6 +195,66 @@ void ScopeController::setTriggerHysteresis(double divisions)
         emit triggerHysteresisChanged();
 }
 
+void ScopeController::setLevelCursorsOn(bool on)
+{
+    if (assign(m_levelCursorsOn, on))
+        emit levelCursorsChanged();
+}
+
+void ScopeController::setLevelCursorChannel(int channel)
+{
+    if (assign(m_levelCursorChannel, std::clamp(channel, 0, 2)))
+        emit levelCursorsChanged();
+}
+
+void ScopeController::setLevelCursor1(double volts)
+{
+    if (std::isfinite(volts) && assign(m_levelCursor[0], std::clamp(volts, -1000.0, 1000.0)))
+        emit levelCursorsChanged();
+}
+
+void ScopeController::setLevelCursor2(double volts)
+{
+    if (std::isfinite(volts) && assign(m_levelCursor[1], std::clamp(volts, -1000.0, 1000.0)))
+        emit levelCursorsChanged();
+}
+
+void ScopeController::setAveraging(int records)
+{
+    static const int allowed[] = {1, 2, 4, 8, 16, 32, 64};
+    int best = 1;
+    for (int a : allowed)
+        if (std::abs(a - records) <= std::abs(best - records))
+            best = a;
+    if (assign(m_averaging, best))
+        emit averagingChanged();
+}
+
+void ScopeController::setFftSource(FftSource source)
+{
+    if (assign(m_fftSource, source)) {
+        if (source == FftOff && !(m_math.enabled() && m_math.fft()))
+            m_fftTrace.clear();
+        emit fftSourceChanged();
+    }
+}
+
+void ScopeController::setTriggerTimeout(double seconds)
+{
+    if (!std::isfinite(seconds))
+        return;
+    if (assign(m_triggerTimeout, std::clamp(seconds, 0.0, 60.0)))
+        emit triggerTimeoutChanged();
+}
+
+void ScopeController::setTriggerHoldoff(double seconds)
+{
+    if (!std::isfinite(seconds))
+        return;
+    if (assign(m_triggerHoldoff, std::round(std::clamp(seconds, 0.0, 10.0) * 1000.0) / 1000.0))
+        emit triggerHoldoffChanged();
+}
+
 void ScopeController::setNoTriggerMode(NoTriggerMode mode)
 {
     if (assign(m_noTriggerMode, mode))
@@ -221,6 +301,12 @@ void ScopeController::setPersistence(int ms)
 {
     if (assign(m_persistence, std::clamp(ms, 0, 10000)))
         emit persistenceChanged();
+}
+
+void ScopeController::bumpPersistenceEpoch()
+{
+    ++m_persistenceEpoch;
+    emit persistenceEpochChanged();
 }
 
 void ScopeController::setBackground(Background background)
@@ -360,7 +446,7 @@ double ScopeController::triggerTime() const
 {
     if (!m_record.triggered || !(m_record.sampleRate > 0))
         return scope::kNaN;
-    return m_recordX0 + double(m_record.triggerIndex) / m_record.sampleRate;
+    return m_recordX0 + (double(m_record.triggerIndex) - m_record.triggerShift) / m_record.sampleRate;
 }
 
 scope::Snapshot ScopeController::snapshot() const
@@ -380,6 +466,10 @@ scope::Snapshot ScopeController::snapshot() const
     s.noTrigger = m_noTriggerMode == ShowUntriggered ? scope::NoTrigger::Auto
                 : m_noTriggerMode == KeepLastTrace   ? scope::NoTrigger::KeepLast
                                                      : scope::NoTrigger::Clear;
+    s.averaging = m_averaging;
+    s.fftSource = m_fftSource - 1;
+    s.triggerTimeout = m_triggerTimeout;
+    s.holdoff = m_triggerHoldoff;
     s.mathEnabled = m_math.enabled();
     s.mathFunction = m_math.coreFunction();
     return s;
@@ -672,10 +762,18 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
         bool autoscaleNow = autoscaleFirst;
         bool waiting = false;
         bool cleared = false;
+        scope::RecordAverager averager;
+        QElapsedTimer sinceTrigger;   // time without a triggered record (run start, settings change)
+        sinceTrigger.start();
 
         // Measurements, math and traces of a record, then hand it to the UI thread.
         auto publish = [&](scope::Record&& record, double x0) {
             auto p = std::make_shared<Published>();
+            averager.setWindow(s.roll ? 1 : s.averaging);
+            if (record.triggered || s.triggerType == scope::TriggerType::Immediate)
+                averager.apply(record);
+            else
+                averager.reset();
             const double fs = record.sampleRate;
             const double dt = fs > 0 ? 1.0 / fs : 1.0;
             const size_t length = std::max(record.data[0].size(), record.data[1].size());
@@ -690,25 +788,37 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
                 }
             }
             if (record.enabled(0) && record.enabled(1)) {
+                // Phase between the channels at the frequency of CH 0 (else CH 1): CH 1 relative to
+                // CH 0, and the opposite sign on CH 0.
+                const scope::Measurements& m0 = p->measurements[0];
+                const scope::Measurements& m1 = p->measurements[1];
+                double f = std::isfinite(m0.counterFrequency) ? m0.counterFrequency : m0.frequency;
+                if (!std::isfinite(f))
+                    f = std::isfinite(m1.counterFrequency) ? m1.counterFrequency : m1.frequency;
+                const double phase = scope::phaseBetween(record.data[0], record.data[1], fs, f, record.skew[1] - record.skew[0]);
+                p->measurements[1].phase = phase;
+                p->measurements[0].phase = std::isfinite(phase) ? (phase == 180.0 ? 180.0 : -phase) : phase;
                 const size_t n = std::min(record.data[0].size(), record.data[1].size());
                 m_xyTrace.setXY(std::span<const double>(record.data[0].data(), n),
                                 std::span<const double>(record.data[1].data(), n));
             } else {
                 m_xyTrace.clear();
             }
-            if (s.mathEnabled && scope::isFft(s.mathFunction)) {
-                const int src = s.mathFunction == scope::MathFunction::FftA ? 0 : 1;
-                if (record.enabled(src)) {
-                    const scope::FftResult fft = scope::fftAnalyse(record.data[src], fs);
-                    p->fftBinWidth = fft.binWidth;
-                    p->fftPeakFrequency = fft.peakFrequency;
-                    p->fftPeakLevel = fft.peakLevel;
-                    m_fftTrace.setUniform(0.0, fft.binWidth, fft.db);
-                } else {
-                    m_fftTrace.clear();
-                }
-                m_mathTrace.clear();
-            } else if (s.mathEnabled) {
+            // FFT pane: the scope's own FFT source, or the math channel's FFT function.
+            const int fftSource = s.fftSource >= 0 ? s.fftSource
+                                  : s.mathEnabled && scope::isFft(s.mathFunction)
+                                      ? (s.mathFunction == scope::MathFunction::FftA ? 0 : 1)
+                                      : -1;
+            if (fftSource >= 0 && record.enabled(fftSource)) {
+                const scope::FftResult fft = scope::fftAnalyse(record.data[fftSource], fs);
+                p->fftBinWidth = fft.binWidth;
+                p->fftPeakFrequency = fft.peakFrequency;
+                p->fftPeakLevel = fft.peakLevel;
+                m_fftTrace.setUniform(0.0, fft.binWidth, fft.db);
+            } else {
+                m_fftTrace.clear();
+            }
+            if (s.mathEnabled && !scope::isFft(s.mathFunction)) {
                 const bool available = scope::needsBothChannels(s.mathFunction)
                                            ? record.enabled(0) && record.enabled(1)
                                            : record.enabled(s.mathFunction == scope::MathFunction::InvertA ? 0 : 1);
@@ -721,10 +831,8 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
                 } else {
                     m_mathTrace.clear();
                 }
-                m_fftTrace.clear();
             } else {
                 m_mathTrace.clear();
-                m_fftTrace.clear();
             }
             p->record = std::move(record);
             p->x0 = x0;
@@ -732,8 +840,12 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
         };
 
         while (!ctx.stopRequested()) {
-            if (auto next = live->take(); next && scope::validate(*next).isEmpty())
+            if (auto next = live->take(); next && scope::validate(*next).isEmpty()) {
+                if (!(*next).sameDisplay(s))
+                    averager.reset();
                 s = *next;
+                sinceTrigger.restart();
+            }
             if (request->exchange(false))
                 autoscaleNow = true;
 
@@ -794,13 +906,24 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
             }
             roller.stop();
 
-            scope::CycleResult result = acquirer.acquire(ctx.device(), s, stop);
+            // A missing trigger is silent until the timeout has elapsed: the last trace stays, no
+            // "waiting" state. Then Auto free-runs, Clear empties the graph, Normal just says so.
+            const double waited = double(sinceTrigger.elapsed()) / 1000.0;
+            const double timeout = s.triggerTimeout > 0 ? s.triggerTimeout : 0.1;
+            const bool timeoutPassed = s.triggerTimeout > 0 ? waited >= s.triggerTimeout
+                                                            : s.noTrigger == scope::NoTrigger::Auto && waited >= timeout;
+            scope::Snapshot cycleSettings = s;
+            if (s.noTrigger == scope::NoTrigger::Auto && !timeoutPassed)
+                cycleSettings.noTrigger = scope::NoTrigger::KeepLast;
+            scope::CycleResult result = acquirer.acquire(ctx.device(), cycleSettings, stop);
             if (result.stopped)
                 break;
             ctx.setSampleRate(acquirer.sampleRate());
             ctx.addSamples(result.samplesMoved);
-            ctx.setTimedOut(result.timedOut);
-            const bool nowWaiting = result.timedOut;
+            if (!result.timedOut)
+                sinceTrigger.restart();
+            ctx.setTimedOut(result.timedOut && timeoutPassed);
+            const bool nowWaiting = result.timedOut && timeoutPassed;   // no flicker before the timeout
             if (nowWaiting != waiting) {
                 waiting = nowWaiting;
                 ctx.setStatus(waiting ? tr("Waiting for trigger") : QString());
@@ -808,10 +931,11 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
             }
             const bool displayed = result.record.has_value();
             if (displayed) {
-                publish(std::move(*result.record), 0.0);
+                const double shift = result.record->triggerShift / std::max(1.0, result.record->sampleRate);
+                publish(std::move(*result.record), shift);
                 ctx.acquisitionDone();
                 cleared = false;
-            } else if (result.timedOut && s.noTrigger == scope::NoTrigger::Clear && !cleared) {
+            } else if (result.timedOut && timeoutPassed && s.noTrigger == scope::NoTrigger::Clear && !cleared) {
                 // ELVISmx: a record without trigger clears the graph and the measurements.
                 publish(scope::Record{}, 0.0);
                 cleared = true;
@@ -820,7 +944,9 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
             // found or Stop is pressed (a single-shot "arm").
             if (ctx.once() && displayed)
                 break;
-            const int remaining = kMinimumCycleMs - int(cycle.elapsed());
+            const int cycleMs = displayed && !result.timedOut ? std::max(kMinimumCycleMs, int(s.holdoff * 1000.0))
+                                                               : kMinimumCycleMs;
+            const int remaining = cycleMs - int(cycle.elapsed());
             if (remaining > 0 && !ctx.sleepMs(remaining))
                 break;
         }
@@ -905,7 +1031,7 @@ DataTable ScopeController::exportTable() const
     const size_t n = size_t(recordLength());
     std::vector<double> time(n);
     for (size_t i = 0; i < n; ++i)
-        time[i] = double(i) / fs;
+        time[i] = (double(i) + m_record.triggerShift) / fs;   // the trigger crossing sits at its position
     table.addColumn(tr("Time"), u"s"_s, std::move(time));
     for (int ch = 0; ch < 2; ++ch)
         if (m_record.enabled(ch))
@@ -932,6 +1058,7 @@ bool ScopeController::exportElvisText(const QUrl& file)
     // Layout of the ELVISmx Log TXT file (LabVIEW waveform export): a header block with t0 and
     // delta t per channel, then time/value column pairs with absolute timestamps, %E values.
     const double dt = 1.0 / m_record.sampleRate;
+    const double shift = m_record.triggerShift * dt;   // sub-sample trigger alignment
     const QDateTime t0 = m_recordTime.isValid() ? m_recordTime : QDateTime::currentDateTime();
     auto stamp = [&](double offset) {
         const qint64 us = qint64(std::llround(offset * 1e6));
@@ -954,7 +1081,7 @@ bool ScopeController::exportElvisText(const QUrl& file)
     for (int i = 0; i < channels.size(); ++i) {
         const int ch = channels[i];
         rows[0] << u"Ch%1"_s.arg(ch) << QString();
-        rows[1] << stamp(m_record.skew[ch]) << QString();
+        rows[1] << stamp(m_record.skew[ch] + shift) << QString();
         rows[2] << number(dt) << QString();
         header << u"time[%1]"_s.arg(i) << u"Ch%1"_s.arg(ch);
     }
@@ -966,7 +1093,7 @@ bool ScopeController::exportElvisText(const QUrl& file)
     for (size_t i = 0; i < n; ++i) {
         QStringList cells;
         for (int ch : channels) {
-            cells << stamp(double(i) * dt + m_record.skew[ch]);
+            cells << stamp(double(i) * dt + m_record.skew[ch] + shift);
             cells << (i < m_record.data[ch].size() ? number(m_record.data[ch][i]) : QString());
         }
         stream << cells.join(u'\t') << '\n';

@@ -36,8 +36,8 @@ Measure resistance, diodes and continuity only on circuits that are switched off
 
 ## Measurement Settings
 
-- **Function** – DC V, AC V, DC A, AC A, Ω (resistance), Diode and Continuity. Capacitance and
-  Inductance are shown but disabled: the myDAQ cannot measure them.
+- **Function** – DC V, AC V, DC A, AC A, Ω (resistance), Diode and Continuity. (The myDAQ
+  cannot measure capacitance or inductance, so there are no buttons for them.)
 - **Mode** – *Auto* or *Specify Range*. The mode is kept when you change the function. Continuity
   always ranges automatically.
 - **Range** – listed from the smallest to the largest:

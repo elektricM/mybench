@@ -16,15 +16,13 @@ Item {
 
     required property DmmController controller
 
-    // ELVISmx function buttons, in ELVISmx order. `fn` = DmmController.MeterFunction (-1: n/a).
+    // Function buttons. `fn` = DmmController.MeterFunction.
     readonly property var functions: [
         { fn: DmmController.DcVoltage, icon: "dmm-vdc", caption: qsTr("DC V"), toolTip: qsTr("DC Voltage") },
         { fn: DmmController.AcVoltage, icon: "dmm-vac", caption: qsTr("AC V"), toolTip: qsTr("AC Voltage") },
         { fn: DmmController.DcCurrent, icon: "dmm-adc", caption: qsTr("DC A"), toolTip: qsTr("DC Current") },
         { fn: DmmController.AcCurrent, icon: "dmm-aac", caption: qsTr("AC A"), toolTip: qsTr("AC Current") },
         { fn: DmmController.Resistance, icon: "dmm-ohm", caption: qsTr("Ω"), toolTip: qsTr("Resistance") },
-        { fn: -1, icon: "dmm-capacitance-line", caption: qsTr("Cap"), toolTip: qsTr("Capacitance — not available on NI myDAQ") },
-        { fn: -1, icon: "dmm-inductance-line", caption: qsTr("Ind"), toolTip: qsTr("Inductance — not available on NI myDAQ") },
         { fn: DmmController.Diode, icon: "dmm-diode-line", caption: qsTr("Diode"), toolTip: qsTr("Diode") },
         { fn: DmmController.Continuity, icon: "dmm-continuity-line", caption: qsTr("Cont."), toolTip: qsTr("Continuity") }
     ]
@@ -283,7 +281,6 @@ Item {
                             caption: modelData.caption
                             toolTip: modelData.toolTip
                             shortcutText: String(index + 1)
-                            enabled: modelData.fn >= 0
                             checked: modelData.fn === root.controller.selectedFunction
                             onClicked: root.controller.selectedFunction = modelData.fn
                         }

@@ -131,9 +131,12 @@ public:
         Mean = 1 << 3, Minimum = 1 << 4, Maximum = 1 << 5, Amplitude = 1 << 6,
         Period = 1 << 7, CounterFrequency = 1 << 8, DutyCycle = 1 << 9,
         RiseTime = 1 << 10, FallTime = 1 << 11, PositiveWidth = 1 << 12, NegativeWidth = 1 << 13,
+        AcRms = 1 << 14, CrestFactor = 1 << 15, Overshoot = 1 << 16, Preshoot = 1 << 17,
+        SlewRate = 1 << 18, Phase = 1 << 19,
     };
     Q_ENUM(Measurement)
     static constexpr int kElvisMeasurements = Rms | Frequency | PeakToPeak;
+    static constexpr int kMeasurementCount = 20;
 
     ScopeChannel(int index, Source source, bool enabled, QObject* parent = nullptr);
 

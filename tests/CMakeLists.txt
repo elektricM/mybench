@@ -55,3 +55,6 @@ endif()
 
 # White-box test of a simulator internal.
 target_include_directories(tst_digitaltimeline PRIVATE ${PROJECT_SOURCE_DIR}/core/src)
+
+# Cross-instrument AI/AO/audio exclusivity through the ResourceArbiter (tests/exclusivity).
+add_subdirectory(exclusivity)

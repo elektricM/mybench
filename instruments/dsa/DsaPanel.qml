@@ -206,47 +206,6 @@ Item {
             },
             Section {
                 visible: !root.octave
-                title: qsTr("Trigger Settings")
-                collapsed: true
-                summary: qsTr("Immediate")
-                FieldRow {
-                    Field {
-                        label: qsTr("Type")
-                        disabled: true
-                        ComboBox { Layout.fillWidth: true; enabled: false; model: [qsTr("Immediate"), qsTr("Digital"), qsTr("Edge")] }
-                    }
-                    Field {
-                        label: qsTr("Slope")
-                        disabled: true
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            enabled: false
-                            model: [{ icon: "slope-rising-line", toolTip: qsTr("Rising") }, { icon: "slope-falling-line", toolTip: qsTr("Falling") }]
-                        }
-                    }
-                }
-                FieldRow {
-                    Field {
-                        label: qsTr("Source")
-                        disabled: true
-                        ComboBox { Layout.fillWidth: true; enabled: false; model: [qsTr("TRIG"), qsTr("SYNC"), qsTr("Source Channel")] }
-                    }
-                    Field {
-                        label: qsTr("Level (V)")
-                        disabled: true
-                        SiField { Layout.fillWidth: true; enabled: false; engineering: false; decimals: 1; unit: "V"; from: -10; to: 10; value: 0 }
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Immediate only on NI myDAQ: acquisition starts at once (the TRIG/SYNC inputs exist only on NI ELVIS).")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS + 1
-                    wrapMode: Text.WordWrap
-                }
-            },
-            Section {
-                visible: !root.octave
                 title: qsTr("Frequency Display")
                 summary: root.controller.magnitudeUnit
                 FieldRow {

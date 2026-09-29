@@ -17,7 +17,7 @@ Item {
     readonly property ScopeMath math: controller.math
     readonly property bool xyMode: controller.displayMode === ScopeController.XY
     readonly property bool edge: controller.triggerType === ScopeController.Edge && !controller.rolling
-    readonly property bool fftShown: math.enabled && math.fft
+    readonly property bool fftShown: controller.fftShown
     readonly property bool mathShown: math.enabled && !math.fft
     readonly property int triggerChannel: {
         const wanted = controller.triggerSource === ScopeController.Chan1Source ? 1 : 0
@@ -27,6 +27,21 @@ Item {
     readonly property bool customBackground: controller.background !== ScopeController.ThemeBackground
     readonly property bool whiteBackground: controller.background === ScopeController.White
     readonly property alias ytPlot: ytPlot
+    // A display setting changed: drop the afterglow of the old setting (the plot clears its ghosts
+    // while persistence is 0, then the value returns).
+    property bool persistenceHold: false
+    readonly property int persistenceEpoch: controller.persistenceEpoch
+    onPersistenceEpochChanged: {
+        if (controller.persistence > 0) {
+            persistenceHold = true
+            persistenceRelease.restart()
+        }
+    }
+    Timer {
+        id: persistenceRelease
+        interval: 60
+        onTriggered: root.persistenceHold = false
+    }
     readonly property bool dimmed: controller.running && controller.waitingForTrigger
                                    && controller.noTriggerMode === ScopeController.KeepLastTrace
 
@@ -55,6 +70,33 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingS
 
+        // Directly accessible FFT: a spectrum pane of CH 0 or CH 1 under the graph.
+        RowLayout {
+            visible: !root.xyMode
+            Layout.fillWidth: true
+            spacing: Theme.spacingS
+            Text {
+                text: qsTr("FFT")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeS
+                font.weight: Font.DemiBold
+            }
+            SegmentedControl {
+                model: [{ text: qsTr("Off"), toolTip: qsTr("No spectrum pane") },
+                        { text: "CH 0", toolTip: qsTr("Spectrum of CH 0 under the graph") },
+                        { text: "CH 1", toolTip: qsTr("Spectrum of CH 1 under the graph") }]
+                currentIndex: root.controller.fftSource
+                onActivated: index => root.controller.fftSource = index
+            }
+            Item { Layout.fillWidth: true }
+            Text {
+                visible: root.controller.persistence > 0
+                text: qsTr("persistence %1").arg(Units.format(root.controller.persistence / 1000, "s", 2))
+                color: Theme.textMuted
+                font.pixelSize: Theme.fontSizeS
+            }
+        }
+
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -66,6 +108,7 @@ Item {
                 // ---- YT graph -------------------------------------------------------------------
                 BenchPlot {
                     id: ytPlot
+                    hoverReadout: true
                     visible: !root.xyMode
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -158,7 +201,7 @@ Item {
                         defaultColor: Theme.math
                         yScale: 1 / root.math.voltsPerDiv
                         yOffset: root.math.position
-                        persistence: root.controller.persistence
+                        persistence: root.persistenceHold ? 0 : root.controller.persistence
                     }
                     ScopeTrace {
                         id: trace1
@@ -171,7 +214,7 @@ Item {
                         defaultColor: Theme.ch1
                         yScale: 1 / root.ch1.voltsPerDiv
                         yOffset: root.ch1.position
-                        persistence: root.controller.persistence
+                        persistence: root.persistenceHold ? 0 : root.controller.persistence
                     }
                     ScopeTrace {
                         id: trace0
@@ -184,7 +227,7 @@ Item {
                         defaultColor: Theme.ch0
                         yScale: 1 / root.ch0.voltsPerDiv
                         yOffset: root.ch0.position
-                        persistence: root.controller.persistence
+                        persistence: root.persistenceHold ? 0 : root.controller.persistence
                     }
 
                     // Channel zero markers (left edge): drag = Vertical Position.
@@ -263,6 +306,29 @@ Item {
                         readoutVisible: root.controller.cursor2.showValue
                         snap: true
                         onMoved: p => root.controller.cursor2.position = p
+                    }
+                    // Level cursors: two voltage lines of one trace (Cursors Settings > Level cursors).
+                    PlotLine {
+                        visible: root.controller.levelCursorsOn && !root.xyMode
+                        trace: root.traceFor(root.controller.levelCursorChannel)
+                        value: root.controller.levelCursor1
+                        handle: PlotLine.End
+                        label: "H1"
+                        color: Theme.cursor1
+                        style: PlotElement.Dash
+                        lineMode: PlotLine.Always
+                        onMoved: v => root.controller.levelCursor1 = v
+                    }
+                    PlotLine {
+                        visible: root.controller.levelCursorsOn && !root.xyMode
+                        trace: root.traceFor(root.controller.levelCursorChannel)
+                        value: root.controller.levelCursor2
+                        handle: PlotLine.End
+                        label: "H2"
+                        color: Theme.cursor2
+                        style: PlotElement.Dash
+                        lineMode: PlotLine.Always
+                        onMoved: v => root.controller.levelCursor2 = v
                     }
                     // Full crosshair: the horizontal line through the cursor's value.
                     PlotLine {
@@ -409,6 +475,7 @@ Item {
                 // ---- XY graph -------------------------------------------------------------------
                 BenchPlot {
                     id: xyPlot
+                    hoverReadout: true
                     visible: root.xyMode
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -430,7 +497,7 @@ Item {
                         xOffset: root.ch0.position
                         yScale: 1 / root.ch1.voltsPerDiv
                         yOffset: root.ch1.position
-                        persistence: root.controller.persistence
+                        persistence: root.persistenceHold ? 0 : root.controller.persistence
                     }
                     Row {
                         x: xyPlot.plotArea.x + 8
@@ -444,6 +511,7 @@ Item {
                 // ---- FFT of the math channel ----------------------------------------------------
                 BenchPlot {
                     id: fftPlot
+                    hoverReadout: true
                     visible: root.fftShown
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -457,14 +525,18 @@ Item {
                         unit: "Hz"
                         unitInLabels: true
                         lowerLimit: 0
+                        upperLimit: Math.max(1, root.controller.fftMaxFrequency)
+                        minimumSpan: Math.max(1, root.controller.fftMaxFrequency) / 200
                     }
-                    yAxis { min: -140; max: 20; unit: "dBV"; title: qsTr("Magnitude") }
+                    yAxis { min: -140; max: 20; unit: "dBV"; title: qsTr("Magnitude"); limitToData: true; limitMargin: 0.5; minimumSpan: 3 }
                     PlotTrace {
                         id: fftTrace
                         buffer: root.controller.fftTrace
-                        name: root.math.functionName
+                        name: root.controller.fftSource !== ScopeController.FftOff ? "FFT CH " + (root.controller.fftSource - 1)
+                                                                                   : root.math.functionName
                         unit: "dBV"
-                        color: root.channelColor(2)
+                        color: root.controller.fftSource !== ScopeController.FftOff ? root.channelColor(root.controller.fftSource - 1)
+                                                                                    : root.channelColor(2)
                         width: 1.2
                         fill: true
                         fillOpacity: 0.18
@@ -474,7 +546,8 @@ Item {
                         x: root.math.peakFrequency
                         y: root.math.peakLevel
                         shape: PlotMarker.TriangleDown
-                        color: root.channelColor(2)
+                        color: root.controller.fftSource !== ScopeController.FftOff ? root.channelColor(root.controller.fftSource - 1)
+                                                                                    : root.channelColor(2)
                         label: Units.format(root.math.peakFrequency, "Hz", 4) + "  " + root.math.peakLevel.toFixed(1) + " dBV"
                     }
                 }

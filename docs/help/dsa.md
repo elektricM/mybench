@@ -35,7 +35,9 @@ meter.
 - **Time**: the latest record. With a window selected it is shown multiplied by the window (scaled
   so the average level is kept), which shows what the FFT actually sees.
 - Hovering over a plot shows the values under the mouse; the mouse wheel zooms, dragging pans and a
-  double-click restores the view.
+  double-click restores the view. Panning and zooming are kept over the data: the magnitude axis cannot
+  leave the spectrum (plus a margin) or zoom out or in without limit, and the frequency axis stays
+  inside 0 Hz to the span with a minimum zoom of a few hundred bins.
 
 ## Controls
 
@@ -76,11 +78,6 @@ display (see *1/3 Octave* at the end).
   with RMS or Vector averaging and *Linear* weighting (grayed with Exponential weighting, None and
   Peak Hold). Changing the window or an averaging
   setting also restarts it; changing the source, range, span or lines restarts the acquisition.
-
-### Trigger Settings
-
-Shown as on the myDAQ: disabled. The acquisition always starts immediately (the trigger inputs exist
-only on NI ELVIS).
 
 ### Frequency Display
 

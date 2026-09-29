@@ -129,6 +129,8 @@ Item {
                     unit: root.gainUnit
                     autoScale: root.controller.autoscale && root.hasPoints
                     autoScaleMargin: 0.05
+                    limitToData: root.hasPoints
+                    limitMargin: 1
                     minimumSpan: root.linearGain ? 0.01 : 1
                     labelFormat: root.linearGain ? PlotAxis.Engineering : PlotAxis.Fixed
                     tickSpacing: 44
@@ -246,6 +248,8 @@ Item {
                     unit: "deg"
                     autoScale: root.controller.autoscale && root.hasPoints
                     autoScaleMargin: 0.05
+                    limitToData: root.hasPoints
+                    limitMargin: 1
                     minimumSpan: 5
                     labelFormat: PlotAxis.Fixed
                     tickSpacing: 40
@@ -453,17 +457,12 @@ Item {
             Section {
                 title: qsTr("Measurement Settings")
                 summary: qsTr("%1 pts").arg(root.controller.plannedPoints)
-                FieldRow {
-                    Field {
-                        label: qsTr("Stimulus Channel")
-                        disabled: true
-                        ComboBox { Layout.fillWidth: true; model: ["AI 0"]; enabled: false }
-                    }
-                    Field {
-                        label: qsTr("Response Channel")
-                        disabled: true
-                        ComboBox { Layout.fillWidth: true; model: ["AI 1"]; enabled: false }
-                    }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Stimulus is measured on AI 0, response on AI 1 (the generator AO 0 drives the circuit).")
+                    color: Theme.textMuted
+                    font.pixelSize: Theme.fontSizeS
+                    wrapMode: Text.WordWrap
                 }
                 FieldRow {
                     Field {

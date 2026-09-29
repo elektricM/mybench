@@ -69,6 +69,9 @@ Item {
             yAxis {
                 min: root.controller.octaveMinimum
                 max: root.controller.octaveMaximum
+                limitToData: true
+                limitMargin: 0.5
+                minimumSpan: Math.max(root.controller.octaveMaximum - root.controller.octaveMinimum, 1e-9) / 200
                 title: qsTr("Band level")
                 unit: root.levelUnit
                 labelFormat: PlotAxis.Fixed
@@ -93,7 +96,7 @@ Item {
             leftMargin: root.leftMargin
             hoverReadout: true
             xAxis { min: 0; max: root.controller.recordDuration; unit: "s"; title: qsTr("Time") }
-            yAxis { autoScale: true; min: -1; max: 1; unit: "V"; title: qsTr("Amplitude"); tickSpacing: 30 }
+            yAxis { autoScale: true; min: -1; max: 1; unit: "V"; title: qsTr("Amplitude"); tickSpacing: 30; limitToData: true; limitMargin: 1; minimumSpan: 1e-6 }
             PlotTrace { buffer: root.controller.timeSignal; name: qsTr("Amplitude"); unit: "V"; color: Theme.ch1; width: 1.2 }
         }
     }

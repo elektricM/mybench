@@ -286,32 +286,6 @@ Section {
         }
     }
 
-    FieldRow {
-        visible: root.isFunction
-        Layout.fillWidth: true
-        Field {
-            label: qsTr("Modulation Type")
-            disabled: true
-            ComboBox {
-                Layout.fillWidth: true
-                enabled: false
-                model: [qsTr("None"), qsTr("AM"), qsTr("FM")]
-                currentIndex: 0
-            }
-        }
-        Field {
-            label: qsTr("Manual Mode")
-            disabled: true
-            hint: qsTr("Modulation and Manual Mode (front-panel knobs) need the NI ELVIS II hardware generator: not available on NI myDAQ")
-            CheckBox {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.controlHeight
-                text: qsTr("ELVIS II only")
-                enabled: false
-            }
-        }
-    }
-
     GroupLabel { visible: root.isFunction; text: qsTr("Sweep Settings") }
 
     FieldRow {
@@ -584,17 +558,6 @@ Section {
                                                          : qsTr("0.1 S/s to 200 kS/s")
                 value: root.channel.updateRate
                 onValueModified: v => root.channel.updateRate = v
-            }
-        }
-        Field {
-            label: qsTr("Trigger Source")
-            disabled: true
-            ComboBox {
-                Layout.fillWidth: true
-                enabled: false
-                model: [qsTr("Immediate")]
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("The myDAQ has no trigger input for the generator")
             }
         }
     }

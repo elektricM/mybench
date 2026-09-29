@@ -4,8 +4,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MyBench.Controls
 
-// "Channel 0 Settings" / "Channel 1 Settings": Source, Enabled, Probe, Coupling, Scale Volts/Div
-// (knob + list) and Vertical Position (Div) (knob + field), as in ELVISmx.
+// "Channel 0 Settings" / "Channel 1 Settings": Source, Enabled, Scale Volts/Div (knob + list)
+// and Vertical Position (Div) (knob + field). Coupling and probe are fixed facts of the myDAQ and
+// shown as information.
 Section {
     id: root
 
@@ -51,27 +52,13 @@ Section {
             }
         }
     }
-    FieldRow {
-        Field {
-            label: qsTr("Probe")
-            disabled: true
-            ScopeCombo {
-                model: ["1x", "10x"]
-                currentIndex: 0
-                enabled: false
-                toolTip: qsTr("The myDAQ has no probe setting (10x is NI ELVIS only)")
-            }
-        }
-        Field {
-            label: qsTr("Coupling")
-            disabled: true
-            ScopeCombo {
-                model: ["DC", "AC", "GND"]
-                currentIndex: root.channel.audio ? 1 : 0
-                enabled: false
-                toolTip: qsTr("Set by the source: DC for AI inputs, AC (mean removed) for the audio inputs")
-            }
-        }
+    Text {
+        Layout.fillWidth: true
+        text: root.channel.audio ? qsTr("Coupling: AC (mean removed) · 1× probe · ±2 V")
+                                 : qsTr("Coupling: DC · 1× probe · ±%1 V").arg(root.channel.voltsPerDiv >= 0.5 ? "10" : "2")
+        color: Theme.textMuted
+        font.pixelSize: Theme.fontSizeS
+        wrapMode: Text.WordWrap
     }
     RowLayout {
         Layout.fillWidth: true
@@ -82,14 +69,17 @@ Section {
             spacing: Theme.spacingXs
             Knob {
                 Layout.alignment: Qt.AlignHCenter
+                // Bench-scope direction: clockwise = smaller Volts/Div (more sensitive, "zoom in"),
+                // as the mouse wheel over the graph. The knob ring therefore runs from large to small.
+                readonly property int last: root.channel.scaleLabels.length - 1
                 label: qsTr("Scale Volts/Div")
-                values: root.channel.scaleValues
-                labels: root.channel.scaleLabels
-                currentIndex: root.channel.scaleIndex
+                values: root.channel.scaleValues.slice().reverse()
+                labels: root.channel.scaleLabels.slice().reverse()
+                currentIndex: last - root.channel.scaleIndex
                 color: root.channelColor
                 showValue: false
                 diameter: 54
-                onIndexMoved: index => root.channel.scaleIndex = index
+                onIndexMoved: index => root.channel.scaleIndex = last - index
             }
             ScopeCombo {
                 // ELVISmx lists the largest scale first.

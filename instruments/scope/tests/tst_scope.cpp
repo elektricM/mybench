@@ -6,14 +6,18 @@
 #include <mybench/devicehub.h>
 #include <mydaq/sim_device.h>
 
+#include <QElapsedTimer>
 #include <QFile>
+#include <QSignalSpy>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QStandardPaths>
 #include <QTest>
 
 #include <cmath>
+#include <memory>
 #include <numbers>
+#include <random>
 
 using namespace Qt::StringLiterals;
 using namespace mybench::instruments;
@@ -64,6 +68,14 @@ private slots:
     void acquireImmediate();
     void acquireEdge();
     void acquireTimeout();
+    void triggerJitter();
+    void triggerJitter_controller();
+    void searchWindowGrows();
+    void extraMeasurements();
+    void phaseMeasurement();
+    void triggerTimeoutModes();
+    void persistenceEpoch();
+    void averaging();
     void acquireAutoTrigger();
     void acquireTwoChannelsAndAudio();
     void autoscaleOnSimulator();
@@ -414,6 +426,280 @@ void TestScope::acquireEdge()
     QVERIFY(x[size_t(r.record->triggerIndex - 1)] > 0.5 && x[size_t(r.record->triggerIndex)] <= 0.5);
 }
 
+// Alex: "triggering is wobbly, even on the simulator". Cause: the record started at the sample
+// after the crossing, so the edge sat anywhere within one sample (0.9 division at 5 us/div) from
+// frame to frame. Sub-sample alignment puts the interpolated crossing at the trigger position.
+void TestScope::triggerJitter()
+{
+    mydaq::SimDevice sim;
+    sc::Acquirer acquirer;
+    sc::Snapshot s;
+    s.triggerType = sc::TriggerType::Edge;
+    s.level = 0.0;
+    s.horizontalPercent = 50;
+    for (double timePerDiv : {5e-6, 20e-6, 100e-6, 1e-3}) {
+        s.timePerDiv = timePerDiv;
+        std::vector<double> rawOffset, alignedTime;
+        for (int frame = 0; frame < 24; ++frame) {
+            // Fast time bases only see an edge in a fraction of the windows: keep arming.
+            sc::CycleResult r;
+            for (int attempt = 0; attempt < 40 && !(r.record && r.record->triggered); ++attempt)
+                r = acquirer.acquire(sim, s, never);
+            QVERIFY(r.record && r.record->triggered);
+            const auto& x = r.record->data[0];
+            const int64_t pre = r.record->triggerIndex;
+            const double fs = r.record->sampleRate;
+            const double f = (s.level - x[size_t(pre - 1)]) / (x[size_t(pre)] - x[size_t(pre - 1)]);
+            QVERIFY(f >= 0.0 && f <= 1.0);
+            rawOffset.push_back((double(pre) - 1.0 + f) / fs);   // crossing time, undisplaced
+            alignedTime.push_back(rawOffset.back() + r.record->triggerShift / fs);
+        }
+        auto spread = [](const std::vector<double>& v) {
+            return *std::max_element(v.begin(), v.end()) - *std::min_element(v.begin(), v.end());
+        };
+        const double dt = 1.0 / 200000.0;
+        // Before the alignment the edge moved by about one sample from frame to frame (0.9 division
+        // at 5 us/div); after it, the crossing does not move.
+        if (timePerDiv == 5e-6)
+            QVERIFY2(spread(rawOffset) > 0.5 * dt, qPrintable(u"unaligned spread %1 s"_s.arg(spread(rawOffset))));
+        // The displaced record puts the crossing at the trigger position within a small fraction
+        // of a sample (limited by the simulator noise), whatever the frame.
+        QVERIFY2(spread(alignedTime) < 0.05 * std::max(dt, timePerDiv / 200.0),
+                 qPrintable(u"%1 s/div: spread %2 s"_s.arg(timePerDiv).arg(spread(alignedTime))));
+    }
+}
+
+// Rare events: without a crossing the search window doubles (up to ~0.25 s of samples) and
+// shrinks again after a run of triggered cycles.
+// The same through the controller: the crossing in the published trace buffer sits at the trigger
+// position on every frame.
+void TestScope::triggerJitter_controller()
+{
+    mybench::DeviceHub::instance()->select(u"sim:0"_s);
+    ScopeController c;
+    c.initialize();
+    c.setTimePerDiv(100e-6);
+    c.setTriggerType(ScopeController::Edge);
+    c.setTriggerLevel(0.0);
+    QSignalSpy frames(&c, &ScopeController::recordChanged);
+    c.run();
+    std::vector<double> crossing;
+    QElapsedTimer clock;
+    clock.start();
+    while (crossing.size() < 20 && clock.elapsed() < 15000) {
+        QTRY_VERIFY_WITH_TIMEOUT(frames.count() > 0, 5000);
+        frames.clear();
+        if (!c.hasRecord())
+            continue;
+        const auto snap = c.ch0()->snapshot();
+        const double half = 0.5 * c.screenTime();
+        for (size_t i = 1; i < snap->size(); ++i) {
+            const double x = snap->xAt(i), y = snap->yAt(i), y0 = snap->yAt(i - 1);
+            if (std::abs(x - half) < 0.1 * c.screenTime() && y0 < 0.0 && y >= 0.0) {
+                crossing.push_back(snap->xAt(i - 1) + (0.0 - y0) / (y - y0) * (x - snap->xAt(i - 1)));
+                break;
+            }
+        }
+    }
+    c.stop();
+    QTRY_VERIFY_WITH_TIMEOUT(c.isIdle(), 2000);
+    QVERIFY(crossing.size() >= 10);
+    const auto [lo, hi] = std::minmax_element(crossing.begin(), crossing.end());
+    const double dt = 1.0 / 200000.0;
+    QVERIFY2(*hi - *lo < 0.1 * dt, qPrintable(u"crossing spread %1 s (sample %2 s)"_s.arg(*hi - *lo).arg(dt)));
+    QVERIFY(std::abs(0.5 * (*hi + *lo) - 0.5 * c.screenTime()) < 0.1 * dt);
+}
+
+void TestScope::searchWindowGrows()
+{
+    mydaq::SimDevice sim;
+    sc::Acquirer acquirer;
+    sc::Snapshot s;
+    s.timePerDiv = 1e-3;
+    s.triggerType = sc::TriggerType::Edge;
+    s.level = 3.0;   // never crossed
+    QCOMPARE(acquirer.searchFactor(), int64_t(1));
+    int64_t previous = 0;
+    for (int i = 0; i < 5; ++i) {
+        const sc::CycleResult r = acquirer.acquire(sim, s, never);
+        QVERIFY(r.timedOut && !r.record);
+        QVERIFY(acquirer.plan().config.samplesPerChannel >= previous);
+        previous = acquirer.plan().config.samplesPerChannel;
+    }
+    const int64_t grown = acquirer.searchFactor();
+    QVERIFY(grown > 1);
+    // 200 kS/s: capped at 0.25 s = 50 000 extra samples.
+    QVERIFY(acquirer.plan().config.samplesPerChannel <= 2001 + 50000);
+    s.level = 0.0;
+    for (int i = 0; i < 24; ++i) {
+        const sc::CycleResult r = acquirer.acquire(sim, s, never);
+        QVERIFY(r.record && r.record->triggered);
+        QCOMPARE(r.record->data[0].size(), size_t(2001));
+    }
+    QVERIFY(acquirer.searchFactor() < grown);   // shrinks back during a triggered run
+}
+
+void TestScope::extraMeasurements()
+{
+    // A 1 kHz square wave, 0..2 V, with 10 % overshoot spikes: 50 kS/s.
+    const double fs = 50000;
+    std::vector<double> x;
+    for (int i = 0; i < 5000; ++i) {
+        const double t = double(i) / fs;
+        const double phase = std::fmod(t * 1000.0, 1.0);
+        double v = phase < 0.5 ? 2.0 : 0.0;
+        if (phase >= 0.0 && phase < 0.02)   // ring at the rising edge
+            v = 2.2;
+        x.push_back(v);
+    }
+    const sc::Measurements m = sc::measure(x, fs, 0.5);
+    QVERIFY(std::abs(m.dutyCycle - 0.5) < 0.02);
+    QVERIFY(std::abs(m.overshoot - 10.0) < 1.0);
+    QVERIFY(std::abs(m.preshoot) < 1.0);
+    QVERIFY(std::abs(m.acRms - std::sqrt(m.rms * m.rms - m.mean * m.mean)) < 1e-9);
+    QVERIFY(m.crestFactor > 1.0 && m.crestFactor < 2.0);
+    // Slew rate of a linear ramp 0 -> 1 V in 100 samples (500 V/s at 50 kS/s), held, then a fast fall.
+    std::vector<double> ramp;
+    for (int period = 0; period < 8; ++period) {
+        for (int i = 0; i < 100; ++i)
+            ramp.push_back(double(i) / 99.0);
+        for (int i = 0; i < 100; ++i)
+            ramp.push_back(1.0);
+        for (int i = 0; i < 100; ++i)
+            ramp.push_back(0.0);
+    }
+    const sc::Measurements r = sc::measure(ramp, fs, 0.1);
+    const double expectedSlew = fs / 99.0;   // 1 V in 99 sample intervals
+    QVERIFY2(std::abs(r.slewRate - expectedSlew) < 0.03 * expectedSlew, qPrintable(QString::number(r.slewRate)));
+    const auto sinus = sc::measure(sine(5000, fs, 1000, 1.0), fs, 0.5);
+    QVERIFY(std::abs(sinus.crestFactor - std::sqrt(2.0)) < 0.01);
+    QVERIFY(std::abs(sinus.acRms - std::sqrt(0.5)) < 0.005);
+}
+
+void TestScope::phaseMeasurement()
+{
+    const double fs = 50000;
+    const auto a = sine(5000, fs, 1000, 1.0);
+    for (double degrees : {0.0, 30.0, 90.0, -45.0, 170.0}) {
+        std::vector<double> b(a.size());
+        for (size_t i = 0; i < b.size(); ++i)
+            b[i] = 0.7 * std::sin(2 * std::numbers::pi * 1000.0 * double(i) / fs + degrees * std::numbers::pi / 180.0);
+        const double phase = sc::phaseBetween(a, b, fs, 1000.0);
+        QVERIFY2(std::abs(phase - degrees) < 0.5, qPrintable(u"%1 -> %2"_s.arg(degrees).arg(phase)));
+    }
+    // The channel skew is compensated: b sampled 2 us later reads 0.72 degrees more phase.
+    std::vector<double> late(a.size());
+    for (size_t i = 0; i < late.size(); ++i)
+        late[i] = std::sin(2 * std::numbers::pi * 1000.0 * (double(i) / fs + 2e-6));
+    QVERIFY(std::abs(sc::phaseBetween(a, late, fs, 1000.0, 2e-6)) < 0.1);
+    QVERIFY(std::isnan(sc::phaseBetween(a, std::vector<double>(a.size(), 0.0), fs, 1000.0)));
+    QVERIFY(std::isnan(sc::phaseBetween(std::vector<double>(10, 1.0), a, fs, 1000.0)));
+}
+
+// Alex: the trigger timeout was too fast and "Waiting for trigger" replaced the trace. Now nothing
+// changes until the (configurable) timeout has passed; Normal keeps the last trace and waits.
+void TestScope::triggerTimeoutModes()
+{
+    mybench::DeviceHub::instance()->select(u"sim:0"_s);
+    ScopeController c;
+    c.initialize();
+    QCOMPARE(c.noTriggerMode(), ScopeController::KeepLastTrace);   // Normal is the default
+    QCOMPARE(c.triggerTimeout(), 1.0);
+    QCOMPARE(c.triggerHoldoff(), 0.0);
+    c.setTriggerHoldoff(20.0);
+    QCOMPARE(c.triggerHoldoff(), 10.0);
+    c.setTriggerHoldoff(0.0);
+    c.setTimePerDiv(1e-3);
+    c.setTriggerType(ScopeController::Edge);
+    c.setTriggerTimeout(0.0);   // never
+    c.run();
+    QTRY_VERIFY_WITH_TIMEOUT(c.hasRecord() && !c.timedOut(), 5000);
+    // The signal disappears from the trigger point (level above it): the trace stays and nothing
+    // reports a timeout, for as long as we care to look.
+    c.setTriggerLevel(3.0);
+    QTest::qWait(1500);
+    QVERIFY(c.hasRecord());
+    QVERIFY(!c.timedOut());
+    QVERIFY(!c.waitingForTrigger());   // Never: no waiting state, no dimming
+    // With a timeout the waiting indicator (not the trace) appears once it has passed.
+    c.setTriggerTimeout(0.5);
+    QTRY_VERIFY_WITH_TIMEOUT(c.waitingForTrigger(), 3000);
+    QVERIFY(c.hasRecord());
+    // Auto with a short timeout free-runs: a record without trigger appears.
+    c.setNoTriggerMode(ScopeController::ShowUntriggered);
+    c.setTriggerTimeout(0.25);
+    const int before = c.acquisitionCount();
+    QTRY_VERIFY_WITH_TIMEOUT(c.acquisitionCount() > before + 2, 4000);
+    QVERIFY(std::isnan(c.triggerTime()));
+    c.stop();
+    QTRY_VERIFY_WITH_TIMEOUT(c.isIdle(), 2000);
+}
+
+void TestScope::averaging()
+{
+    // Noise falls like 1 / sqrt(N) on a repetitive signal; changing the length restarts the mean.
+    sc::RecordAverager averager;
+    QCOMPARE(averager.apply(*std::make_unique<sc::Record>().get()), 1);   // off: untouched
+    averager.setWindow(16);
+    auto rms = [](const std::vector<double>& x) {
+        double s = 0;
+        for (double v : x)
+            s += v * v;
+        return std::sqrt(s / double(x.size()));
+    };
+    std::mt19937 rng(1);
+    std::normal_distribution<double> noise(0.0, 0.1);
+    double last = 0;
+    for (int i = 0; i < 16; ++i) {
+        sc::Record r;
+        r.sampleRate = 1000;
+        r.data[0].assign(2000, 0.0);
+        for (double& v : r.data[0])
+            v = 1.0 + noise(rng);
+        std::vector<double> ac(r.data[0]);
+        QCOMPARE(averager.apply(r), i + 1);
+        for (double& v : r.data[0])
+            v -= 1.0;
+        last = rms(r.data[0]);
+        if (i == 0)
+            QVERIFY(std::abs(last - 0.1) < 0.01);
+    }
+    QVERIFY2(last < 0.035, qPrintable(QString::number(last)));   // 0.1 / 4
+    sc::Record shorter;
+    shorter.sampleRate = 1000;
+    shorter.data[0].assign(100, 2.0);
+    QCOMPARE(averager.apply(shorter), 1);     // length changed: restart
+    QCOMPARE(shorter.data[0][0], 2.0);
+    ScopeController c;
+    c.initialize();
+    c.setAveraging(5);
+    QCOMPARE(c.averaging(), 4);
+    c.setAveraging(1000);
+    QCOMPARE(c.averaging(), 64);
+}
+
+void TestScope::persistenceEpoch()
+{
+    ScopeController c;
+    c.initialize();
+    const int start = c.persistenceEpoch();
+    c.channel0()->setVoltsPerDiv(2.0);
+    QVERIFY(c.persistenceEpoch() > start);
+    int e = c.persistenceEpoch();
+    c.setTimePerDiv(1e-3);
+    QVERIFY(c.persistenceEpoch() > e);
+    e = c.persistenceEpoch();
+    c.channel1()->setPosition(1.0);
+    QVERIFY(c.persistenceEpoch() > e);
+    e = c.persistenceEpoch();
+    c.setTriggerLevel(0.5);
+    QVERIFY(c.persistenceEpoch() > e);
+    e = c.persistenceEpoch();
+    c.setPersistence(500);          // not a display-geometry change
+    c.setNoTriggerMode(ScopeController::ShowUntriggered);
+    QCOMPARE(c.persistenceEpoch(), e);
+}
+
 void TestScope::acquireTimeout()
 {
     mydaq::SimDevice sim;
@@ -629,7 +915,10 @@ void TestScope::controllerRun()
     QVERIFY(std::abs(c.channel0()->rms() - 0.707) < 0.01);
     QCOMPARE(c.formatRate(c.recordRate()), u"50.00 kS/s"_s);
 
-    // Edge without crossing: Timeout LED, graph cleared (ELVISmx), waiting status.
+    // Edge without crossing: after the timeout the LED lights, the graph is cleared (ELVISmx mode),
+    // waiting status. (The default mode keeps the last trace: see triggerTimeoutModes.)
+    c.setNoTriggerMode(ScopeController::ClearGraph);
+    c.setTriggerTimeout(0.2);
     c.setTimePerDiv(1e-3);
     c.setTriggerType(ScopeController::Edge);
     c.setTriggerLevel(3.0);
