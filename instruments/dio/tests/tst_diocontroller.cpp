@@ -10,11 +10,14 @@
 #include <mydaq/device_manager.h>
 #include <mydaq/sim_device.h>
 
+#include <QSemaphore>
 #include <QTest>
 #include <QThread>
 #include <QThreadPool>
 
 #include <atomic>
+#include <chrono>
+#include <thread>
 
 using namespace Qt::StringLiterals;
 using mybench::instruments::DioController;
@@ -141,6 +144,35 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle() && values.size() >= 2, 10000);   // both steps, however slow the runner
         QCOMPARE(values, (QList<int>{0x5, 0xA}));
         QCOMPARE(m_sim->dioDirection(), uint8_t(0x0F));   // Single done: outputs keep driving
+    }
+
+    // A release that a controller queued on the thread pool just before being destroyed must land
+    // before the next controller drives the lines (Windows CI: it landed late and undrove the next
+    // test's Single run). Holding every pool thread makes the late landing deterministic.
+    void destroyedControllerReleaseLandsFirst()
+    {
+        m_dio->runOnce();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle(), 10000);
+        QCOMPARE(m_sim->dioDirection(), uint8_t(0x0F));
+        QThreadPool* pool = QThreadPool::globalInstance();
+        const int threads = pool->maxThreadCount();
+        QSemaphore gate;
+        for (int i = 0; i < threads; ++i)
+            pool->start([&gate] { gate.acquire(); });
+        m_dio->stop();   // idle and driving: queues the release behind the held threads
+        std::thread opener([&gate, threads] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            gate.release(threads);
+        });
+        m_dio.reset();
+        m_dio = std::make_unique<DioController>();
+        m_dio->initialize();
+        m_dio->setStepInterval(20);
+        m_dio->runOnce();
+        QTRY_VERIFY_WITH_TIMEOUT(m_dio->isIdle(), 10000);
+        opener.join();
+        pool->waitForDone();
+        QCOMPARE(m_sim->dioDirection(), uint8_t(0x0F));
     }
 
     // A release queued for the thread pool (Stop / Release on an idle DIO) must never land after a

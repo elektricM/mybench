@@ -4,7 +4,10 @@
 #include <mybench/notifications.h>
 
 #include <QCoreApplication>
+#include <QDeadlineTimer>
 #include <QJsonArray>
+#include <QScopeGuard>
+#include <QThread>
 #include <QThreadPool>
 
 #include <algorithm>
@@ -88,6 +91,10 @@ DioController::DioController() : InstrumentController(u"dio"_s)
 DioController::~DioController()
 {
     shutdown();   // the worker lambda captures `this`
+    // Let queued line releases land now, not after a new controller has started driving.
+    const QDeadlineTimer deadline(2000);
+    while (m_pendingReleases->load() > 0 && !deadline.hasExpired())
+        QThread::msleep(1);
 }
 
 // --- Directions -----------------------------------------------------------------------------
@@ -459,7 +466,9 @@ void DioController::releaseLines(uint8_t mask, bool synchronous)
     const mydaq::DevicePtr device = DeviceHub::instance()->device();
     if (!device)
         return;
-    auto job = [device, mask, dioMutex = m_dioMutex, claimed = m_claimed] {
+    m_pendingReleases->fetch_add(1);
+    auto job = [device, mask, dioMutex = m_dioMutex, claimed = m_claimed, pending = m_pendingReleases] {
+        const auto done = qScopeGuard([&pending] { pending->fetch_sub(1); });
         std::lock_guard lock(*dioMutex);
         try {
             // Jobs run on the thread pool, possibly after a newer run took some lines again.
