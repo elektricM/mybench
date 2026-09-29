@@ -149,7 +149,7 @@ jobs:
         run: |
           case "$RUNNER_OS" in
             macOS)   exe=build/app/MYBENCH.app/Contents/MacOS/MYBENCH ;;
-            Windows) exe=build/app/mybench.exe ;;
+            Windows) exe=$(find build -maxdepth 2 -iname mybench.exe | head -n 1) ;;
             *)       exe="xvfb-run -a build/app/mybench" ;;
           esac
           $exe --version
