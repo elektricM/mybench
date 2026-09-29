@@ -250,8 +250,14 @@ private slots:
         QCOMPARE(errorOf([&] { e.device->aoWriteStatic(AoChannel::AO0, 12.0); }), DeviceError::InvalidConfig);
         QCOMPARE(errorOf([&] { e.device->aoWriteStatic(AoChannel::AudioOutLeft, 0.1); }), DeviceError::NotSupported);
         AoConfig config;
-        config.channels = {{AoChannel::AO0, 2.0}};   // ±2 V AO range: not captured yet
-        QCOMPARE(errorOf([&] { e.device->createAoTask(config); }), DeviceError::NotSupported);
+        config.channels = {{AoChannel::AO0, 2.0}};   // ±2 V AO range (timed tasks)
+        config.mode = SampleMode::Finite;
+        config.sampleRate = 1000;
+        auto task = e.device->createAoTask(config);
+        task->write({{0.5, 0.5}});
+        task->start();
+        QVERIFY(task->waitUntilDone(2000));
+        QCOMPARE(mydaq_mock_ao_last(e.mock, 0), int16_t(7226));   // the ±2 V record: 0.5 V -> 7226
     }
 
     void timedAo()
@@ -372,8 +378,10 @@ private slots:
             return errorOf([&] { e.device->createCounterOutputTask(c); }) == DeviceError::NotSupported;
         };
         using M = CounterMeasurement;
-        QVERIFY(listed(feature::CounterTwoEdgeSeparation) && refusedIn([](auto& c) { c.measurement = M::TwoEdgeSeparation; }));
         QVERIFY(listed(feature::CounterBuffered) && refusedIn([](auto& c) { c.buffered = true; }));
+        // The myDAQ cannot (DAQmx refuses it; the X1 decoder counts nothing with a static B level).
+        QVERIFY(listed(feature::CounterExternalDirection)
+                && refusedIn([](auto& c) { c.direction = CounterInputConfig::Direction::External; }));
         // Supported since the stage-3 captures: not listed, and accepted.
         auto accepted = [&](auto change) {
             CounterInputConfig c;
@@ -388,31 +396,36 @@ private slots:
         for (const char* f : {feature::CounterPulseWidth, feature::CounterSemiPeriod, feature::CounterLinearEncoder,
                               feature::CounterAngularEncoder, feature::CounterFallingEdge, feature::CounterCountDown,
                               feature::CounterInitialCount, feature::CounterResetOnDio, feature::PulseIdleHigh,
-                              feature::PulseInitialDelay, feature::CounterExternalDirection})
+                              feature::PulseInitialDelay, feature::CounterTwoEdgeSeparation})
             QVERIFY2(!listed(f), f);
         QVERIFY(accepted([](auto& c) { c.measurement = M::PulseWidth; c.edge = Edge::Falling; }));
         QVERIFY(accepted([](auto& c) { c.measurement = M::SemiPeriod; }));
+        QVERIFY(accepted([](auto& c) { c.measurement = M::TwoEdgeSeparation; }));
         QVERIFY(accepted([](auto& c) { c.measurement = M::LinearEncoder; c.zIndexEnabled = true; }));
         QVERIFY(accepted([](auto& c) { c.measurement = M::AngularEncoder; c.decoding = CounterInputConfig::Decoding::TwoPulse; }));
         QVERIFY(accepted([](auto& c) { c.direction = CounterInputConfig::Direction::Down; c.initialCount = 100; }));
         QVERIFY(accepted([](auto& c) { c.resetOnDio1 = true; c.edge = Edge::Falling; }));
         using D = CounterInputConfig::Direction;
-        QVERIFY(accepted([](auto& c) { c.direction = D::External; c.initialCount = 5; }));
-        // Combinations the emulations cannot follow are refused (not silently wrong).
-        QVERIFY(refusedIn([](auto& c) { c.direction = D::External; c.edge = Edge::Falling; }));
-        QVERIFY(refusedIn([](auto& c) { c.direction = D::External; c.resetOnDio1 = true; }));
+        // A combination the down-count emulation cannot follow is refused (not silently wrong).
         QVERIFY(refusedIn([](auto& c) { c.direction = D::Down; c.resetOnDio1 = true; c.initialCount = 10; }));
         QVERIFY(accepted([](auto& c) { c.direction = D::Down; c.resetOnDio1 = true; }));
         QVERIFY(!refusedOut([](auto& c) { c.idleHigh = true; c.initialDelay = 0.01; }));
         AoConfig ao;
-        ao.channels = {{AoChannel::AO0, 2.0}};
-        QVERIFY(listed(feature::AoRange2V));
-        QCOMPARE(errorOf([&] { e.device->createAoTask(ao); }), DeviceError::NotSupported);
+        ao.channels = {{AoChannel::AO0, 2.0}, {AoChannel::AO1, 10.0}};   // ±2 V next to ±10 V
+        QVERIFY(!listed(feature::AoRange2V));
+        {
+            auto task = e.device->createAoTask(ao);
+            QCOMPARE(errorOf([&] { task->write({{2.5}, {0.0}}); }), DeviceError::InvalidConfig);   // outside ±2 V
+            task->write({{1.5}, {5.0}});
+        }
+        ao.channels = {{AoChannel::AO0, 5.0}};
+        QCOMPARE(errorOf([&] { e.device->createAoTask(ao); }), DeviceError::InvalidConfig);
         QVERIFY(!listed(feature::FrequencyOutput));
         QVERIFY(e.device->supports(QString::fromLatin1(feature::FrequencyOutput)));
-        QVERIFY(listed(feature::FrequencyOutputFastTimebases));
-        QCOMPARE(e.device->coerceFrequencyOutput(1e6), 100e3);   // 100 kHz / n only
-        QCOMPARE(list.size(), 4);
+        QVERIFY(!listed(feature::FrequencyOutputFastTimebases));
+        QCOMPARE(e.device->coerceFrequencyOutput(1e6), 1e6);   // 10 MHz / 10
+        QCOMPARE(e.device->coerceFrequencyOutput(20e6), 20e6);
+        QCOMPARE(list.size(), 2);
     }
 
     void counters()
@@ -440,8 +453,14 @@ private slots:
             mydaq_mock_set_counter(e.mock, 0);
             QCOMPARE(errorOf([&] { task->readScalar(100); }), DeviceError::Timeout);
         }
-        in.measurement = CounterMeasurement::TwoEdgeSeparation;
-        QCOMPARE(errorOf([&] { e.device->createCounterInputTask(in); }), DeviceError::NotSupported);
+        in.measurement = CounterMeasurement::TwoEdgeSeparation;   // DIO2 -> DIO1, 100 MHz ticks
+        {
+            auto task = e.device->createCounterInputTask(in);
+            QCOMPARE(task->dioLinesUsed(), uint8_t(0x06));
+            task->start();
+            mydaq_mock_set_counter(e.mock, 5000);
+            QCOMPARE(task->readScalar(1000), 50e-6);
+        }
         in.measurement = CounterMeasurement::CountEdges;   // down: initial - edges on the host
         in.direction = CounterInputConfig::Direction::Down;
         in.initialCount = 100;
@@ -452,18 +471,6 @@ private slots:
             QCOMPARE(task->readScalar(1000), 70.0);
             mydaq_mock_set_counter(e.mock, 101);
             QCOMPARE(task->readScalar(1000), 4294967295.0);   // wraps like the 32-bit counter
-        }
-        in.direction = CounterInputConfig::Direction::External;   // X1 encoder: A DIO0, B DIO2
-        {
-            auto task = e.device->createCounterInputTask(in);
-            QCOMPARE(task->dioLinesUsed(), uint8_t(0x05));
-            task->start();
-            mydaq_mock_set_counter(e.mock, 30);
-            QCOMPARE(task->readScalar(1000), 130.0);
-            mydaq_mock_set_counter(e.mock, uint32_t(-30));   // signed position: DIO2 low counts down
-            QCOMPARE(task->readScalar(1000), 70.0);
-            mydaq_mock_set_counter(e.mock, uint32_t(-101));
-            QCOMPARE(task->readScalar(1000), 4294967295.0);
         }
         in.direction = CounterInputConfig::Direction::Up;
         in.initialCount = 0;
@@ -495,9 +502,12 @@ private slots:
             QCOMPARE(task->actualDutyCycle(), 0.25);
             task->start();
             QVERIFY(mydaq_mock_ctr_started(e.mock));
-            task->update(1000.0, 0.5);
+            const unsigned before = mydaq_mock_command_count(e.mock);
+            task->update(1000.0, 0.5);   // live: ctr.1e + ctr.18, no stop/re-arm
+            QCOMPARE(mydaq_mock_command_count(e.mock) - before, 2u);
             QVERIFY(task->isRunning());
             QCOMPARE(task->actualFrequency(), 1000.0);
+            QCOMPARE(task->actualDutyCycle(), 0.5);
             task->stop();
         }
         out.mode = SampleMode::Finite;

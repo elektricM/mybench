@@ -165,6 +165,7 @@ struct mydaq_mock {
     unsigned ao_stream;      /* stream number of the AO task (out_timing.m0b) */
     uint64_t ai_t0_us, ai_sent_scans, ai_index;
     unsigned hwverify_busy;     /* hwverify answers -225270 this many more times */
+    unsigned ai_not_ready;      /* commands on 0550/2 answer -201381 this many more times */
     /* AO (bulk OUT 0x04) */
     bytes ao_expected;          /* replay: the captured OUT stream */
     uint64_t ao_offset;         /* bytes received */
@@ -186,6 +187,8 @@ struct mydaq_mock {
     int16_t ao_code[4];
     uint8_t dio_dir, dio_latch, dio_inputs;
     int dmm_mode;
+    unsigned dmm_set_modes;        /* dmm.set_mode commands received */
+    int dmm_timeout;               /* 1: dmm.read answers status -225202 (no packet) */
     char dmm_packet[12];
 };
 
@@ -611,6 +614,9 @@ static void emulate(mydaq_mock *m, const uint8_t *f, size_t len)
         for (i = 0; i < sizeof caps / sizeof caps[0]; ++i)
             put32(p + 4 * i, caps[i]);
         respond(m, ch, 6, 0, p, sizeof p);
+    } else if (obj == 0x05500002u && m->ai_not_ready > 0) {
+        --m->ai_not_ready;
+        respond(m, ch, 6, -201381, NULL, 0);   /* not ready yet after an init */
     } else if (op == 0x08 && obj == 0x05060000u && m->hwverify_busy > 0) {
         --m->hwverify_busy;
         respond(m, ch, 6, -225270, NULL, 0);   /* device still starting up */
@@ -749,7 +755,11 @@ static void emulate(mydaq_mock *m, const uint8_t *f, size_t len)
         ack(m, ch);
     } else if (obj == 0x0c900000u && op == 0x09 && blen >= 5) {
         m->dmm_mode = b[4];
+        ++m->dmm_set_modes;
         ack(m, ch);
+    } else if (obj == 0x0c900000u && op == 0x0a && m->dmm_timeout) {
+        static const uint8_t none[13] = {0, 13};   /* dmm-dcv-timeout: 11 zero bytes */
+        respond(m, ch, 6, -225202, none, sizeof none);
     } else if (obj == 0x0c900000u && op == 0x0a) {
         respond_blob(m, ch, 0, (const uint8_t *)m->dmm_packet, 11);
     } else {
@@ -1304,6 +1314,13 @@ void mydaq_mock_set_realtime(mydaq_mock *m, int realtime)
     md_mutex_unlock(&m->lock);
 }
 
+void mydaq_mock_set_dmm_timeout(mydaq_mock *m, int timeout)
+{
+    md_mutex_lock(&m->lock);
+    m->dmm_timeout = timeout;
+    md_mutex_unlock(&m->lock);
+}
+
 void mydaq_mock_set_dmm_packet(mydaq_mock *m, const char *packet)
 {
     md_mutex_lock(&m->lock);
@@ -1315,6 +1332,13 @@ void mydaq_mock_set_dio_inputs(mydaq_mock *m, uint8_t levels)
 {
     md_mutex_lock(&m->lock);
     m->dio_inputs = levels;
+    md_mutex_unlock(&m->lock);
+}
+
+void mydaq_mock_set_ai_not_ready(mydaq_mock *m, unsigned count)
+{
+    md_mutex_lock(&m->lock);
+    m->ai_not_ready = count;
     md_mutex_unlock(&m->lock);
 }
 
@@ -1371,6 +1395,7 @@ GETTER(unsigned, mydaq_mock_oneway_frames, m->oneway_frames)
 GETTER(unsigned, mydaq_mock_oneway_extra, m->oneway_extra)
 GETTER(uint32_t, mydaq_mock_last_read_pos, m->last_read_pos)
 GETTER(uint64_t, mydaq_mock_ao_bytes, m->ao_offset)
+GETTER(unsigned, mydaq_mock_dmm_set_modes, m->dmm_set_modes)
 GETTER(uint64_t, mydaq_mock_ao_extra, m->ao_extra)
 GETTER(uint64_t, mydaq_mock_ao_expected, (uint64_t)m->ao_expected.len)
 GETTER(uint64_t, mydaq_mock_ao_output_scans, m->ao_output)

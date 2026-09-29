@@ -420,8 +420,12 @@ int mydaq_ai_task_create(mydaq_device *dev, const mydaq_ai_config *config, mydaq
         }
         t->host_buffer = (uint32_t)(scans * t->scan_bytes);
         t->ring_cap = (size_t)ring * t->scan_bytes;
-        /* one transfer per burst (each burst ends with a short packet), at most 32 KiB */
-        t->transfer_size = (t->host_buffer + TRANSFER_MIN - 1) / TRANSFER_MIN * TRANSFER_MIN;
+        /* The device streams continuously (a burst ends with a short packet), so a transfer
+         * completes when it is full: ~20 ms of data each (choose_transfer_size), never more than
+         * one burst, at most 32 KiB. Transfers of a whole burst (up to 32 KiB) delayed the data
+         * by up to 160 ms at 2 x 50 kS/s. */
+        if (t->transfer_size > (t->host_buffer + TRANSFER_MIN - 1) / TRANSFER_MIN * TRANSFER_MIN)
+            t->transfer_size = (t->host_buffer + TRANSFER_MIN - 1) / TRANSFER_MIN * TRANSFER_MIN;
         if (t->transfer_size > TRANSFER_MAX)
             t->transfer_size = TRANSFER_MAX;
         /* a transfer must never be able to fill more than half the host ring */

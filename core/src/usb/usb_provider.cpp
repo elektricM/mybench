@@ -36,7 +36,11 @@ public:
         mydaq_device* dev = nullptr;
         check(mydaq_open_location(m_context.get(), location.c_str(), 0, &dev),
               QStringLiteral("Opening the myDAQ at USB %1").arg(QString::fromStdString(location)));
-        return std::make_shared<UsbDevice>(m_context, dev);
+        auto device = std::make_shared<UsbDevice>(m_context, dev);
+        // Listed only once it accepts commands: right after an init the device may reject them
+        // for ~1.6 s, which would fail (or starve the output of) the first Run.
+        mydaq_wait_ready(dev);
+        return device;
     }
 
 private:

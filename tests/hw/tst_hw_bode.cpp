@@ -1,6 +1,7 @@
 // Bode analyzer on the real myDAQ (AO 0 stimulus + AI 0/AI 1 at the same time, the AI+AO stream
 // pair): a sweep completes with every point, in about the planned time, without error; Stop
-// during a sweep is quick. Without wiring the gain values are noise (reported only).
+// during a sweep is quick (both need the AO 0 -> AI 0 jumper). Without it the analyzer must stop
+// with "No stimulus signal".
 #include "bodecontroller.h"
 #include "hwfixture.h"
 
@@ -32,8 +33,30 @@ private slots:
         m_bode.reset();
     }
 
+    // Without the AO 0 -> AI 0 jumper the analyzer finds no stimulus on its first point and
+    // stops with a clear error instead of sweeping noise (the AI + AO stream pair still ran).
+    void noStimulusWithoutWiring()
+    {
+        if (hw::simulated() || hw::jumper("ao0-ai0"))
+            QSKIP("needs real hardware without the AO 0 -> AI 0 jumper");
+        m_bode->setStartFrequency(10);
+        m_bode->setStopFrequency(10000);
+        m_bode->setStepsPerDecade(5);
+        QElapsedTimer clock;
+        clock.start();
+        m_bode->run();
+        QVERIFY(hw::waitFor([&] { return m_bode->state() == InstrumentController::Idle && clock.elapsed() > 100; }, 20000));
+        hw::report(u"Bode without wiring"_s, u"stopped after %1 s with \"%2\", %3 points"_s
+                                                 .arg(clock.elapsed() / 1000.0, 0, 'f', 2).arg(m_bode->errorText())
+                                                 .arg(m_bode->pointCount()));
+        QVERIFY(m_bode->hasError());
+        QVERIFY2(m_bode->errorText().contains(u"No stimulus"_s), qPrintable(m_bode->errorText()));
+        QVERIFY(clock.elapsed() < 10000);
+    }
+
     void sweepCompletes()
     {
+        HW_REQUIRE_JUMPER("ao0-ai0");
         m_bode->setStartFrequency(10);
         m_bode->setStopFrequency(10000);
         m_bode->setStepsPerDecade(5);
@@ -56,6 +79,7 @@ private slots:
 
     void stopDuringSweep()
     {
+        HW_REQUIRE_JUMPER("ao0-ai0");
         m_bode->setStartFrequency(1);
         m_bode->setStopFrequency(20000);
         m_bode->run();

@@ -23,9 +23,9 @@ static const mydaq_dmm_range_info ranges[] = {
     {MYDAQ_DMM_AC_CURRENT, 1.0, "1 A", 0.001, 1, 1},
     {MYDAQ_DMM_AC_CURRENT, 0.2, "200 mA", 0.0001, 1, 1},
     {MYDAQ_DMM_AC_CURRENT, 0.02, "20 mA", 0.00001, 1, 1},
-    {MYDAQ_DMM_RESISTANCE, 20e6, "20 MOhm", 1e4, 1, 0},
-    {MYDAQ_DMM_RESISTANCE, 2e6, "2 MOhm", 1e3, 1, 0},
-    {MYDAQ_DMM_RESISTANCE, 200e3, "200 kOhm", 100.0, 1, 0},
+    {MYDAQ_DMM_RESISTANCE, 20e6, "20 MOhm", 1e4, 1, 1},     /* dmm-ohm-r20M-x2 */
+    {MYDAQ_DMM_RESISTANCE, 2e6, "2 MOhm", 1e3, 1, 1},       /* dmm-ohm-r2M-x2 */
+    {MYDAQ_DMM_RESISTANCE, 200e3, "200 kOhm", 100.0, 1, 1},   /* dmm-ohm-r200k-x2 */
     {MYDAQ_DMM_RESISTANCE, 20e3, "20 kOhm", 10.0, 1, 1},   /* dmm-ohm-r20k-x2 */
     {MYDAQ_DMM_RESISTANCE, 2e3, "2 kOhm", 1.0, 1, 1},
     {MYDAQ_DMM_RESISTANCE, 200.0, "200 Ohm", 0.1, 1, 1},
@@ -35,10 +35,11 @@ static const mydaq_dmm_range_info ranges[] = {
 
 #define RANGE_COUNT (sizeof ranges / sizeof ranges[0])
 
-/* dmm.set_mode byte per entry of `ranges` (docs/protocol.md 9.2; -1 = not decoded yet).
- * Captured: DC V, AC V, DC/AC A, 200 Ohm, 2 kOhm, 20 kOhm (16), diode (20) and continuity (21,
- * ELVISmx's own DMM: DAQmx has no route to them). 200 kOhm .. 20 MOhm = 17..19 come from the
- * driver's capability table (docs/driver-notes.md 8), not yet confirmed (`verified` = 0). */
+/* dmm.set_mode byte per entry of `ranges` (docs/protocol.md 9.2; -1 = not decoded yet). Every
+ * mode byte is captured (`verified` = 1): DAQmx for V, A and Ohm (200 Ohm .. 20 MOhm = 13..19),
+ * ELVISmx's own DMM for diode (20) and continuity (21). The 200 kOhm .. 20 MOhm captures had open
+ * leads (overload only): the scaling of their finite readings (R digit 3..5) follows the driver
+ * table and is not confirmed yet. */
 static const int range_modes[RANGE_COUNT] = {
     2, 1, 0, 3,                 /* DC V 60, 20, 2, 0.2 */
     5, 4, 7,                    /* AC V 20, 2, 0.2 */
@@ -208,16 +209,27 @@ int mydaq_dmm_read(mydaq_device *dev, mydaq_dmm_function function, double range,
 int mydaq_dmm_read_ex(mydaq_device *dev, mydaq_dmm_function function, double range,
                       unsigned flags, mydaq_dmm_reading *reading)
 {
-    const uint32_t read_args[2] = {1, 10000 /* ms: device-side timeout */};
-    int r;
+    return mydaq_dmm_read_timeout(dev, function, range, flags, 10000, reading);
+}
+
+/* dmm.read(u32 1, u32 timeout ms): the device answers with the next packet the meter chip sends
+ * (every 0.5 s for V/A/Ohm, every ~94 ms for diode/continuity once the mode is set), or with
+ * status -225202 and no packet after the timeout (protocol.md 9.1, 9.4; dmm-dcv-timeout). */
+#define DMM_STATUS_TIMEOUT (-225202)
+
+int mydaq_dmm_read_timeout(mydaq_device *dev, mydaq_dmm_function function, double range,
+                           unsigned flags, int timeout_ms, mydaq_dmm_reading *reading)
+{
+    uint32_t read_args[2] = {1, 10000};
+    int r, key;
     const uint8_t *pkt;
     mydaq_es51981 es;
     size_t len;
     md_resp resp;
     md_buf b;
-    int rc;
+    int rc = MYDAQ_OK;
 
-    if (!dev || !reading || (unsigned)function >= MYDAQ_DMM_FUNCTION_COUNT)
+    if (!dev || !reading || (unsigned)function >= MYDAQ_DMM_FUNCTION_COUNT || timeout_ms <= 0)
         return MYDAQ_ERR_INVALID_ARG;
     r = find_range(function, range);
     if (r < 0)
@@ -227,20 +239,40 @@ int mydaq_dmm_read_ex(mydaq_device *dev, mydaq_dmm_function function, double ran
 
     if ((flags & MYDAQ_DMM_HW_AUTORANGE) && function == MYDAQ_DMM_CONTINUITY)
         return MYDAQ_ERR_INVALID_ARG;   /* NI rejects continuity with autorange too */
-    md_buf_init(&b);
-    md_put_u32(&b, MD_OBJ_DMM);
-    md_put_u8(&b, (uint8_t)range_modes[r]);
-    md_put_u8(&b, (flags & MYDAQ_DMM_HW_AUTORANGE) ? 1u : 0u);   /* set_mode(mode, autorange) */
-    md_put_hex(&b, "0000");
+    read_args[1] = (uint32_t)timeout_ms;
+    key = 1 + (range_modes[r] << 1 | ((flags & MYDAQ_DMM_HW_AUTORANGE) ? 1 : 0));
     md_cmd_lock(dev);
-    rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_WRITE, &b, MD_TIMEOUT_LONG, 0, NULL);   /* ~0.5-2 s */
-    if (rc == MYDAQ_OK)
-        rc = md_cmd_words(dev, MD_CH_OBJECT, MD_OP_COMMIT, MD_OBJ_DMM, read_args, 2,
-                          MD_TIMEOUT_LONG, &resp);
+    if (!(flags & MYDAQ_DMM_KEEP_MODE) || dev->dmm_mode_key != key) {
+        md_buf_init(&b);
+        md_put_u32(&b, MD_OBJ_DMM);
+        md_put_u8(&b, (uint8_t)range_modes[r]);
+        md_put_u8(&b, (flags & MYDAQ_DMM_HW_AUTORANGE) ? 1u : 0u);   /* set_mode(mode, autorange) */
+        md_put_hex(&b, "0000");
+        dev->dmm_mode_key = 0;
+        rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_WRITE, &b, MD_TIMEOUT_LONG, 0, NULL);   /* ~0.5-2 s */
+        if (rc == MYDAQ_OK)
+            dev->dmm_mode_key = key;
+    }
+    if (rc == MYDAQ_OK) {
+        md_buf_init(&b);
+        md_put_u32(&b, MD_OBJ_DMM);
+        md_put_u32(&b, read_args[0]);
+        md_put_u32(&b, read_args[1]);
+        rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_COMMIT, &b, (unsigned)timeout_ms + MD_TIMEOUT_CMD,
+                    MD_CMD_ANY_STATUS, &resp);
+        if (rc == MYDAQ_OK && resp.status == DMM_STATUS_TIMEOUT)
+            rc = MYDAQ_ERR_TIMEOUT;   /* no packet within timeout_ms (e.g. the meter is busy) */
+        else if (rc == MYDAQ_OK && resp.status != 0) {
+            MD_ERR(dev->ctx, "DMM read: device status %ld", (long)resp.status);
+            rc = MYDAQ_ERR_DEVICE;
+        }
+    }
     if (rc == MYDAQ_OK)
         rc = md_resp_blob(&resp, 0, &pkt, &len);
     if (rc == MYDAQ_OK)
         rc = mydaq_es51981_parse(pkt, len, &es);
+    if (rc != MYDAQ_OK && rc != MYDAQ_ERR_TIMEOUT)
+        dev->dmm_mode_key = 0;   /* send set_mode again next time */
     md_cmd_unlock(dev);
     if (rc != MYDAQ_OK)
         return rc;

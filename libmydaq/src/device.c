@@ -134,7 +134,9 @@ static int hardware_verify(mydaq_device *dev)
 int md_device_init_sequence(mydaq_device *dev)
 {
     const uint64_t t0 = md_now_us();
-    int rc = read_identity(dev);
+    int rc;
+    dev->dmm_mode_key = 0;   /* the meter's mode is unknown after (re)initialisation */
+    rc = read_identity(dev);
     if (rc == MYDAQ_OK)
         rc = read_capabilities(dev);
     if (rc == MYDAQ_OK)
@@ -146,6 +148,8 @@ int md_device_init_sequence(mydaq_device *dev)
     if (rc == MYDAQ_OK)
         rc = run_list(dev, init_post, sizeof init_post / sizeof init_post[0]);
     dev->info.init_seconds = (double)(md_now_us() - t0) / 1e6;
+    if (rc == MYDAQ_OK)
+        dev->settle_until_ms = md_now_ms() + MD_SETTLE_MS;
     return rc;
 }
 
@@ -360,6 +364,17 @@ int32_t mydaq_last_device_status(const mydaq_device *dev)
     s = d->last_status;
     md_mutex_unlock(&d->state_lock);
     return s;
+}
+
+int mydaq_wait_ready(mydaq_device *dev)
+{
+    const mydaq_ai_channel_config ch = {MYDAQ_AI0, MYDAQ_AI_RANGE_10V};
+    int16_t code = 0;
+    int rc;
+    if (!dev)
+        return MYDAQ_ERR_INVALID_ARG;
+    rc = mydaq_ai_read_scan_raw(dev, &ch, 1, &code);   /* md_cmd waits out "not ready" */
+    return rc == MYDAQ_ERR_BUSY ? MYDAQ_OK : rc;          /* an AI task runs: it is ready */
 }
 
 int mydaq_reset(mydaq_device *dev)

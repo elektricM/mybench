@@ -73,8 +73,7 @@ public:
 
     void reset() override;
 
-    // What the native driver cannot do (buffered counter input: not on the myDAQ) or not yet
-    // (two-edge separation, AO ±2 V range, fast FREQOUT timebases: not captured).
+    // What the myDAQ cannot do: buffered counter input and an external count direction.
     QStringList unsupportedFeatures() const override;
 
     // Provider side.

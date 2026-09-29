@@ -265,6 +265,13 @@ static void check_ai_abort(mydaq_device *dev)
     printf("AI after abort: on-demand %.6f V, finite x100 %s\n", one, mydaq_error_name(rc));
 }
 
+/* Jumpers declared in MYDAQ_JUMPERS (comma-separated: ao0-ai0, dio4-dio1). */
+static int jumper(const char *name)
+{
+    const char *j = getenv("MYDAQ_JUMPERS");
+    return j && strstr(j, name) != NULL;
+}
+
 static void check_ao(mydaq_device *dev)
 {
     const mydaq_calibration *cal = mydaq_get_calibration(dev);
@@ -281,13 +288,48 @@ static void check_ao(mydaq_device *dev)
         printf("AO ao%d %+.1f V (code %d) accepted\n", (int)w[i].ch, w[i].v, code);
         md_sleep_ms(50);
     }
-}
-
-/* Jumpers declared in MYDAQ_JUMPERS (comma-separated: ao0-ai0, dio4-dio1). */
-static int jumper(const char *name)
-{
-    const char *j = getenv("MYDAQ_JUMPERS");
-    return j && strstr(j, name) != NULL;
+    /* ±2 V range (protocol.md 7.1/7.2): static on both outputs, then a timed finite ramp; with
+     * the AO0 -> AI0 jumper the level is measured. Outputs back to 0 V. */
+    {
+        mydaq_ao_config o;
+        mydaq_ao_task *t = NULL;
+        static double ramp[100];
+        int16_t code = 0;
+        mydaq_ao_task_volts_to_code_range(cal, MYDAQ_AO0, 0.5, MYDAQ_AO_RANGE_2V, &code);
+        EXPECT_OK(mydaq_ao_write_range(dev, MYDAQ_AO0, 0.5, MYDAQ_AO_RANGE_2V));
+        printf("AO ao0 +0.5 V in the ±2 V range (code %d) accepted\n", code);
+        EXPECT(code == 7226, "±2 V code of ao0 0.5 V");
+        EXPECT_OK(mydaq_ao_write_range(dev, MYDAQ_AO1, -0.5, MYDAQ_AO_RANGE_2V));
+        EXPECT(mydaq_ao_write_range(dev, MYDAQ_AO1, 2.5, MYDAQ_AO_RANGE_2V) == MYDAQ_ERR_INVALID_ARG, "±2 V limit");
+        if (jumper("ao0-ai0")) {
+            const mydaq_ai_channel_config ai = {MYDAQ_AI0, MYDAQ_AI_RANGE_2V};
+            double v = 0;
+            md_sleep_ms(20);
+            EXPECT_OK(mydaq_ai_read_scan(dev, &ai, 1, &v));
+            printf("  jumper AO0->AI0: %.4f V (expect 0.5)\n", v);
+            EXPECT(fabs(v - 0.5) < 0.01, "±2 V AO0 level on AI0");
+        }
+        for (i = 0; i < 100; ++i)
+            ramp[i] = -0.5 + (double)i / 100.0;
+        memset(&o, 0, sizeof o);
+        o.channels[0] = MYDAQ_AO0;
+        o.num_channels = 1;
+        o.sample_rate = 1000.0;
+        o.mode = MYDAQ_FINITE;
+        o.ranges[0] = MYDAQ_AO_RANGE_2V;
+        EXPECT_OK(mydaq_ao_task_create(dev, &o, &t));
+        if (t) {
+            int rc;
+            EXPECT_OK(mydaq_ao_task_write(t, ramp, 100, MYDAQ_GROUP_BY_CHANNEL, 1000));
+            EXPECT_OK(mydaq_ao_task_start(t));
+            rc = mydaq_ao_task_wait_done(t, 2000);
+            printf("AO finite ramp in the ±2 V range, 1 kS/s x 100: %s\n", mydaq_error_name(rc));
+            EXPECT(rc == MYDAQ_OK, "±2 V finite AO");
+            mydaq_ao_task_destroy(t);
+        }
+        EXPECT_OK(mydaq_ao_write(dev, MYDAQ_AO0, 0.0));
+        EXPECT_OK(mydaq_ao_write(dev, MYDAQ_AO1, 0.0));
+    }
 }
 
 static void check_dio(mydaq_device *dev)
@@ -353,6 +395,39 @@ static void check_dmm(mydaq_device *dev)
             printf("DMM AC V 2 V: packet \"%.9s\" -> %.17g V rms (%.2f s)\n", (const char *)r.packet.raw,
                    r.value, (double)(md_now_us() - t0) / 1e6);
     }
+    /* ELVISmx cadence (protocol.md 9.4): set the mode once, then every read returns the meter's
+     * next packet: every 0.5 s for DC V, ~94 ms for diode. And the device-side read timeout:
+     * right after set_mode the meter sends nothing for > 200 ms (dmm-dcv-timeout). */
+    {
+        static const struct {
+            mydaq_dmm_function f;
+            double range, lo, hi;
+            const char *name;
+        } c[] = {{MYDAQ_DMM_DC_VOLTS, 20.0, 0.40, 0.60, "DC V 20 V"},
+                 {MYDAQ_DMM_DIODE, 2.0, 0.07, 0.13, "diode"}};
+        mydaq_dmm_reading r;
+        size_t k;
+        int rc = mydaq_dmm_read_timeout(dev, MYDAQ_DMM_DC_VOLTS, 2.0, 0, 200, &r);
+        printf("DMM read 200 ms right after set_mode: %s (expect MYDAQ_ERR_TIMEOUT)\n", mydaq_error_name(rc));
+        EXPECT(rc == MYDAQ_ERR_TIMEOUT, "DMM device-side timeout");
+        for (k = 0; k < 2; ++k) {
+            uint64_t t0 = 0;
+            int j;
+            rc = mydaq_dmm_read_ex(dev, c[k].f, c[k].range, MYDAQ_DMM_KEEP_MODE, &r);   /* settles */
+            for (j = 0; j < 6 && rc == MYDAQ_OK; ++j) {
+                if (j == 1)
+                    t0 = md_now_us();
+                rc = mydaq_dmm_read_ex(dev, c[k].f, c[k].range, MYDAQ_DMM_KEEP_MODE, &r);
+            }
+            if (rc == MYDAQ_OK) {
+                const double dt = (double)(md_now_us() - t0) / 1e6 / 5.0;
+                printf("DMM %s, mode kept: a reading every %.3f s (\"%.9s\")\n", c[k].name, dt,
+                       (const char *)r.packet.raw);
+                EXPECT(dt > c[k].lo && dt < c[k].hi, "DMM %s cadence %.3f s", c[k].name, dt);
+            }
+            EXPECT(rc == MYDAQ_OK, "DMM %s kept-mode reads: %s", c[k].name, mydaq_error_name(rc));
+        }
+    }
 }
 
 /* Every supported range of current and resistance, one reading each (~2 s per reading; opt-in:
@@ -385,7 +460,7 @@ static void check_ao_timed(mydaq_device *dev)
     mydaq_ao_task *t = NULL;
     size_t i;
     int rc;
-    uint64_t end;
+    uint64_t end, start_ms;
     for (i = 0; i < 2000; ++i) {
         wave[i] = 0.5 * sin(6.283185307179586 * (double)i / 200.0);
         wave[2000 + i] = -wave[i];
@@ -421,14 +496,17 @@ static void check_ao_timed(mydaq_device *dev)
     cfg.buffer_samples = 50000;
     EXPECT_OK(mydaq_ao_task_create(dev, &cfg, &t));
     EXPECT_OK(mydaq_ao_task_write(t, wave, 2000, MYDAQ_GROUP_BY_CHANNEL, 1000));
+    start_ms = md_now_ms();
     EXPECT_OK(mydaq_ao_task_start(t));
+    start_ms = md_now_ms() - start_ms;
     end = md_now_ms() + 2000;
     rc = MYDAQ_OK;
     while (rc == MYDAQ_OK && md_now_ms() < end)
         rc = mydaq_ao_task_write(t, wave, 2000, MYDAQ_GROUP_BY_CHANNEL, 1000);
-    printf("AO stream 2 ch 100 kS/s, 2 s: %s, %llu samples sent\n", mydaq_error_name(rc),
-           (unsigned long long)mydaq_ao_task_samples_sent(t));
+    printf("AO stream 2 ch 100 kS/s, 2 s: %s, %llu samples sent, start took %llu ms\n", mydaq_error_name(rc),
+           (unsigned long long)mydaq_ao_task_samples_sent(t), (unsigned long long)start_ms);
     EXPECT(rc == MYDAQ_OK, "AO streaming");
+    EXPECT(start_ms < 300, "AO start latency (pre-fill must not wait for its deadline)");
     EXPECT_OK(mydaq_ao_task_stop(t));
     mydaq_ao_task_destroy(t);
 
@@ -551,6 +629,21 @@ static void check_counter_loop(mydaq_device *dev)
         mydaq_ctr_task_destroy(t);
         t = NULL;
     }
+    /* two-edge separation on the loop: rising -> falling and falling -> rising = half a period */
+    for (k = 0; k < 2; ++k) {
+        memset(&cfg, 0, sizeof cfg);
+        cfg.kind = MYDAQ_CTR_TWO_EDGE_SEPARATION;
+        cfg.input = MYDAQ_CTR_INPUT_FREQOUT;
+        cfg.falling = k;
+        cfg.second_falling = !k;
+        EXPECT_OK(ctr_loop_task(dev, &cfg, &t));
+        rc = mydaq_ctr_task_read(t, &v, 2000);
+        printf("counter: two-edge %s of the loop: %s %.9g s (expect 5e-05)\n",
+               k ? "falling -> rising" : "rising -> falling", mydaq_error_name(rc), v);
+        EXPECT(rc == MYDAQ_OK && fabs(v / 50e-6 - 1.0) < 1e-3, "two-edge separation");
+        mydaq_ctr_task_destroy(t);
+        t = NULL;
+    }
     /* two-pulse encoder: A = the loop counts up */
     memset(&cfg, 0, sizeof cfg);
     cfg.kind = MYDAQ_CTR_ANGULAR_ENCODER;
@@ -563,10 +656,9 @@ static void check_counter_loop(mydaq_device *dev)
     EXPECT(v > 2000 && v < 5000, "encoder counts");
     mydaq_ctr_task_destroy(t);
     t = NULL;
-    /* External count direction as MYBENCH emulates it (DAQmx refuses it on the myDAQ): X1
-     * encoder, A = the loop, B = DIO2 left open (its level read first). It must count every A
-     * edge once, with the sign of the DIO2 level (core/src/usb/usb_counter.cpp
-     * kExternalDirectionSense = +1: high counts up, the DAQmx convention). */
+    /* Why the myDAQ has no external count direction (DAQmx refuses it; MYBENCH lists it as
+     * unsupported): an encoder decoder does not count with a static level on B. X1 with
+     * A = the loop and B = DIO2 open (the DIO inputs read 0) counted 0 edges on 2026-09-29. */
     {
         uint8_t lv = 0;
         int32_t pos;
@@ -579,14 +671,38 @@ static void check_counter_loop(mydaq_device *dev)
         md_sleep_ms(300);
         EXPECT_OK(mydaq_ctr_task_read_count(t, &c1, 1000));
         pos = (int32_t)c1;
-        printf("counter: external direction (X1, B = DIO2 open, level %d) after 0.3 s: %ld counts (~%s3000)\n",
-               (lv >> 2) & 1, (long)pos, (lv >> 2) & 1 ? "+" : "-");
-        EXPECT(labs((long)pos) > 2000 && labs((long)pos) < 5000, "X1 counts every edge with a static B");
-        EXPECT((pos > 0) == (((lv >> 2) & 1) != 0), "external direction sense (DIO2 high counts up)");
+        printf("counter: X1 encoder, A = the loop, B = DIO2 open (level %d), 0.3 s: %ld counts (a "
+               "quadrature decoder: ~0)\n", (lv >> 2) & 1, (long)pos);
+        EXPECT(labs((long)pos) < 10, "X1 does not count with a static B");
         mydaq_ctr_task_destroy(t);
         t = NULL;
     }
     EXPECT_OK(mydaq_freqout_stop(dev));
+
+    /* FREQOUT on every timebase, counted on the internal loop */
+    {
+        static const double fo[] = {20e6, 10e6, 4e6, 2e6, 1.25e6, 1e6, 625e3, 100e3, 6250.0};
+        for (k = 0; k < (int)(sizeof fo / sizeof fo[0]); ++k) {
+            double actual = 0;
+            EXPECT_OK(mydaq_freqout_start(dev, fo[k], &actual));
+            memset(&cfg, 0, sizeof cfg);
+            cfg.kind = MYDAQ_CTR_COUNT_EDGES;
+            cfg.input = MYDAQ_CTR_INPUT_FREQOUT;
+            EXPECT_OK(ctr_loop_task(dev, &cfg, &t));
+            md_sleep_ms(20);
+            EXPECT_OK(mydaq_ctr_task_read_count(t, &c1, 1000));
+            t1 = md_now_us();
+            md_sleep_ms(300);
+            EXPECT_OK(mydaq_ctr_task_read_count(t, &c2, 1000));
+            t2 = md_now_us();
+            v = (double)(uint32_t)(c2 - c1) / ((double)(t2 - t1) / 1e6);
+            printf("FREQOUT %.9g Hz (asked %.9g): counted %.0f /s\n", actual, fo[k], v);
+            EXPECT(actual == fo[k] && fabs(v / fo[k] - 1.0) < 0.02, "FREQOUT timebase");
+            mydaq_ctr_task_destroy(t);
+            t = NULL;
+            EXPECT_OK(mydaq_freqout_stop(dev));
+        }
+    }
 
     /* pulse trains: initial delay (timing) and idle level (read on DIO3 during the delay) */
     for (k = 0; k < 2; ++k) {
@@ -639,6 +755,41 @@ static void check_counter(mydaq_device *dev)
     printf("counter: frequency on open DIO1: %s (expected MYDAQ_ERR_TIMEOUT)\n", mydaq_error_name(rc));
     EXPECT(rc == MYDAQ_ERR_TIMEOUT, "frequency timeout");
     mydaq_ctr_task_destroy(t);
+
+    /* live update of a running train (ctr.1e + ctr.18): 10 Hz -> 4 Hz without stopping; the
+     * edge rate on DIO3, sampled with DIO reads, follows */
+    {
+        static const double hz[2] = {10.0, 4.0};
+        int j;
+        memset(&cfg, 0, sizeof cfg);
+        cfg.kind = MYDAQ_CTR_PULSE_TRAIN;
+        cfg.frequency = hz[0];
+        cfg.duty_cycle = 0.5;
+        cfg.mode = MYDAQ_CONTINUOUS;
+        EXPECT_OK(mydaq_ctr_task_create(dev, &cfg, &t));
+        EXPECT_OK(mydaq_ctr_task_start(t));
+        for (j = 0; j < 2; ++j) {
+            int edges = 0, last = -1;
+            uint64_t end;
+            if (j == 1)
+                EXPECT_OK(mydaq_ctr_task_update_pulse(t, hz[1], 0.5));
+            md_sleep_ms(300);   /* let the new period start */
+            end = md_now_ms() + 1500;
+            while (md_now_ms() < end) {
+                if (mydaq_dio_read(dev, &v) == MYDAQ_OK) {
+                    const int level = (v >> 3) & 1;
+                    edges += last >= 0 && level != last;
+                    last = level;
+                }
+            }
+            printf("counter: pulse train %s %.0f Hz: %d edges on DIO3 in 1.5 s (expect ~%.0f)\n",
+                   j ? "updated live to" : "at", hz[j], edges, 3.0 * hz[j]);
+            EXPECT(fabs(edges - 3.0 * hz[j]) <= 2.0 + 0.1 * 3.0 * hz[j], "pulse train edge rate");
+            EXPECT(mydaq_ctr_task_is_running(t), "train keeps running");
+        }
+        mydaq_ctr_task_destroy(t);
+        memset(&cfg, 0, sizeof cfg);
+    }
 
     cfg.kind = MYDAQ_CTR_PULSE_TRAIN;   /* 5 Hz on DIO3: sample the line */
     cfg.frequency = 5.0;

@@ -60,10 +60,16 @@ void mydaq_mock_set_sync_out(mydaq_mock *m, int sync_out);
 uint64_t mydaq_mock_ao_queued(const mydaq_mock *m);
 /** Packet the DMM returns (11 bytes incl. CR LF). */
 void mydaq_mock_set_dmm_packet(mydaq_mock *m, const char *packet);
+/** 1: dmm.read answers with the device's timeout status (-225202) and no packet. */
+void mydaq_mock_set_dmm_timeout(mydaq_mock *m, int timeout);
+/** Number of dmm.set_mode commands received. */
+unsigned mydaq_mock_dmm_set_modes(const mydaq_mock *m);
 /** Levels seen on lines configured as inputs. */
 void mydaq_mock_set_dio_inputs(mydaq_mock *m, uint8_t levels);
 /** hwverify (05 06) answers "still starting" (-225270) for the next `count` calls. */
 void mydaq_mock_set_hwverify_busy(mydaq_mock *m, unsigned count);
+/** The next `count` commands on the AI timing engine (0550/2) answer -201381 (not ready). */
+void mydaq_mock_set_ai_not_ready(mydaq_mock *m, unsigned count);
 /** Simulates unplugging: every transfer fails with MYDAQ_ERR_NO_DEVICE from now on. */
 void mydaq_mock_unplug(mydaq_mock *m);
 /** Queues an event frame on the interrupt endpoint (object class, event id, status). */

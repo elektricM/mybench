@@ -1,5 +1,4 @@
-// Counter ctr0 on libmydaq (mydaq_ctr_task): edge count (up; down and external direction
-// emulated on the host), frequency, period, pulse width, semi-period (from the device's
+// Counter ctr0 on libmydaq (mydaq_ctr_task): edge count (up, or down on the host), frequency, period, pulse width, semi-period (from the device's
 // pulse-time mode), encoders, pulse trains.
 #pragma once
 

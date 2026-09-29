@@ -236,13 +236,13 @@ static void test_dmm_ranges(void)
         total += n;
     }
     CHECK_INT(total, 21);
-    /* verified by captures: diode and continuity (ELVISmx), 20 kOhm; 200 kOhm .. 20 MOhm not yet */
+    /* every mode byte verified by captures: diode and continuity (ELVISmx), Ohm up to 20 MOhm */
     CHECK_RC(mydaq_dmm_ranges(MYDAQ_DMM_DIODE, &r, &n));
     CHECK(n == 1 && r[0].supported && r[0].verified);
     CHECK_RC(mydaq_dmm_ranges(MYDAQ_DMM_CONTINUITY, &r, &n));
     CHECK(n == 1 && r[0].supported && r[0].verified);
     CHECK_RC(mydaq_dmm_ranges(MYDAQ_DMM_RESISTANCE, &r, &n));
-    CHECK(n == 6 && !r[0].verified && !r[2].verified && r[3].verified && r[5].verified);
+    CHECK(n == 6 && r[0].verified && r[2].verified && r[3].verified && r[5].verified);
     CHECK_ERR(mydaq_dmm_ranges((mydaq_dmm_function)9, &r, &n), MYDAQ_ERR_INVALID_ARG);
 }
 

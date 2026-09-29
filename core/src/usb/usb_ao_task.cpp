@@ -18,14 +18,16 @@ UsbAoTask::UsbAoTask(HandlePtr handle, const AoConfig& config) : m_handle(std::m
     }
     mydaq_ao_config c{};
     for (size_t i = 0; i < channels.size(); ++i) {
-        const double range = isAudio(channels[i].channel) ? 2.0 : 10.0;
-        if (std::abs(channels[i].range - range) > 1e-9) {
-            if (!isAudio(channels[i].channel) && std::abs(channels[i].range - 2.0) <= 1e-9)
-                throw DeviceError(DeviceError::NotSupported,
-                                  QStringLiteral("The ±2 V range of %1 is not supported by the native myDAQ driver yet")
-                                      .arg(toString(channels[i].channel)));
+        const double range = channels[i].range;
+        if (isAudio(channels[i].channel)) {
+            if (std::abs(range - 2.0) > 1e-9)
+                throw DeviceError(DeviceError::InvalidConfig,
+                                  QStringLiteral("%1 has a fixed ±2 V range").arg(toString(channels[i].channel)));
+        } else if (std::abs(range - 2.0) <= 1e-9) {
+            c.ranges[i] = MYDAQ_AO_RANGE_2V;   // the ±2 V calibration record, finer steps
+        } else if (std::abs(range - 10.0) > 1e-9) {
             throw DeviceError(DeviceError::InvalidConfig,
-                              QStringLiteral("%1 range must be ±%2 V").arg(toString(channels[i].channel)).arg(range));
+                              QStringLiteral("%1 range must be ±10 V or ±2 V").arg(toString(channels[i].channel)));
         }
         c.channels[i] = toLib(channels[i].channel);
     }

@@ -24,18 +24,17 @@ the two never drive the same line.
 ## What your device supports
 
 Options the connected device cannot do are grayed out (a tooltip says *Not supported by this
-device*). On the NI myDAQ these are Two-Edge Separation and Buffered sampling (the myDAQ's
-counter can only be read on demand). FREQOUT currently runs only from its 100 kHz timebase
-(100 kHz / n) on the device. Everything else runs on the device: Pulse Width, Semi-Period
-(measured as the high and low halves of each period), the encoders, the Falling edge, *Initial
-Count*, *Reset on DIO 1*, and the pulse train's *Idle State High* and *Initial Delay*. The myDAQ
-itself only counts up: MYBENCH counts down by subtracting the edges from the Initial Count, and
-counts with an *External* direction by using the encoder input (edges on DIO 0, direction on
-DIO 2). Three combinations cannot be followed that way and are refused at Run with a message:
-External direction with the Falling edge or with *Reset on DIO 1*, and counting down from a
-non-zero Initial Count with *Reset on DIO 1*. If a setting saved earlier needs a grayed option,
-the Counter card lists it and Run is refused with a warning instead of failing on the device.
-The simulator supports everything.
+device*). On the NI myDAQ these are counting with an *External* direction and Buffered sampling
+(the myDAQ's counter can only be read on demand). Everything else runs on the device: Pulse
+Width, Semi-Period (measured as the high and low halves of each period), Two-Edge Separation
+(first edge on DIO 2, second on DIO 1), the encoders, the Falling edge, *Initial Count*, *Reset
+on DIO 1*, the pulse train's *Idle State High* and *Initial Delay*, frequency and duty changes of
+a running pulse train (applied at the next period, without stopping), and FREQOUT from 6.25 kHz
+to 20 MHz (20 MHz / n, 10 MHz / n or 100 kHz / n). The myDAQ itself only counts up: MYBENCH
+counts down by subtracting the edges from the Initial Count, so counting down from a non-zero
+Initial Count together with *Reset on DIO 1* is refused at Run with a message. If a setting saved
+earlier needs a grayed option, the Counter card lists it and Run is refused with a warning
+instead of failing on the device. The simulator supports everything.
 
 ## Quick start
 

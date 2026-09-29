@@ -4,7 +4,7 @@
  * The ctr0 object (0x0c41) is configured through a fixed skeleton of calls whose arguments were
  * decoded differentially from NI's captures; each task kind below replays its captured frames,
  * with the task parameters (pulse low/high times in 100 MHz ticks, pulse count) substituted.
- * Only the task kinds that were captured are offered; the others return NOT_SUPPORTED. */
+ * Only the task kinds that were captured are offered. */
 #include "internal.h"
 #include "proto.h"
 
@@ -17,7 +17,7 @@
 #define CTR_CLASS 0x0c41u
 #define CTR_TIMEBASE_HZ 100e6
 #define CTR_MIN_TICKS 2u
-#define FREQOUT_TIMEBASE_HZ 100e3   /* the only FREQOUT timebase captured so far */
+#define FREQOUT_TIMEBASE_HZ 100e3   /* the slowest FREQOUT timebase (20 MHz and 10 MHz too) */
 #define FREQOUT_MAX_DIVIDER 16u
 
 #define DIO_CTR_SOURCE 0x01u   /* DIO0 = PFI0: count-edges input */
@@ -228,6 +228,7 @@ static uint8_t app_code(mydaq_ctr_kind kind)
     case MYDAQ_CTR_LINEAR_ENCODER: return 7;
     case MYDAQ_CTR_ANGULAR_ENCODER: return 0x0e;
     case MYDAQ_CTR_PULSE_TIME: return 0x0f;
+    case MYDAQ_CTR_TWO_EDGE_SEPARATION: return 6;
     default: return 0;
     }
 }
@@ -335,6 +336,39 @@ static int program(mydaq_ctr_task *t)
         p.arm[0] = app;
         p.arm[1] = 1;
         break;
+    case MYDAQ_CTR_TWO_EDGE_SEPARATION: {   /* ctr-twoedge-freqout-10k (rising -> falling) */
+        /* First edge: route 0x77c75630 (FREQOUT 0x2e; DIO2 = PFI2 -> 3, inferred), second edge:
+         * the gate (FREQOUT 0x29; DIO1 = PFI1 -> 2). */
+        const uint32_t pol1 = c->falling ? 1u : 0u, pol2 = c->second_falling ? 1u : 0u;
+        if (c->input == MYDAQ_CTR_INPUT_FREQOUT) {
+            rc = route1(dev, R_LOOP, 0x24);
+            if (rc == MYDAQ_OK)
+                rc = route2(dev, R_PW, 0x2e, pol1);
+            if (rc == MYDAQ_OK)
+                rc = route2(dev, R_GATE, 0x29, pol2);
+        } else {
+            rc = route2(dev, R_PFI2_IN, 0, 0);
+            if (rc == MYDAQ_OK)
+                rc = route2(dev, R_PFI1_IN, 0, 0);
+            if (rc == MYDAQ_OK)
+                rc = route2(dev, R_PW, 0x03, pol1);
+            if (rc == MYDAQ_OK)
+                rc = route2(dev, R_GATE, 0x02, pol2);
+        }
+        if (rc == MYDAQ_OK)
+            rc = route2(dev, R_SOURCE, SRC_100MHZ, 0);
+        p.b[1] = app;
+        p.b[2] = 1;
+        p.b[3] = 1;
+        p.m0b[3] = 1;
+        p.m0b[7] = 2;
+        p.m0b[9] = 1;
+        p.m0b[14] = 1;
+        p.m10[4] = 1;
+        p.arm[0] = app;
+        p.arm[1] = 1;
+        break;
+    }
     case MYDAQ_CTR_LINEAR_ENCODER:
     case MYDAQ_CTR_ANGULAR_ENCODER: /* ctr-linenc-x4 / -x1-z, ctr-angenc-x2 / -2pulse-freqout-10k */
         if (c->input == MYDAQ_CTR_INPUT_FREQOUT) {
@@ -477,6 +511,9 @@ int mydaq_ctr_task_create(mydaq_device *dev, const mydaq_ctr_config *config, myd
     case MYDAQ_CTR_PULSE_TIME:
         lines = config->input == MYDAQ_CTR_INPUT_FREQOUT ? 0 : DIO_CTR_GATE;
         break;
+    case MYDAQ_CTR_TWO_EDGE_SEPARATION:
+        lines = config->input == MYDAQ_CTR_INPUT_FREQOUT ? 0 : (uint8_t)(DIO_CTR_GATE | DIO_CTR_AUX);
+        break;
     case MYDAQ_CTR_LINEAR_ENCODER:
     case MYDAQ_CTR_ANGULAR_ENCODER:
         if (config->decoding && (config->decoding < MYDAQ_CTR_X1 || config->decoding > MYDAQ_CTR_TWO_PULSE))
@@ -501,7 +538,7 @@ int mydaq_ctr_task_create(mydaq_device *dev, const mydaq_ctr_config *config, myd
         break;
     }
     default:
-        return MYDAQ_ERR_NOT_SUPPORTED;   /* two-edge separation: not decoded yet */
+        return MYDAQ_ERR_INVALID_ARG;
     }
     t = calloc(1, sizeof *t);
     if (!t)
@@ -754,6 +791,46 @@ int mydaq_ctr_task_read(mydaq_ctr_task *t, double *value, int timeout_ms)
 
 uint8_t mydaq_ctr_task_dio_lines(const mydaq_ctr_task *t) { return t ? t->dio_lines : 0; }
 
+/* Live update of a running continuous pulse train (protocol.md 10.5, co-update-1k-to-2k-d0.25):
+ * ctr.1e, then ctr.18(u32 idle ticks, u32 active ticks); no stop or re-arm. Idle high swaps the
+ * two like the configuration does (inferred: only idle low was captured). */
+int mydaq_ctr_task_update_pulse(mydaq_ctr_task *t, double frequency, double duty_cycle)
+{
+    uint32_t low = 0, high = 0;
+    md_buf b;
+    int rc;
+    if (!t)
+        return MYDAQ_ERR_INVALID_ARG;
+    if (t->cfg.kind != MYDAQ_CTR_PULSE_TRAIN || t->cfg.mode != MYDAQ_CONTINUOUS)
+        return MYDAQ_ERR_STATE;
+    rc = mydaq_ctr_coerce_pulse(frequency, duty_cycle, &low, &high, NULL, NULL);
+    if (rc != MYDAQ_OK)
+        return rc;
+    md_mutex_lock(&t->op_lock);
+    if (!t->hw_active || !mydaq_ctr_task_is_running(t)) {
+        md_mutex_unlock(&t->op_lock);
+        return MYDAQ_ERR_STATE;
+    }
+    md_cmd_lock(t->dev);
+    rc = ctr_hex(t->dev, 0x1e, "");
+    if (rc == MYDAQ_OK) {
+        md_buf_init(&b);
+        md_put_u32(&b, OBJ_CTR0);
+        md_put_u32(&b, t->cfg.idle_high ? high : low);   /* idle state first */
+        md_put_u32(&b, t->cfg.idle_high ? low : high);
+        rc = md_cmd(t->dev, MD_CH_OBJECT, 0x18, &b, MD_TIMEOUT_CMD, 0, NULL);
+    }
+    md_cmd_unlock(t->dev);
+    if (rc == MYDAQ_OK) {
+        t->low = low;
+        t->high = high;
+        t->cfg.frequency = frequency;
+        t->cfg.duty_cycle = duty_cycle;
+    }
+    md_mutex_unlock(&t->op_lock);
+    return rc;
+}
+
 int mydaq_ctr_task_pulse(const mydaq_ctr_task *t, double *frequency, double *duty_cycle)
 {
     double period;
@@ -769,33 +846,51 @@ int mydaq_ctr_task_pulse(const mydaq_ctr_task *t, double *frequency, double *dut
 
 /* ---- FREQOUT ----------------------------------------------------------------------------- */
 
-static uint16_t freqout_divider(double hz)
+/* FREQOUT = timebase / n, n = 1..16 (protocol.md 10.4; freqout-2M, -1M, -1M25, -4M, -6250):
+ * configure(u16 n & 15, u8 A, u8 B) with (A, B) = (0, 0) 20 MHz, (0, 1) 10 MHz, (1, 0) 100 kHz.
+ * The nearest frequency wins; on a tie the faster timebase (as DAQmx: 2 MHz = 20 MHz / 10). */
+static const struct {
+    double hz;
+    uint8_t a, b;
+} freqout_timebases[] = {{20e6, 0, 0}, {10e6, 0, 1}, {FREQOUT_TIMEBASE_HZ, 1, 0}};
+
+typedef struct freqout_setting {
+    unsigned tb, n;
+} freqout_setting;
+
+static freqout_setting freqout_choose(double hz)
 {
-    unsigned n, best = 1;
+    freqout_setting best = {2, 1};
     double err = INFINITY;
-    for (n = 1; n <= FREQOUT_MAX_DIVIDER; ++n) {
-        const double e = fabs(FREQOUT_TIMEBASE_HZ / n - hz);
-        if (e < err) {
-            err = e;
-            best = n;
+    unsigned tb, n;
+    for (tb = 0; tb < sizeof freqout_timebases / sizeof freqout_timebases[0]; ++tb) {
+        for (n = 1; n <= FREQOUT_MAX_DIVIDER; ++n) {
+            const double e = fabs(freqout_timebases[tb].hz / n - hz);
+            if (e < err) {
+                err = e;
+                best.tb = tb;
+                best.n = n;
+            }
         }
     }
-    return (uint16_t)best;
+    return best;
 }
+
+static double freqout_hz(freqout_setting s) { return freqout_timebases[s.tb].hz / s.n; }
 
 double mydaq_freqout_coerce(double hz)
 {
-    return FREQOUT_TIMEBASE_HZ / freqout_divider(hz);
+    return freqout_hz(freqout_choose(hz));
 }
 
 int mydaq_freqout_start(mydaq_device *dev, double hz, double *actual)
 {
     md_buf b;
-    uint16_t div;
+    freqout_setting set;
     int rc = MYDAQ_OK;
     if (!dev || !(hz > 0.0))
         return MYDAQ_ERR_INVALID_ARG;
-    div = freqout_divider(hz);
+    set = freqout_choose(hz);
     md_mutex_lock(&dev->state_lock);
     if (!dev->connected)
         rc = MYDAQ_ERR_NO_DEVICE;
@@ -814,11 +909,11 @@ int mydaq_freqout_start(mydaq_device *dev, double hz, double *actual)
     md_cmd_lock(dev);
     rc = route2(dev, 0xc271008bu, 0x895d5d2cu, 0x0f, 1);   /* FREQOUT -> PFI4 */
     if (rc == MYDAQ_OK) {
-        md_buf_init(&b);   /* configure: u16 divider, u8 1 (100 kHz timebase), u8 0 */
+        md_buf_init(&b);   /* configure: u16 n & 15 (16 -> 0), u8 A, u8 B (the timebase) */
         md_put_u32(&b, OBJ_FREQOUT);
-        md_put_u16(&b, div);
-        md_put_u8(&b, 1);
-        md_put_u8(&b, 0);
+        md_put_u16(&b, (uint16_t)(set.n & 15u));
+        md_put_u8(&b, freqout_timebases[set.tb].a);
+        md_put_u8(&b, freqout_timebases[set.tb].b);
         rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_RESET, &b, MD_TIMEOUT_CMD, 0, NULL);
     }
     if (rc == MYDAQ_OK)
@@ -832,7 +927,7 @@ int mydaq_freqout_start(mydaq_device *dev, double hz, double *actual)
         return rc;
     }
     if (actual)
-        *actual = FREQOUT_TIMEBASE_HZ / div;
+        *actual = freqout_hz(set);
     return MYDAQ_OK;
 }
 

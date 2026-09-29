@@ -63,6 +63,10 @@ struct mydaq_device {
     uint8_t tx[MD_FRAME_MAX];
     uint8_t rx[MD_RESPONSE_MAX];
     int cmd_desync;               /* a response may still be in flight: drain before the next */
+    uint64_t settle_until_ms;     /* md_cmd re-sends commands the device rejects as not ready
+                                     (-201381) until then: a few seconds after init (cmd_lock) */
+    int dmm_mode_key;             /* last dmm.set_mode sent: 1 + (mode << 1 | autorange); 0 =
+                                     unknown (init, reset, after a DMM error) (cmd_lock) */
 
     /* State below is guarded by state_lock (never held while waiting on the device). */
     md_mutex state_lock;
@@ -123,6 +127,7 @@ int md_cmd_words(mydaq_device *dev, uint16_t channel, uint8_t op, uint32_t objec
 
 #define MD_TIMEOUT_CMD 5000u
 #define MD_TIMEOUT_LONG 12000u
+#define MD_SETTLE_MS 5000u      /* after init: commands rejected as not ready are re-sent */
 
 /* Records a transport/device error: marks the device disconnected on MYDAQ_ERR_NO_DEVICE. */
 int md_note_error(mydaq_device *dev, int err);

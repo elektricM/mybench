@@ -71,8 +71,16 @@ private slots:
                 continue;
             if (function == DmmController::Resistance) {
                 QVERIFY2(m_dmm->overload(), "open leads must overload every resistance range");
+            } else if (ranges[i].startsWith(u"200m"_s) && (function == DmmController::DcVoltage || function == DmmController::AcVoltage)) {
+                // A floating high-impedance input drifts by tenths of a volt: the 200 mV ranges
+                // may overload with open leads (seen on 036CD1C6 with DAQmx's settings too).
+                continue;
+            } else if (function == DmmController::AcVoltage) {
+                // an open AC input picks up mains: ~0.2 V rms seen on the 2 V range
+                QVERIFY(!m_dmm->overload());
+                QVERIFY2(m_dmm->fullScaleFraction() < 0.25, qPrintable(m_dmm->readingText()));
             } else {
-                // floating voltage input / open current shunt: close to zero (5 % of full scale)
+                // floating DC input / open current shunt: close to zero (5 % of full scale)
                 QVERIFY(!m_dmm->overload());
                 QVERIFY2(m_dmm->fullScaleFraction() < 0.05, qPrintable(m_dmm->readingText()));
             }
@@ -101,19 +109,26 @@ private slots:
             QVERIFY(!m_dmm->continuityClosed());
     }
 
-    // Autorange with a floating DC V input settles on the smallest range.
+    // Autorange with a floating DC V input lands on a small range (200 mV, or 2 V: a floating
+    // input overloads 200 mV now and then, and each range change costs ~2.6 s while the meter
+    // re-settles, so readings are slow while it switches).
     void autorange()
     {
         m_dmm->setSelectedFunction(DmmController::DcVoltage);
         m_dmm->setAutoRange(true);
         m_dmm->run();
-        QVERIFY(hw::waitFor([&] { return m_dmm->readingSerial() >= 4; }, 30000));
+        QElapsedTimer clock;
+        clock.start();
+        QVERIFY(hw::waitFor([&] { return m_dmm->readingSerial() >= 2; }, 45000));
+        hw::report(u"DMM DC V auto timing"_s, u"%1 readings after %2 s"_s.arg(m_dmm->readingSerial())
+                                                   .arg(clock.elapsed() / 1000.0, 0, 'f', 1));
         hw::report(u"DMM DC V auto"_s, u"settled on %1 with \"%2 %3\" after %4 readings"_s
                                             .arg(m_dmm->activeRangeLabel(), m_dmm->readingText(), m_dmm->readingUnit())
                                             .arg(m_dmm->readingSerial()));
         HW_VERIFY_NO_ERROR(*m_dmm);
         if (!hw::simulated())
-            QCOMPARE(m_dmm->activeRangeLabel(), u"200mV"_s);
+            QVERIFY2(m_dmm->activeRangeLabel() == u"200mV"_s || m_dmm->activeRangeLabel() == u"2V"_s,
+                     qPrintable(m_dmm->activeRangeLabel()));
         QVERIFY(hw::stopAndWait(*m_dmm) >= 0);
     }
 

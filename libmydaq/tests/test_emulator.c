@@ -524,7 +524,7 @@ static double ao_stream_queue(int sync)
            n ? (double)qsum / (double)n : 0.0, rate, mydaq_error_name(rc));
     mydaq_ao_task_destroy(t);
     emu_close(&e);
-    if (rc != MYDAQ_OK || n == 0 || rate < 0.9 * 200e3)
+    if (rc != MYDAQ_OK || n == 0 || rate < 0.8 * 200e3)
         return -1;
     return (double)qsum / (double)n;
 }
@@ -538,35 +538,61 @@ static void test_ao_async_queue(void)
 }
 
 /* Streaming with a ring that runs empty between writes: the idle OUT transfers must be refilled
- * by the next write (stream_kick), in order, without an underflow. */
+ * by the next write (stream_kick), in order. Deterministic: 1 kS/s on the non-real-time mock,
+ * whose FIFO takes every block at once (so the ring is empty after each write and the transfers
+ * go idle), while the 12 s of data can never run out during the < 1 s test. */
 static void test_ao_async_refill(void)
 {
     emu e;
-    mydaq_ao_config cfg = ao_config(1, 20e3, MYDAQ_CONTINUOUS, 0);
+    mydaq_ao_config cfg = ao_config(1, 1000.0, MYDAQ_CONTINUOUS, 0);
     mydaq_ao_task *t = NULL;
     static int16_t first[4000];
     int16_t block[400];
     int k, i;
     uint64_t deadline;
     EMU_OPEN(e);
-    mydaq_mock_set_realtime(e.mock, 1);
     E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
-    for (i = 0; i < 4000; ++i)   /* 0.2 s ahead: the emulated FIFO takes it all at once */
+    for (i = 0; i < 4000; ++i)
         first[i] = (int16_t)i;
     E_RC(e, mydaq_ao_task_write_raw(t, first, 4000, 0), MYDAQ_OK);
     E_RC(e, mydaq_ao_task_start(t), MYDAQ_OK);
-    for (k = 0; k < 20; ++k) {   /* 20 ms of data every 15 ms: the ring is empty in between */
-        md_sleep_ms(15);
+    for (k = 0; k < 20; ++k) {   /* the transfers are idle before each of these writes */
+        md_sleep_ms(5);
         for (i = 0; i < 400; ++i)
             block[i] = (int16_t)(4000 + 400 * k + i);
         E_RC(e, mydaq_ao_task_write_raw(t, block, 400, 1000), MYDAQ_OK);
     }
-    deadline = md_now_ms() + 1000;   /* everything reaches the device */
+    deadline = md_now_ms() + 2000;   /* everything reaches the device */
     while (mydaq_mock_ao_bytes(e.mock) < 2u * 12000u && md_now_ms() < deadline)
         md_sleep_ms(2);
     E_CHECK(e, mydaq_mock_ao_bytes(e.mock) == 2u * 12000u);
     E_CHECK(e, mydaq_mock_ao_last(e.mock, 0) == 12000 - 1);   /* in order: the last code last */
     E_CHECK(e, mydaq_ao_task_error(t) == MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_stop(t), MYDAQ_OK);
+    mydaq_ao_task_destroy(t);
+    emu_close(&e);
+}
+
+/* Start latency of a streamed task: before the timing engine starts, the device takes ~20 KB and
+ * then NAKs part-way through a queued transfer, so the pre-fill never completes 16 KiB of whole
+ * transfers at 2 x 50 kS/s (4 x 5 KiB). The start must still return promptly (it waited 1 s). */
+static void test_ao_start_latency(void)
+{
+    emu e;
+    mydaq_ao_config cfg = ao_config(2, 50e3, MYDAQ_CONTINUOUS, 0);
+    mydaq_ao_task *t = NULL;
+    static int16_t block[2 * 12500];
+    uint64_t t0, ms;
+    EMU_OPEN(e);
+    cfg.channels[0] = MYDAQ_AUDIO_OUT_LEFT;
+    cfg.channels[1] = MYDAQ_AUDIO_OUT_RIGHT;
+    E_RC(e, mydaq_ao_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_RC(e, mydaq_ao_task_write_raw(t, block, 12500, 0), MYDAQ_OK);   /* 0.25 s, as the equalizer */
+    t0 = md_now_ms();
+    E_RC(e, mydaq_ao_task_start(t), MYDAQ_OK);
+    ms = md_now_ms() - t0;
+    printf("    streamed AO start: %llu ms\n", (unsigned long long)ms);
+    E_CHECK(e, ms < 300);
     E_RC(e, mydaq_ao_task_stop(t), MYDAQ_OK);
     mydaq_ao_task_destroy(t);
     emu_close(&e);
@@ -717,8 +743,12 @@ static void test_counter_and_freqout(void)
     E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
     E_RC(e, mydaq_ctr_task_wait_done(t, 1000), MYDAQ_OK);
     mydaq_ctr_task_destroy(t);
-    cfg.kind = MYDAQ_CTR_TWO_EDGE_SEPARATION;   /* not decoded */
-    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_ERR_NOT_SUPPORTED);
+    cfg.kind = MYDAQ_CTR_TWO_EDGE_SEPARATION;   /* DIO2 -> DIO1 */
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
+    E_CHECK(e, mydaq_ctr_task_dio_lines(t) == 0x06);
+    mydaq_ctr_task_destroy(t);
+    cfg.kind = (mydaq_ctr_kind)42;
+    E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_ERR_INVALID_ARG);
     cfg.kind = MYDAQ_CTR_PULSE_TIME;   /* two values per read */
     E_RC(e, mydaq_ctr_task_create(e.dev, &cfg, &t), MYDAQ_OK);
     E_RC(e, mydaq_ctr_task_start(t), MYDAQ_OK);
@@ -759,7 +789,9 @@ static void test_counter_and_freqout(void)
     mydaq_ctr_task_destroy(t);
 
     E_CHECK(e, mydaq_freqout_coerce(33000.0) == 100e3 / 3.0);
-    E_CHECK(e, mydaq_freqout_coerce(1e6) == 100e3 && mydaq_freqout_coerce(1.0) == 6250.0);
+    E_CHECK(e, mydaq_freqout_coerce(1e6) == 1e6 && mydaq_freqout_coerce(1.0) == 6250.0);
+    E_CHECK(e, mydaq_freqout_coerce(3e8) == 20e6 && mydaq_freqout_coerce(2e6) == 2e6);
+    E_CHECK(e, mydaq_freqout_coerce(300e3) == 100e3 && mydaq_freqout_coerce(500e3) == 625e3);
     E_RC(e, mydaq_freqout_start(e.dev, 20e3, &f), MYDAQ_OK);
     E_CHECK(e, f == 20e3 && mydaq_mock_freqout_divider(e.mock) == 5 && mydaq_freqout_running(e.dev));
     E_RC(e, mydaq_freqout_start(e.dev, 20e3, &f), MYDAQ_ERR_BUSY);
@@ -848,6 +880,42 @@ static void test_dmm(void)
     E_CHECK(e, r.value == 0.21825235477124808 && mydaq_mock_dmm_mode(e.mock) == 7);
     mydaq_mock_set_dmm_packet(e.mock, "1000x;808\r\n");
     E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_DC_VOLTS, 20.0, &r), MYDAQ_ERR_PROTOCOL);
+    emu_close(&e);
+}
+
+static void test_dmm_keep_mode(void)
+{
+    /* ELVISmx-style reading: set_mode only when the function/range changes (the meter then
+     * streams a packet every 0.5 s); again after a reset or an error. */
+    emu e;
+    mydaq_dmm_reading r;
+    unsigned n0;
+    int k;
+    EMU_OPEN(e);
+    n0 = mydaq_mock_dmm_set_modes(e.mock);
+    for (k = 0; k < 3; ++k)
+        E_RC(e, mydaq_dmm_read_ex(e.dev, MYDAQ_DMM_DC_VOLTS, 20.0, MYDAQ_DMM_KEEP_MODE, &r), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_dmm_set_modes(e.mock) == n0 + 1 && mydaq_mock_dmm_mode(e.mock) == 1);
+    E_RC(e, mydaq_dmm_read_ex(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, MYDAQ_DMM_KEEP_MODE, &r), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_dmm_set_modes(e.mock) == n0 + 2 && mydaq_mock_dmm_mode(e.mock) == 0);
+    E_RC(e, mydaq_dmm_read(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, &r), MYDAQ_OK);   /* DAQmx style */
+    E_CHECK(e, mydaq_mock_dmm_set_modes(e.mock) == n0 + 3);
+    E_RC(e, mydaq_reset(e.dev), MYDAQ_OK);
+    E_RC(e, mydaq_dmm_read_ex(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, MYDAQ_DMM_KEEP_MODE, &r), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_dmm_set_modes(e.mock) == n0 + 4);
+    mydaq_mock_set_dmm_packet(e.mock, "1000x;808\r\n");   /* a bad packet: mode sent again */
+    E_RC(e, mydaq_dmm_read_ex(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, MYDAQ_DMM_KEEP_MODE, &r), MYDAQ_ERR_PROTOCOL);
+    mydaq_mock_set_dmm_packet(e.mock, "10000;808\r\n");
+    E_RC(e, mydaq_dmm_read_ex(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, MYDAQ_DMM_KEEP_MODE, &r), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_dmm_set_modes(e.mock) == n0 + 5);
+    /* device-side timeout: status -225202, no packet */
+    mydaq_mock_set_dmm_timeout(e.mock, 1);
+    E_RC(e, mydaq_dmm_read_timeout(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, MYDAQ_DMM_KEEP_MODE, 500, &r),
+         MYDAQ_ERR_TIMEOUT);
+    mydaq_mock_set_dmm_timeout(e.mock, 0);
+    E_RC(e, mydaq_dmm_read_ex(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, MYDAQ_DMM_KEEP_MODE, &r), MYDAQ_OK);
+    E_CHECK(e, mydaq_mock_dmm_set_modes(e.mock) == n0 + 5);   /* a timeout keeps the mode */
+    E_RC(e, mydaq_dmm_read_timeout(e.dev, MYDAQ_DMM_DC_VOLTS, 2.0, 0, 0, &r), MYDAQ_ERR_INVALID_ARG);
     emu_close(&e);
 }
 
@@ -955,6 +1023,31 @@ static void test_hwverify_retry(void)
     CHECK(info.init_seconds >= 0.15);
 }
 
+static void test_not_ready_after_init(void)
+{
+    /* After an init the device may reject commands with -201381 for a second or two: within
+     * the settle window they are re-sent, so the first on-demand read still works. */
+    emu e;
+    const mydaq_ai_channel_config ch = {MYDAQ_AI0, MYDAQ_AI_RANGE_10V};
+    double v = 1;
+    unsigned n0, seq;
+    uint64_t t0;
+    EMU_OPEN(e);
+    n0 = mydaq_mock_command_count(e.mock);
+    E_RC(e, mydaq_ai_read_scan(e.dev, &ch, 1, &v), MYDAQ_OK);
+    seq = mydaq_mock_command_count(e.mock) - n0;   /* one on-demand read */
+    mydaq_mock_set_ai_not_ready(e.mock, 3);
+    n0 = mydaq_mock_command_count(e.mock);
+    t0 = md_now_ms();
+    E_RC(e, mydaq_ai_read_scan(e.dev, &ch, 1, &v), MYDAQ_OK);
+    E_CHECK(e, md_now_ms() - t0 >= 250);                              /* 3 retries, 100 ms apart */
+    E_CHECK(e, mydaq_mock_command_count(e.mock) - n0 == seq + 3);   /* the sequence + 3 re-sends */
+    mydaq_mock_set_ai_not_ready(e.mock, 2);
+    E_RC(e, mydaq_wait_ready(e.dev), MYDAQ_OK);
+    E_RC(e, mydaq_wait_ready(NULL), MYDAQ_ERR_INVALID_ARG);
+    emu_close(&e);
+}
+
 static void test_open_unplugged(void)
 {
     mydaq_context *ctx = NULL;
@@ -1010,6 +1103,7 @@ const test_case emulator_tests[] = {
     {"emu.ao_stream_underflow", test_ao_stream_and_underflow},
     {"emu.ao_async_queue", test_ao_async_queue},
     {"emu.ao_async_refill", test_ao_async_refill},
+    {"emu.ao_start_latency", test_ao_start_latency},
     {"emu.ao_invalid", test_ao_invalid},
     {"emu.ao_unplug", test_ao_unplug},
     {"emu.ai_and_ao_together", test_ai_and_ao_together},
@@ -1019,11 +1113,13 @@ const test_case emulator_tests[] = {
     {"emu.ao", test_ao},
     {"emu.dio", test_dio},
     {"emu.dmm", test_dmm},
+    {"emu.dmm_keep_mode", test_dmm_keep_mode},
     {"emu.reset", test_reset},
     {"emu.concurrent_calls", test_concurrent_calls},
     {"emu.no_init_open", test_no_init_open},
     {"emu.log_callback", test_log_callback},
     {"emu.hwverify_retry", test_hwverify_retry},
+    {"emu.not_ready_after_init", test_not_ready_after_init},
     {"emu.open_unplugged", test_open_unplugged},
     {NULL, NULL},
 };

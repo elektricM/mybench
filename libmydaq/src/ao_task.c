@@ -21,6 +21,7 @@
 #pragma STDC FP_CONTRACT OFF
 
 #define AO_PREFILL 16384u          /* bytes written before start (device FIFO holds ~20 KB) */
+#define AO_PREFILL_STALL_MS 20u    /* async pre-fill: no completion this long = FIFO full */
 #define AO_CHUNK 8192u             /* bytes per bulk write */
 #define AO_WRITE_TIMEOUT_MS 100u
 #define AO_MAX_FINITE_BYTES (256u * 1024u * 1024u)
@@ -80,15 +81,17 @@ struct mydaq_ao_task {
 
 /* ---- conversion ------------------------------------------------------------------------ */
 
-static int ao_code(const mydaq_calibration *cal, mydaq_ao_channel ch, double volts, int16_t *code)
+static int ao_code(const mydaq_calibration *cal, mydaq_ao_channel ch, double volts, int two_volt,
+                   int16_t *code)
 {
     const int audio = ch == MYDAQ_AUDIO_OUT_LEFT || ch == MYDAQ_AUDIO_OUT_RIGHT;
-    const double limit = audio ? 2.0 : 10.0;
+    const int two = audio || two_volt;
+    const double limit = two ? 2.0 : 10.0;
     const mydaq_cal_pair *p;
     double c;
     if (!(volts >= -limit && volts <= limit))
         return MYDAQ_ERR_INVALID_ARG;
-    p = audio ? &cal->ao[ch][2] : &cal->ao[ch][0];   /* audio: ±2 V record; AO: ±10 V record */
+    p = two ? &cal->ao[ch][2] : &cal->ao[ch][0];   /* ±2 V record (audio, AO ±2 V) or ±10 V */
     c = nearbyint((double)p->offset + (double)p->gain * volts);
     if (c > 32767.0)
         c = 32767.0;
@@ -103,7 +106,15 @@ int mydaq_ao_task_volts_to_code(const mydaq_calibration *cal, mydaq_ao_channel c
 {
     if (!cal || !code || (unsigned)channel > 3u)
         return MYDAQ_ERR_INVALID_ARG;
-    return ao_code(cal, channel, volts, code);
+    return ao_code(cal, channel, volts, 0, code);
+}
+
+int mydaq_ao_task_volts_to_code_range(const mydaq_calibration *cal, mydaq_ao_channel channel,
+                                      double volts, mydaq_ao_range range, int16_t *code)
+{
+    if (!cal || !code || (unsigned)channel > 3u || (unsigned)range > MYDAQ_AO_RANGE_2V)
+        return MYDAQ_ERR_INVALID_ARG;
+    return ao_code(cal, channel, volts, range == MYDAQ_AO_RANGE_2V, code);
 }
 
 /* ---- ring (streaming) -------------------------------------------------------------------- */
@@ -139,7 +150,7 @@ static void ring_drop(mydaq_ao_task *t, size_t n)
 static void on_event(void *user, const md_event *ev)
 {
     mydaq_ao_task *t = user;
-    int err = MYDAQ_OK, done = 0;
+    int err = MYDAQ_OK, done = 0, counted = MYDAQ_OK;
     if (ev->transport_status == MYDAQ_ERR_NO_DEVICE)
         err = MYDAQ_ERR_NO_DEVICE;
     else if (ev->transport_status != MYDAQ_OK)
@@ -157,14 +168,14 @@ static void on_event(void *user, const md_event *ev)
     if (t->state == AO_RUNNING) {
         if (done && t->cfg.mode == MYDAQ_FINITE)
             t->state = AO_DONE;
-        else if (err && !t->error)
-            t->error = err;
+        else if (err && !t->error && (!t->stop_writer || err != MYDAQ_ERR_UNDERFLOW))
+            t->error = counted = err;   /* an underflow while stopping is expected: the writer quit */
         md_cond_broadcast(&t->cond);
     }
     md_mutex_unlock(&t->lock);
     if (err)
-        MD_WARN(t->dev->ctx, "AO event %u on %04x: status %ld (%s)", (unsigned)ev->id,
-                (unsigned)ev->object_class, (long)ev->status, mydaq_error_name(err));
+        md_log(t->dev->ctx, counted ? MYDAQ_LOG_WARNING : MYDAQ_LOG_DEBUG, "AO event %u on %04x: status %ld (%s)",
+               (unsigned)ev->id, (unsigned)ev->object_class, (long)ev->status, mydaq_error_name(err));
 }
 
 /* ---- writer ------------------------------------------------------------------------------ */
@@ -405,13 +416,26 @@ static int async_prefill(mydaq_ao_task *t)
                                    &t->out_stream);
     if (rc != MYDAQ_OK)
         return rc;
+    /* Done when the pre-fill is accepted, or when the device stopped taking data: only whole
+     * transfers count as sent, and before the timing engine starts the device NAKs part-way
+     * through one (its FIFO is full), so "no completion for 20 ms" ends the wait (as the
+     * synchronous path stops at the first NAK). Without that the wait ran into its deadline,
+     * adding ~1 s to every start. */
     md_mutex_lock(&t->lock);
-    for (;;) {
-        const uint64_t now = md_now_ms();
-        const uint64_t want = t->queued_bytes < AO_PREFILL ? t->queued_bytes : AO_PREFILL;
-        if (t->error || t->sent_bytes >= want || now >= deadline)
-            break;
-        md_cond_timedwait(&t->cond, &t->lock, (uint32_t)(deadline - now));
+    {
+        uint64_t last_sent = t->sent_bytes, last_change = md_now_ms();
+        for (;;) {
+            const uint64_t now = md_now_ms();
+            const uint64_t want = t->queued_bytes < AO_PREFILL ? t->queued_bytes : AO_PREFILL;
+            if (t->sent_bytes != last_sent) {
+                last_sent = t->sent_bytes;
+                last_change = now;
+            }
+            if (t->error || t->sent_bytes >= want || now >= deadline ||
+                now - last_change >= AO_PREFILL_STALL_MS)
+                break;
+            md_cond_timedwait(&t->cond, &t->lock, 5);
+        }
     }
     rc = t->error;
     md_mutex_unlock(&t->lock);
@@ -442,16 +466,18 @@ static int configure(mydaq_ao_task *t)
     int rc = MYDAQ_OK;
 
     for (i = 0; i < t->cfg.num_channels && rc == MYDAQ_OK; ++i) {
-        /* ao_dac.configure (timed): 1, 1, SEL, 0, 0, AUD (audio: 5, 1) */
+        /* ao_dac.configure (timed): 1, 1, SEL, 0, 0, AUD (±2 V, audio or AO: 5, 1;
+         * ao0-r2-finite-1k-n100-ramp) */
+        const int two = t->audio || t->cfg.ranges[i] == MYDAQ_AO_RANGE_2V;
         md_buf_init(&b);
         md_put_u16(&b, 0x0520);
         md_put_u16(&b, (uint16_t)t->cfg.channels[i]);
         md_put_u8(&b, 1);
         md_put_u8(&b, 1);
-        md_put_u8(&b, t->audio ? 5u : 0u);
+        md_put_u8(&b, two ? 5u : 0u);
         md_put_u8(&b, 0);
         md_put_u8(&b, 0);
-        md_put_u8(&b, t->audio ? 1u : 0u);
+        md_put_u8(&b, two ? 1u : 0u);
         rc = md_cmd(dev, MD_CH_OBJECT, MD_OP_RESET, &b, MD_TIMEOUT_CMD, 0, NULL);
     }
     if (rc == MYDAQ_OK) {   /* out_timing.configure */
@@ -591,7 +617,7 @@ static int validate(const mydaq_ao_config *c, int *audio)
     if (c->num_channels < 1 || c->num_channels > 2)
         return MYDAQ_ERR_INVALID_ARG;
     for (i = 0; i < c->num_channels; ++i) {
-        if ((unsigned)c->channels[i] > 3u)
+        if ((unsigned)c->channels[i] > 3u || (unsigned)c->ranges[i] > MYDAQ_AO_RANGE_2V)
             return MYDAQ_ERR_INVALID_ARG;
         a += c->channels[i] >= MYDAQ_AUDIO_OUT_LEFT;
     }
@@ -788,7 +814,8 @@ int mydaq_ao_task_write(mydaq_ao_task *t, const double *volts, size_t samples_pe
         for (c = 0; c < nch && rc == MYDAQ_OK; ++c) {
             const double v = layout == MYDAQ_GROUP_BY_SCAN ? volts[s * nch + c]
                                                            : volts[c * samples_per_channel + s];
-            rc = ao_code(&t->dev->cal, t->cfg.channels[c], v, &codes[s * nch + c]);
+            rc = ao_code(&t->dev->cal, t->cfg.channels[c], v, t->cfg.ranges[c] == MYDAQ_AO_RANGE_2V,
+                         &codes[s * nch + c]);
         }
     if (rc == MYDAQ_OK)
         rc = mydaq_ao_task_write_raw(t, codes, samples_per_channel, timeout_ms);

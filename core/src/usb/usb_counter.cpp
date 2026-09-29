@@ -4,10 +4,6 @@ namespace mydaq::usb {
 
 namespace {
 
-// External direction (X1 encoder, B = DIO2): +1 if the device counts up while DIO2 is high (the
-// DAQmx convention). Set from the hardware check libmydaq_hw "ctr external direction".
-constexpr int32_t kExternalDirectionSense = 1;
-
 DeviceError unsupported(const QString& what)
 {
     return DeviceError(DeviceError::NotSupported, what + QStringLiteral(" is not supported by the native myDAQ driver yet"));
@@ -35,19 +31,10 @@ UsbCounterInputTask::UsbCounterInputTask(HandlePtr handle, const CounterInputCon
     c.falling = config.edge == Edge::Falling;
     switch (config.measurement) {
     case CounterMeasurement::CountEdges:
-        if (config.direction == CounterInputConfig::Direction::External) {
-            // DAQmx refuses an external direction on the myDAQ. Emulated with the encoder's X1
-            // decoding: A = DIO0 (the edges), B = DIO2 (the direction level); the host adds the
-            // signed position to the initial count (kExternalDirectionSense).
-            if (config.edge == Edge::Falling)
-                throw unsupported(QStringLiteral("Counting falling edges with an external direction"));
-            if (config.resetOnDio1)
-                throw unsupported(QStringLiteral("Reset on DIO 1 with an external direction"));
-            c.kind = MYDAQ_CTR_LINEAR_ENCODER;
-            c.decoding = MYDAQ_CTR_X1;
-            c.falling = 0;
-            break;
-        }
+        if (config.direction == CounterInputConfig::Direction::External)
+            // DAQmx refuses it on the myDAQ, and the encoder decoders do not count with a static
+            // direction level on B (libmydaq_hw: X1 with B low counts 0 edges), so no emulation.
+            throw unsupported(QStringLiteral("Counting with an external direction input"));
         // The device only counts up (DAQmx refuses down counting on the myDAQ): counting down
         // from the initial count is initial - edges on the host. After a reset on DIO 1 the
         // device restarts from 0, which the host cannot see: so down + reset needs initial 0.
@@ -60,6 +47,10 @@ UsbCounterInputTask::UsbCounterInputTask(HandlePtr handle, const CounterInputCon
     case CounterMeasurement::Frequency: c.kind = MYDAQ_CTR_FREQUENCY; break;
     case CounterMeasurement::Period: c.kind = MYDAQ_CTR_PERIOD; break;
     case CounterMeasurement::PulseWidth: c.kind = MYDAQ_CTR_PULSE_WIDTH; break;   // falling: low time
+    case CounterMeasurement::TwoEdgeSeparation:   // first edge DIO2, second edge DIO1
+        c.kind = MYDAQ_CTR_TWO_EDGE_SEPARATION;
+        c.second_falling = config.secondEdge == Edge::Falling;
+        break;
     case CounterMeasurement::SemiPeriod:
         c.kind = MYDAQ_CTR_PULSE_TIME;   // no semi-period mode on the myDAQ: both halves per read
         c.falling = 0;
@@ -95,8 +86,6 @@ double UsbCounterInputTask::scale(uint32_t raw) const
     if (c.measurement == CounterMeasurement::CountEdges) {
         if (c.direction == CounterInputConfig::Direction::Down)
             return double(uint32_t(c.initialCount - raw));   // 32-bit, wraps like the counter
-        if (c.direction == CounterInputConfig::Direction::External)
-            return double(uint32_t(c.initialCount + uint32_t(kExternalDirectionSense * int32_t(raw))));
         return double(raw);
     }
     const double counts = double(int32_t(raw));   // encoders: signed position
@@ -224,14 +213,19 @@ bool UsbCounterOutputTask::isRunning() const { return mydaq_ctr_task_is_running(
 
 void UsbCounterOutputTask::update(double frequency, double dutyCycle)
 {
-    // The on-the-fly load update (ctr method 18) is not captured yet: restart with the new
-    // timing (a glitch of one period at most).
     PulseOutputConfig next = m_config;
     next.frequency = frequency;
     next.dutyCycle = dutyCycle;
     if (mydaq_ctr_coerce_pulse(frequency, dutyCycle, nullptr, nullptr, nullptr, nullptr) != MYDAQ_OK)
         throw DeviceError(DeviceError::InvalidConfig, QStringLiteral("Invalid pulse frequency or duty cycle"));
     const bool running = isRunning();
+    if (running && m_config.mode == SampleMode::Continuous) {
+        // Live load update (ctr.1e + ctr.18): the train switches at the next period, no glitch.
+        check(mydaq_ctr_task_update_pulse(m_task, frequency, dutyCycle), QStringLiteral("Pulse train update"));
+        m_config = next;
+        return;
+    }
+    // Not running (or finite): a new task with the new timing.
     mydaq_ctr_task_destroy(m_task);   // releases ctr0 so the new task can take it
     m_task = nullptr;
     m_task = create(next);

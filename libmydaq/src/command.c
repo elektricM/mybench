@@ -74,8 +74,42 @@ static void trace_frame(mydaq_device *dev, const char *dir, const uint8_t *p, si
     md_log(dev->ctx, MYDAQ_LOG_TRACE, "%s %s", dir, hex);
 }
 
+static int cmd_once(mydaq_device *dev, uint16_t channel, uint8_t op, const md_buf *body,
+                    unsigned timeout_ms, unsigned flags, md_resp *resp);
+
+/* Right after an initialisation the device may still reject commands with -201381 for a second
+ * or two (seen on 036CD1C6 after another host released it: the AI timing engine, ~1.6 s). A
+ * rejected command has no effect, so within the settle window it is simply sent again. */
+#define STATUS_NOT_READY ((int32_t)-201381)
+#define NOT_READY_RETRY_MS 100u
+
 int md_cmd(mydaq_device *dev, uint16_t channel, uint8_t op, const md_buf *body,
            unsigned timeout_ms, unsigned flags, md_resp *resp)
+{
+    md_resp local;
+    int rc, waited = 0;
+    if (!resp)
+        resp = &local;
+    for (;;) {
+        rc = cmd_once(dev, channel, op, body, timeout_ms, flags | MD_CMD_ANY_STATUS, resp);
+        if (rc != MYDAQ_OK || resp->kind != MD_KIND_DATA || resp->status != STATUS_NOT_READY ||
+            md_now_ms() >= dev->settle_until_ms)
+            break;
+        if (!waited++)
+            MD_INFO(dev->ctx, "the device is not ready yet (status -201381): waiting");
+        md_sleep_ms(NOT_READY_RETRY_MS);
+    }
+    if (rc == MYDAQ_OK && resp->kind == MD_KIND_DATA && resp->status != 0 && !(flags & MD_CMD_ANY_STATUS)) {
+        const uint32_t object = body->len >= 4 ? md_get_u32(body->data) : 0;
+        MD_ERR(dev->ctx, "command ch%u op%02x %08x: device status %ld", channel, op, object,
+               (long)resp->status);
+        return MYDAQ_ERR_DEVICE;
+    }
+    return rc;
+}
+
+static int cmd_once(mydaq_device *dev, uint16_t channel, uint8_t op, const md_buf *body,
+                    unsigned timeout_ms, unsigned flags, md_resp *resp)
 {
     md_resp local;
     size_t out_len, got = 0;

@@ -21,6 +21,7 @@
 #include <QTimer>
 
 #include <cstdio>
+#include <functional>
 #include <memory>
 
 using namespace Qt::StringLiterals;
@@ -59,6 +60,38 @@ void startRequested(const QString& list, const QString& fallback, bool once = fa
         if (InstrumentController* controller = registry->controller(id.trimmed()))
             once ? controller->runOnce() : controller->run();
     }
+}
+
+// Runs `start` once the device is usable: at once when the requested device (`requested`, from
+// --device; empty: whichever is selected) is connected, or when nothing is requested or selected;
+// else when DeviceHub reports it connected (a USB myDAQ is listed and opened ~0.5-4 s after
+// launch), or after 15 s anyway (the instrument then reports the missing device as before).
+void whenDeviceReady(const QString& requested, std::function<void()> start)
+{
+    DeviceHub* hub = DeviceHub::instance();
+    auto ready = [hub, requested] {
+        return hub->isConnected() && (requested.isEmpty() || hub->currentId() == requested);
+    };
+    if (ready() || (requested.isEmpty() && hub->currentId().isEmpty())) {
+        start();
+        return;
+    }
+    auto done = std::make_shared<bool>(false);
+    auto connection = std::make_shared<QMetaObject::Connection>();
+    auto fire = [done, connection, start] {
+        if (*done)
+            return;
+        *done = true;
+        QObject::disconnect(*connection);
+        start();
+    };
+    auto check = [ready, fire] {
+        if (ready())
+            fire();
+    };
+    *connection = QObject::connect(hub, &DeviceHub::connectionChanged, hub, check);
+    QObject::connect(hub, &DeviceHub::currentChanged, hub, check);
+    QTimer::singleShot(15000, hub, fire);
 }
 
 const char* const kShellHelp =
@@ -158,15 +191,19 @@ int runShell(int argc, char* argv[], const ShellConfig& config)
             SessionManager::instance()->load(QUrl::fromLocalFile(QFileInfo(session).absoluteFilePath()));
 
         if (info->flag(u"run"_s) || !info->value(u"run"_s).isEmpty()) {
-            QString fallback = info->instrument();
-            startRequested(info->value(u"run"_s), fallback);
-            const QString split = info->value(u"split"_s);
-            if (info->flag(u"run"_s) && !split.isEmpty())
-                startRequested(split, {});
+            const QString list = info->value(u"run"_s), fallback = info->instrument();
+            const QString split = info->flag(u"run"_s) ? info->value(u"split"_s) : QString();
+            whenDeviceReady(device, [list, fallback, split] {
+                startRequested(list, fallback);
+                if (!split.isEmpty())
+                    startRequested(split, {});
+            });
         }
 
-        if (info->flag(u"single"_s) || !info->value(u"single"_s).isEmpty())
-            startRequested(info->value(u"single"_s), info->instrument(), true);
+        if (info->flag(u"single"_s) || !info->value(u"single"_s).isEmpty()) {
+            const QString list = info->value(u"single"_s), fallback = info->instrument();
+            whenDeviceReady(device, [list, fallback] { startRequested(list, fallback, true); });
+        }
 
         // Stop and join every worker before the device and the application go away.
         auto shutdown = [] { InstrumentRegistry::instance()->shutdown(); };

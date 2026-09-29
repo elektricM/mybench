@@ -268,13 +268,12 @@ std::vector<DmmRange> UsbDevice::dmmRanges(DmmFunction function) const
 QStringList UsbDevice::unsupportedFeatures() const
 {
     // Keep in sync with the NotSupported throws in usb_counter.cpp and usb_ao_task.cpp. The myDAQ
-    // cannot do buffered counter input (no counter data stream; DAQmx refuses it too); two-edge
-    // separation, the AO ±2 V range and the 20/10 MHz FREQOUT timebases are not captured yet.
-    // Count down and external direction are emulated (usb_counter.cpp).
+    // cannot do buffered counter input (no counter data stream) or an external count direction
+    // (DAQmx refuses both; the encoder decoders do not count with a static B level).
+    // Count down is emulated (usb_counter.cpp).
     static const QStringList list = [] {
         QStringList l;
-        for (const char* f : {feature::CounterTwoEdgeSeparation, feature::CounterBuffered, feature::AoRange2V,
-                              feature::FrequencyOutputFastTimebases})
+        for (const char* f : {feature::CounterExternalDirection, feature::CounterBuffered})
             l << QString::fromLatin1(f);
         return l;
     }();
@@ -285,12 +284,16 @@ DmmReading UsbDevice::dmmRead(DmmFunction function, double rangeMax)
 {
     m_handle->requireConnected();
     mydaq_dmm_reading r{};
-    const int rc = mydaq_dmm_read(m_handle->device, toLib(function), rangeMax, &r);
+    // The mode is sent only when the function or range changes (as ELVISmx): the meter then
+    // delivers a reading every 0.5 s (V, A, Ω) or ~94 ms (diode, continuity) instead of ~2.5 s.
+    const int rc = mydaq_dmm_read_ex(m_handle->device, toLib(function), rangeMax, MYDAQ_DMM_KEEP_MODE, &r);
     if (rc == MYDAQ_ERR_NOT_SUPPORTED)
         throw DeviceError(DeviceError::NotSupported,
                           QStringLiteral("DMM %1 is not supported by the native myDAQ driver yet").arg(toString(function)));
     if (rc == MYDAQ_ERR_INVALID_ARG)
         throw DeviceError(DeviceError::InvalidConfig, QStringLiteral("%1 is not a %2 range").arg(rangeMax).arg(toString(function)));
+    if (rc == MYDAQ_ERR_TIMEOUT)
+        throw DeviceError(DeviceError::Timeout, QStringLiteral("The DMM sent no reading within 10 s"));
     check(rc, QStringLiteral("DMM reading"));
     DmmReading reading;
     reading.value = r.value;
@@ -335,6 +338,7 @@ void UsbDevice::reset()
 {
     m_handle->requireConnected();
     check(mydaq_reset(m_handle->device), QStringLiteral("Device reset"));
+    mydaq_wait_ready(m_handle->device);   // accepted commands again before instruments restart
 }
 
 }  // namespace mydaq::usb

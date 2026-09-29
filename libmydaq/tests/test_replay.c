@@ -16,6 +16,8 @@ typedef struct replay {
 
 /* 1: open the mock without asynchronous OUT streams (the library's synchronous AO writer). */
 static int g_sync_out;
+/* AO range of the timed AO replays (ao_timed). */
+static mydaq_ao_range g_ao_range;
 
 static int replay_open(replay *r, const char *script)
 {
@@ -305,8 +307,10 @@ static void ao_timed(const char *script, const mydaq_ao_channel *ch, size_t nch,
     size_t c;
     int rc;
     memset(&cfg, 0, sizeof cfg);
-    for (c = 0; c < nch; ++c)
+    for (c = 0; c < nch; ++c) {
         cfg.channels[c] = ch[c];
+        cfg.ranges[c] = g_ao_range;
+    }
     cfg.num_channels = nch;
     cfg.sample_rate = rate;
     cfg.mode = mode;
@@ -555,7 +559,11 @@ static void ctr_measure(const char *script, const mydaq_ctr_config *c, uint32_t 
         REPLAY_CHECK(r, v == expect && v2 == expect2);
     } else {
         REPLAY_STEP(r, mydaq_ctr_task_read(t, &value, 10015));
-        REPLAY_CHECK(r, c->kind == MYDAQ_CTR_PULSE_WIDTH ? value == expect / 1e8 : value == (double)expect);
+        REPLAY_CHECK(r, c->kind == MYDAQ_CTR_PULSE_WIDTH || c->kind == MYDAQ_CTR_TWO_EDGE_SEPARATION ||
+                                c->kind == MYDAQ_CTR_PERIOD
+                            ? value == expect / 1e8
+                        : c->kind == MYDAQ_CTR_FREQUENCY ? value == 1e8 / expect
+                                                         : value == (double)expect);
     }
     REPLAY_STEP(r, mydaq_ctr_task_stop(t));
     mydaq_ctr_task_destroy(t);
@@ -577,6 +585,25 @@ static void test_ctr_pulse_width_falling(void)
     mydaq_ctr_config c = measure(MYDAQ_CTR_PULSE_WIDTH, MYDAQ_CTR_INPUT_FREQOUT);
     c.falling = 1;   /* the low time: 50 us at 10 kHz */
     ctr_measure("ctr-pw-falling-freqout-10k.mock", &c, 5000, 0);
+}
+
+static void test_ctr_two_edge(void)
+{
+    mydaq_ctr_config c = measure(MYDAQ_CTR_TWO_EDGE_SEPARATION, MYDAQ_CTR_INPUT_FREQOUT);
+    c.second_falling = 1;   /* rising -> falling: 50 us at 10 kHz */
+    ctr_measure("ctr-twoedge-freqout-10k.mock", &c, 5000, 0);
+}
+
+/* frequency / period of the internal loop (10000 ticks at 10 kHz) */
+static void test_ctr_freq_loop(void)
+{
+    const mydaq_ctr_config c = measure(MYDAQ_CTR_FREQUENCY, MYDAQ_CTR_INPUT_FREQOUT);
+    ctr_measure("ctr-freq-freqout-10k.mock", &c, 10000, 0);
+}
+static void test_ctr_period_loop(void)
+{
+    const mydaq_ctr_config c = measure(MYDAQ_CTR_PERIOD, MYDAQ_CTR_INPUT_FREQOUT);
+    ctr_measure("ctr-period-freqout-10k.mock", &c, 10000, 0);
 }
 
 static void test_ctr_pulse_time(void)
@@ -633,6 +660,29 @@ static void pulse_train(const char *script, double f, double duty, mydaq_sample_
 static void test_co_delay(void) { pulse_train_ex("co-ptrain-1k-d0.25-delay10ms.mock", 1000.0, 0.25, MYDAQ_CONTINUOUS, 0, 0, 10e-3); }
 static void test_co_idle_high(void) { pulse_train_ex("co-ptrain-1k-d0.25-idlehigh.mock", 1000.0, 0.25, MYDAQ_CONTINUOUS, 0, 1, 0.0); }
 static void test_co_finite_delay(void) { pulse_train_ex("co-finite-10-1k-d0.25-delay5ms.mock", 1000.0, 0.25, MYDAQ_FINITE, 10, 0, 5e-3); }
+/* live update of a running train: 1 kHz 50 % -> 2 kHz 25 % (ctr.1e + ctr.18(37500, 12500)) */
+static void test_co_update(void)
+{
+    replay r;
+    mydaq_ctr_config cfg;
+    mydaq_ctr_task *t = NULL;
+    double f = 0, d = 0;
+    memset(&cfg, 0, sizeof cfg);
+    cfg.kind = MYDAQ_CTR_PULSE_TRAIN;
+    cfg.frequency = 1000.0;
+    cfg.duty_cycle = 0.5;
+    cfg.mode = MYDAQ_CONTINUOUS;
+    REPLAY_OPEN(r, "co-update-1k-to-2k-d0.25.mock");
+    REPLAY_STEP(r, mydaq_ctr_task_create(r.dev, &cfg, &t));
+    REPLAY_CHECK(r, mydaq_ctr_task_update_pulse(t, 2000.0, 0.25) == MYDAQ_ERR_STATE);   /* not running */
+    REPLAY_STEP(r, mydaq_ctr_task_start(t));
+    REPLAY_STEP(r, mydaq_ctr_task_update_pulse(t, 2000.0, 0.25));
+    REPLAY_STEP(r, mydaq_ctr_task_pulse(t, &f, &d));
+    REPLAY_CHECK(r, f == 2000.0 && d == 0.25);
+    REPLAY_STEP(r, mydaq_ctr_task_stop(t));
+    mydaq_ctr_task_destroy(t);
+    CHECK(replay_close(&r));
+}
 static void test_co_1k(void) { pulse_train("co-ptrain-1k-d0.5.mock", 1000.0, 0.5, MYDAQ_CONTINUOUS, 0); }
 static void test_co_10k(void) { pulse_train("co-ptrain-10k-d0.25.mock", 10e3, 0.25, MYDAQ_CONTINUOUS, 0); }
 static void test_co_finite(void) { pulse_train("co-finite-100-1k.mock", 1000.0, 0.5, MYDAQ_FINITE, 100); }
@@ -650,6 +700,12 @@ static void freqout(const char *script, double hz)
 
 static void test_freqout_10k(void) { freqout("freqout-10k.mock", 10e3); }
 static void test_freqout_100k(void) { freqout("freqout-100k.mock", 100e3); }
+/* the other timebases and n = 16 (divider field 0) */
+static void test_freqout_4M(void) { freqout("freqout-4M.mock", 4e6); }
+static void test_freqout_2M(void) { freqout("freqout-2M.mock", 2e6); }
+static void test_freqout_1M25(void) { freqout("freqout-1M25.mock", 1.25e6); }
+static void test_freqout_1M(void) { freqout("freqout-1M.mock", 1e6); }
+static void test_freqout_6250(void) { freqout("freqout-6250.mock", 6250.0); }
 
 static void ao_static(const char *script, mydaq_ao_channel ch, double volts)
 {
@@ -660,6 +716,22 @@ static void ao_static(const char *script, mydaq_ao_channel ch, double volts)
 }
 
 static void test_ao0_p05(void) { ao_static("ao0-static-p0.5.mock", MYDAQ_AO0, 0.5); }
+/* ±2 V range (the ±2 V calibration record: 0.5 V -> 7226 on ao0, -0.5 V -> -7532 on ao1) */
+static void ao_static_2v(const char *script, mydaq_ao_channel ch, double volts)
+{
+    replay r;
+    REPLAY_OPEN(r, script);
+    REPLAY_STEP(r, mydaq_ao_write_range(r.dev, ch, volts, MYDAQ_AO_RANGE_2V));
+    CHECK(replay_close(&r));
+}
+static void test_ao0_2v_p05(void) { ao_static_2v("ao0-r2-static-p0.5.mock", MYDAQ_AO0, 0.5); }
+static void test_ao1_2v_m05(void) { ao_static_2v("ao1-r2-static-m0.5.mock", MYDAQ_AO1, -0.5); }
+static void test_ao0_2v_finite(void)
+{
+    g_ao_range = MYDAQ_AO_RANGE_2V;
+    ao_timed("ao0-r2-finite-1k-n100-ramp.mock", ao0, 1, 1000.0, MYDAQ_FINITE, 0, 100, 0);
+    g_ao_range = MYDAQ_AO_RANGE_10V;
+}
 static void test_ao0_m05(void) { ao_static("ao0-static-m0.5.mock", MYDAQ_AO0, -0.5); }
 static void test_ao1_p05(void) { ao_static("ao1-static-p0.5.mock", MYDAQ_AO1, 0.5); }
 
@@ -777,8 +849,23 @@ static void test_dmm_aca_200m(void) { dmm_function("dmm-aca-r0.2-x2.mock", MYDAQ
 static void test_dmm_aca_1(void) { dmm_function("dmm-aca-r1-x2.mock", MYDAQ_DMM_AC_CURRENT, 1.0, 2); }
 static void test_dmm_ohm_200(void) { dmm_function("dmm-ohm-r200-x2.mock", MYDAQ_DMM_RESISTANCE, 200.0, 2); }
 static void test_dmm_ohm_2k(void) { dmm_function("dmm-ohm-r2k-x2.mock", MYDAQ_DMM_RESISTANCE, 2e3, 2); }
+/* open leads (overload) on the high ranges: mode bytes 16..19 */
+static void test_dmm_ohm_20k(void) { dmm_function("dmm-ohm-r20k-x2.mock", MYDAQ_DMM_RESISTANCE, 20e3, 2); }
+static void test_dmm_ohm_200k(void) { dmm_function("dmm-ohm-r200k-x2.mock", MYDAQ_DMM_RESISTANCE, 200e3, 2); }
+static void test_dmm_ohm_2M(void) { dmm_function("dmm-ohm-r2M-x2.mock", MYDAQ_DMM_RESISTANCE, 2e6, 2); }
+static void test_dmm_ohm_20M(void) { dmm_function("dmm-ohm-r20M-x2.mock", MYDAQ_DMM_RESISTANCE, 20e6, 2); }
 /* Diode (mode 20) and continuity (mode 21): only ELVISmx's own DMM reaches them (DAQmx has no
  * such channel); frames from its GUI captures, see the scripts' headers. */
+/* DAQmx's DMM read with a 200 ms timeout and nothing to read: status -225202, no packet. */
+static void test_dmm_timeout(void)
+{
+    replay r;
+    mydaq_dmm_reading reading;
+    REPLAY_OPEN(r, "dmm-dcv-timeout.mock");
+    REPLAY_CHECK(r, mydaq_dmm_read_timeout(r.dev, MYDAQ_DMM_DC_VOLTS, 20.0, 0, 200, &reading) ==
+                        MYDAQ_ERR_TIMEOUT);
+    CHECK(replay_close(&r));
+}
 static void test_dmm_diode(void) { dmm_function("dmm-elvis-diode.mock", MYDAQ_DMM_DIODE, 2.0, 3); }
 static void test_dmm_continuity(void) { dmm_function("dmm-elvis-cont.mock", MYDAQ_DMM_CONTINUITY, 200.0, 3); }
 
@@ -833,6 +920,7 @@ const test_case replay_tests[] = {
     {"replay.co_finite", test_co_finite},
     {"replay.co_delay", test_co_delay},
     {"replay.co_idle_high", test_co_idle_high},
+    {"replay.co_update", test_co_update},
     {"replay.co_finite_delay", test_co_finite_delay},
     {"replay.ctrloop_rising", test_ctrloop_rising},
     {"replay.ctrloop_falling", test_ctrloop_falling},
@@ -842,13 +930,24 @@ const test_case replay_tests[] = {
     {"replay.ctr_edges_100khz", test_ctr_edges_100khz},
     {"replay.ctr_pulse_width_falling", test_ctr_pulse_width_falling},
     {"replay.ctr_pulse_time", test_ctr_pulse_time},
+    {"replay.ctr_two_edge", test_ctr_two_edge},
+    {"replay.ctr_freq_loop", test_ctr_freq_loop},
+    {"replay.ctr_period_loop", test_ctr_period_loop},
     {"replay.ctr_linenc_x4", test_ctr_linenc_x4},
     {"replay.ctr_linenc_x1_z", test_ctr_linenc_x1_z},
     {"replay.ctr_angenc_x2", test_ctr_angenc_x2},
     {"replay.ctr_angenc_2pulse", test_ctr_angenc_2pulse},
     {"replay.freqout_10k", test_freqout_10k},
     {"replay.freqout_100k", test_freqout_100k},
+    {"replay.freqout_4M", test_freqout_4M},
+    {"replay.freqout_2M", test_freqout_2M},
+    {"replay.freqout_1M25", test_freqout_1M25},
+    {"replay.freqout_1M", test_freqout_1M},
+    {"replay.freqout_6250", test_freqout_6250},
     {"replay.ao0_p0.5", test_ao0_p05},
+    {"replay.ao0_2v_p0.5", test_ao0_2v_p05},
+    {"replay.ao1_2v_m0.5", test_ao1_2v_m05},
+    {"replay.ao0_2v_finite", test_ao0_2v_finite},
     {"replay.ao0_m0.5", test_ao0_m05},
     {"replay.ao1_p0.5", test_ao1_p05},
     {"replay.di_read", test_di_read},
@@ -871,6 +970,11 @@ const test_case replay_tests[] = {
     {"replay.dmm_aca_1", test_dmm_aca_1},
     {"replay.dmm_ohm_200", test_dmm_ohm_200},
     {"replay.dmm_ohm_2k", test_dmm_ohm_2k},
+    {"replay.dmm_ohm_20k", test_dmm_ohm_20k},
+    {"replay.dmm_ohm_200k", test_dmm_ohm_200k},
+    {"replay.dmm_ohm_2M", test_dmm_ohm_2M},
+    {"replay.dmm_ohm_20M", test_dmm_ohm_20M},
+    {"replay.dmm_timeout", test_dmm_timeout},
     {"replay.dmm_diode", test_dmm_diode},
     {"replay.dmm_continuity", test_dmm_continuity},
     {"replay.mismatch_detected", test_mismatch_detected},
