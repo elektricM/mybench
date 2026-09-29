@@ -4,6 +4,7 @@
 
 #include <mybench/framework.h>
 
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -206,7 +207,8 @@ private slots:
         QVERIFY(c->exportData(QUrl::fromLocalFile(path)));
         QFile file(path);
         QVERIFY(file.open(QIODevice::ReadOnly));
-        const QStringList lines = QString::fromUtf8(file.readAll()).split(u'\n', Qt::SkipEmptyParts);
+        // The ELVISmx-style TXT log is CR LF on every platform (exports are written in binary mode).
+        const QStringList lines = QString::fromUtf8(file.readAll()).split(QRegularExpression(u"\r?\n"_s), Qt::SkipEmptyParts);
         QCOMPARE(lines.size(), 2 + 1 + 11);
         QVERIFY(lines[0].contains(u'\t'));
         QCOMPARE(lines[1], u"Amplitude: 2.00 V"_s);

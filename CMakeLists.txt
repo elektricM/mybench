@@ -44,6 +44,22 @@ endif()
 
 enable_testing()
 
+# CI diagnostics: -DMYBENCH_TEST_LOG_DIR=<dir> makes every QtTest/QuickTest executable (tst_*) also write
+# its plain-text log to <dir>/<test name>.txt (-o file,txt next to -o -,txt). The Windows CI runner shows
+# no test output otherwise. Must come before the add_subdirectory calls: it wraps add_test().
+set(MYBENCH_TEST_LOG_DIR "" CACHE PATH "Directory receiving one QtTest log per tst_* test (CI diagnostics)")
+if(MYBENCH_TEST_LOG_DIR)
+    file(MAKE_DIRECTORY "${MYBENCH_TEST_LOG_DIR}")
+    function(add_test)
+        set(_args ${ARGV})
+        list(LENGTH _args _n)
+        if(_n GREATER 3 AND ARGV0 STREQUAL "NAME" AND ARGV2 STREQUAL "COMMAND" AND ARGV3 MATCHES "^tst_")
+            list(INSERT _args 4 -o "-,txt" -o "${MYBENCH_TEST_LOG_DIR}/${ARGV1}.txt,txt")
+        endif()
+        _add_test(${_args})
+    endfunction()
+endif()
+
 # Plain-C protocol library (libusb only), used by core's USB backend and reusable by other projects.
 if(MYBENCH_WITH_USB AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/libmydaq/CMakeLists.txt)
     add_subdirectory(libmydaq)

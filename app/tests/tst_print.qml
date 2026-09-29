@@ -50,6 +50,9 @@ Item {
             compare(page.orientation, "landscape")
         }
 
+        // file:/// + C:/... on Windows (file://C:/... would parse "C" as the host).
+        function fileUrl(path) { return (path.startsWith("/") ? "file://" : "file:///") + path }
+
         function test_dialogAndOutput() {
             dialog.destination = "pdf"
             dialog.open()
@@ -67,8 +70,8 @@ Item {
             const metadata = { "Timebase": "1 ms/div", "Trigger": "Edge, Chan 0, rising, 0 V", "Channel 0": "AI 0, 1 V/div, 0 V" }
             const options = { inkSaver: true, userName: true, computerName: true, timeStamp: true, settingsTable: true }
             const dir = shots.length > 0 ? shots : source.substring(0, source.lastIndexOf("/"))
-            verify(DataExport.writeImage("file://" + dir + "/print-inksaver.png", source, "Oscilloscope", metadata, options))
-            verify(DataExport.writePdf("file://" + dir + "/print-portrait.pdf", source, "Oscilloscope", metadata,
+            verify(DataExport.writeImage(fileUrl(dir + "/print-inksaver.png"), source, "Oscilloscope", metadata, options))
+            verify(DataExport.writePdf(fileUrl(dir + "/print-portrait.pdf"), source, "Oscilloscope", metadata,
                                        Object.assign({ orientation: "portrait" }, options)))
         }
     }

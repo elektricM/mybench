@@ -283,9 +283,10 @@ private slots:
         ctl.setPulseCount(20);
         ctl.setPulseFrequency(1000);
         ctl.run();
-        QTRY_VERIFY_WITH_TIMEOUT(ctl.isRunning(), 2000);
-        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 3000);   // 20 ms of pulses, then the run ends
-        QCOMPARE(ctl.outputState(), u"Done"_s);
+        // 20 ms of pulses, then the run ends. Not waiting for isRunning() first: on Windows (15.6 ms
+        // timer granularity) the whole run can be over before the first poll sees it running.
+        QTRY_COMPARE_WITH_TIMEOUT(ctl.outputState(), u"Done"_s, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 5000);
     }
 
     void unsupportedOptionsAreRefusedUpFront()
@@ -325,7 +326,7 @@ private slots:
         ctl.initialize();
         ctl.setUpdateInterval(0.01);
         ctl.run();
-        QTRY_VERIFY_WITH_TIMEOUT(ctl.trend()->count() >= 30, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.trend()->count() >= 100, 10000);
         ctl.stop();
         QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 2000);
         const qsizetype before = ctl.trend()->count();

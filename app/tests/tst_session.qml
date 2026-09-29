@@ -24,8 +24,11 @@ Item {
         when: windowShown
         property int ran: 0
 
+        // file:/// + C:/... on Windows (file://C:/... would parse "C" as the host).
+        function fileUrl(path) { return Qt.resolvedUrl((path.startsWith("/") ? "file://" : "file:///") + path) }
+
         function namedModifiedSession() {
-            const file = Qt.resolvedUrl("file://" + DataExport.temporaryFilePath("mybench"))
+            const file = fileUrl(DataExport.temporaryFilePath("mybench"))
             verify(SessionManager.save(file))
             InstrumentRegistry.controller("aa").level = Math.random() + 1   // a setting changes
             tryCompare(SessionManager, "modified", true)

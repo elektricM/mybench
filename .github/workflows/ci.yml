@@ -71,6 +71,9 @@ jobs:
         run: |
           vcpkg install libusb:x64-windows
           $vcpkg = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+          # Qt messages to stderr even without a console (the runner shows no test output otherwise)
+          "QT_FORCE_STDERR_LOGGING=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "QT_ASSUME_STDERR_HAS_CONSOLE=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "LIBUSB_PREFIX=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           # libusb-1.0.dll for the test executables
           "$vcpkg/bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
@@ -85,7 +88,10 @@ jobs:
         run: |
           prefix="$QT_ROOT_DIR"
           [ -n "${LIBUSB_PREFIX:-}" ] && prefix="$prefix;$LIBUSB_PREFIX"
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix"
+          # Windows: every tst_* test also writes build/test-logs/<name>.txt (the runner shows no test output).
+          logs=""
+          [ "$RUNNER_OS" = Windows ] && logs="-DMYBENCH_TEST_LOG_DIR=${GITHUB_WORKSPACE//\\//}/build/test-logs"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$prefix" $logs
 
       - name: Build
         run: cmake --build build --parallel
@@ -98,6 +104,24 @@ jobs:
         if: failure() && runner.os == 'Windows'
         continue-on-error: true
         run: ctest --test-dir build --label-exclude hw --rerun-failed --timeout 300 -V
+
+      - name: Print test logs (Windows)
+        if: always() && runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Get-ChildItem build/test-logs -Filter *.txt -ErrorAction SilentlyContinue | ForEach-Object {
+            $text = Get-Content $_.FullName -Raw
+            if ($text -match '(?m)^FAIL!|^XPASS|QFATAL|QWARN|^Totals: .* [1-9]\d* failed') {
+              "##[group]$($_.Name) (problems)"
+              $text
+              "##[endgroup]"
+            } else {
+              "##[group]$($_.Name) (ok)"
+              ($text -split '\r?\n' | Select-Object -Last 3) -join "`n"
+              "##[endgroup]"
+            }
+          }
 
       - name: Run failed tests directly (Windows, exit code and QTest output)
         if: failure() && runner.os == 'Windows'
@@ -140,6 +164,15 @@ jobs:
           appstreamcli validate --no-net --explain stage/usr/share/metainfo/*.metainfo.xml
           udevadm verify stage/usr/lib/udev/rules.d/60-mybench-mydaq.rules
           find stage -type f | sort
+
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: test-logs-${{ runner.os }}
+          path: |
+            build/Testing
+            build/test-logs
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         if: always()
