@@ -26,6 +26,7 @@ is implemented in `core/`.
 | `instruments/<id>/` | QML module per instrument: C++ controller + panel + dashboard tile + dev executable. |
 | `app/` | `mybench`: the single-window application shell (nav, workspace, dashboard). |
 | `tests/` | Qt Test unit tests. |
+| `integrations/` | The myDAQ in other tools: libsigrok driver (PulseView, sigrok-cli), ngscopeclient bridge. |
 | `tools/` | Python reverse-engineering tools (pcap decoding, replay). |
 | `ni-local/` | **gitignored**: NI reference material (drivers, help text, screenshots). Never copy from it into the repo. |
 
@@ -45,15 +46,23 @@ Instruments (all ELVISmx myDAQ features, some merged, see docs/UI.md): `dmm`, `s
 - Device errors (`mydaq::DeviceError`) are shown in the instrument (status line / error dialog),
   stop the instrument cleanly, and never crash the app.
 
-## PulseView / sigrok (planned, after the app is polished)
+## Other tools: PulseView / sigrok, ngscopeclient (`integrations/`, docs/integrations.md)
 
-1. **Session export**: instruments that record data (Scope, DSA time data, Digital Reader) can
-   save sigrok session files (`.sr`: zip with `metadata` + analog/logic chunks) that PulseView
-   opens directly.
-2. **libsigrok driver** `ni-mydaq`: a thin libsigrok hardware driver built on `libmydaq`
-   (analog channels AI0/AI1/Audio, DIO as logic channels, sample rate / range options), so
-   PulseView and sigrok-cli can use the myDAQ live. Hence `libmydaq` stays C, has no Qt/C++
-   dependency, is reentrant (context object, no globals) and has a GPL-3-compatible license.
+Only one program can hold the myDAQ at a time (MYBENCH, PulseView/sigrok-cli or the bridge).
+
+1. **libsigrok driver** `ni-mydaq` (`integrations/sigrok/`): a libsigrok hardware driver built on
+   `libmydaq`, so PulseView and sigrok-cli use the myDAQ live: analog channels AI0/AI1 (or the
+   audio inputs), sample rate, ±10 V / ±2 V range per channel. No logic channels: the myDAQ's DIO
+   is software-timed and cannot share a sample clock with AI. Built out of tree: `apply.sh` adds
+   it to a libsigrok checkout and installs libmydaq (static, `libmydaq.pc`) next to it. Hence
+   `libmydaq` stays C, has no Qt/C++ dependency, is reentrant (context object, no globals) and
+   needs a GPL-3-compatible license.
+2. **ngscopeclient bridge** `mybench-scopehal-bridge` (`integrations/scopehal/`): a server that
+   speaks the protocol of scopehal's `digilent` bridge driver (twinlan: commands on TCP 5025,
+   waveforms on 5026), on top of `mydaq_core` (USB or simulated device), with a software edge
+   trigger. Stock ngscopeclient builds connect to it unchanged.
+3. **Session export** (planned): instruments that record data (Scope, DSA time data, Digital
+   Reader) save sigrok session files (`.sr`) that PulseView opens directly.
 
 ## Device model (myDAQ)
 

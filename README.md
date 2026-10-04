@@ -114,15 +114,22 @@ mybench --page home --screenshot home.png   # render offscreen to a PNG (CI, doc
 
 `MYBENCH_NO_USB=1` disables the USB backend entirely (tests and CI use it).
 
+## PulseView, sigrok-cli and ngscopeclient
+
+The myDAQ's analog inputs also work live in PulseView and sigrok-cli (libsigrok driver `ni-mydaq`)
+and in ngscopeclient (`mybench-scopehal-bridge`, which stock ngscopeclient builds connect to through
+their `digilent` driver). Setup and limits: [docs/integrations.md](docs/integrations.md).
+
 ## Repository
 
 | Path | What |
 |---|---|
-| `libmydaq/` | the myDAQ driver: plain C11 + libusb, reusable (a sigrok/PulseView driver is planned) |
+| `libmydaq/` | the myDAQ driver: plain C11 + libusb, reusable by other programs |
 | `core/` | C++ device API, simulated myDAQ, DSP (FFT, windows, measurements) |
 | `ui/` | QML modules: framework (device hub, controllers, sessions), design system, GPU plots |
 | `instruments/` | one QML module per instrument (+ a dev executable showing only that panel) |
 | `app/` | the MYBENCH application shell |
+| `integrations/` | the myDAQ in other tools: libsigrok driver (PulseView, sigrok-cli), ngscopeclient bridge |
 | `packaging/` | icon, macOS bundle/DMG, Linux desktop/AppStream/udev/AppImage, Windows installer |
 | `docs/` | [architecture](docs/ARCHITECTURE.md), [UI](docs/UI.md), [USB protocol](docs/protocol.md), [libmydaq](docs/libmydaq.md), instrument specs and help pages |
 
@@ -133,5 +140,6 @@ software; no NI code, firmware, driver files, help text or artwork is part of th
 
 **To be decided.** No license has been chosen yet; until a `LICENSE` file is added, all rights
 are reserved by the contributors. The intent is an open-source license, with `libmydaq` under
-terms compatible with GPL-3 (for the planned libsigrok driver). Bundled third-party
+terms compatible with GPL-3 (the libsigrok driver in `integrations/sigrok/` is GPL-3.0-or-later
+and links it). Bundled third-party
 components keep their licenses (Qt: LGPL-3.0; libusb: LGPL-2.1).

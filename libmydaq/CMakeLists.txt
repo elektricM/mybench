@@ -86,6 +86,36 @@ if(NOT MSVC)
     target_compile_options(mydaq PRIVATE -Wconversion -Wsign-conversion)   # library only
 endif()
 
+# Install (library, public headers, libmydaq.pc) for other programs, e.g. the libsigrok driver
+# (integrations/sigrok/apply.sh). Only by default in a standalone build: inside MYBENCH, whose
+# packaging uses install() + CPack, the library is linked statically and never installed.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(_libmydaq_install_default ON)
+else()
+    set(_libmydaq_install_default OFF)
+endif()
+option(LIBMYDAQ_INSTALL "Install libmydaq (static library, headers, pkg-config file)"
+       ${_libmydaq_install_default})
+if(LIBMYDAQ_INSTALL)
+    include(GNUInstallDirs)
+    set_target_properties(mydaq PROPERTIES PUBLIC_HEADER
+        "include/libmydaq/mydaq.h;include/libmydaq/mydaq_transport.h")
+    install(TARGETS mydaq
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libmydaq)
+    set(LIBMYDAQ_PC_LIBS_PRIVATE "${CMAKE_THREAD_LIBS_INIT}")
+    if(NOT LIBMYDAQ_PC_LIBS_PRIVATE AND UNIX)
+        set(LIBMYDAQ_PC_LIBS_PRIVATE "-pthread")   # libc provides threads (macOS, glibc 2.34+)
+    endif()
+    if(UNIX)
+        string(APPEND LIBMYDAQ_PC_LIBS_PRIVATE " -lm")
+    endif()
+    string(STRIP "${LIBMYDAQ_PC_LIBS_PRIVATE}" LIBMYDAQ_PC_LIBS_PRIVATE)
+    configure_file(libmydaq.pc.in ${CMAKE_CURRENT_BINARY_DIR}/libmydaq.pc @ONLY)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libmydaq.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+endif()
+
 if(LIBMYDAQ_BUILD_TESTS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt)
     add_subdirectory(tests)
 endif()

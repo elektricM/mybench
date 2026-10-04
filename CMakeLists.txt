@@ -79,6 +79,11 @@ endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt)
     add_subdirectory(tests)
 endif()
+# Other tools using the myDAQ: ngscopeclient bridge, sigrok/PulseView driver (docs/integrations.md).
+option(MYBENCH_INTEGRATIONS "Build the ngscopeclient bridge and the sigrok driver checks" ON)
+if(MYBENCH_INTEGRATIONS AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/integrations/CMakeLists.txt)
+    add_subdirectory(integrations)
+endif()
 
 # Test executables are console applications on Windows (Qt's qt_add_executable makes GUI-subsystem
 # ones), so QTest output reaches ctest and the CI log.
