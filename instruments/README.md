@@ -253,7 +253,7 @@ Item {
 
         BenchPlot { anchors.fill: parent }     // default children = display content
 
-        inspector: [                           // ELVISmx group names, in ELVISmx order
+        inspector: [                           // clear group names (docs/UI.md v2 §3: no ELVISmx naming/order rule)
             Section {
                 title: qsTr("Channel 0 Settings"); accentColor: Theme.ch0
                 summary: "AI 0 · 1 V/div"                       // shown when collapsed
