@@ -16,7 +16,7 @@ T.ScrollIndicator {
         implicitWidth: 3
         implicitHeight: 3
         radius: 1.5
-        color: Theme.alpha(Theme.textMuted, 0.6)
+        color: Theme.alpha(Theme.text, 0.3)
         visible: control.size < 1.0
         opacity: 0.0
 
@@ -29,7 +29,7 @@ T.ScrollIndicator {
             from: "active"
             SequentialAnimation {
                 PauseAnimation { duration: 450 }
-                NumberAnimation { target: control.contentItem; duration: 200; property: "opacity"; to: 0.0 }
+                NumberAnimation { target: control.contentItem; duration: Theme.durationNormal; property: "opacity"; to: 0.0 }
             }
         }
     }

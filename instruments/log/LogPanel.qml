@@ -7,8 +7,14 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Data Logger panel (docs/instruments/log.md): live recording chart (follow the latest data or
-// scroll back through hours of it), per-channel statistics, recording to a delimited text file.
+// Data Logger panel (docs/instruments/log.md), round-2 layout (docs/UI.md "Round 2"):
+// - pane header: Run/Stop, Record (Pause while recording), sampling-rate knob;
+// - display (left, largest): the multi-channel trend (10 s … All in its toolbar), the DMM's own
+//   chart when it is logged next to AI channels, and an overview of the whole run;
+// - right column: recording state, one ChannelCard per input (AI 0, AI 1, DMM with function and
+//   range buttons), tool palette (Log File, Limits, Display) whose panels float over the display;
+// - bottom strip: per-channel value + statistics cards.
+// Channel and sampling settings are locked while the logger runs; their tooltips say why.
 Item {
     id: root
 
@@ -17,8 +23,13 @@ Item {
     readonly property string pauseIcon: "qrc:/qt/qml/MyBench/Instruments/Log/assets/pause.svg"
     readonly property bool analog: controller.ai0Enabled || controller.ai1Enabled
     readonly property bool elvismx: controller.fileLayout === LogController.ElvismxLayout
+    readonly property bool narrow: width < 820
+    readonly property string lockedText: qsTr("Stop the logger to change this")
     readonly property var spans: [10, 60, 600, 3600, 0]
+    readonly property var rates: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
     property int spanIndex: 1
+    property string tool: ""
+    property bool overviewVisible: true
 
     function entry(key: string): var {
         const list = root.controller.channelStats
@@ -52,14 +63,15 @@ Item {
     }
     function showSpan(index: int) {
         root.spanIndex = index
+        const axis = trend.plot.xAxis
         const last = root.latestX()
         const span = root.spans[index]
         if (span <= 0) {
-            main.xAxis.follow = false
-            main.xAxis.setViewRange(root.firstX(), Math.max(last, root.firstX() + 1))
+            axis.follow = false
+            axis.setViewRange(root.firstX(), Math.max(last, root.firstX() + 1))
         } else {
-            main.xAxis.setViewRange(last - span, last)
-            main.xAxis.follow = true
+            axis.setViewRange(last - span, last)
+            axis.follow = true
         }
     }
     function duration(seconds: real): string {
@@ -72,6 +84,30 @@ Item {
     function fileName(path: string): string {
         const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"))
         return i >= 0 ? path.slice(i + 1) : path
+    }
+    function rateIndex(rate: real): int {
+        let best = 0
+        for (let i = 1; i < root.rates.length; ++i) {
+            if (Math.abs(Math.log(root.rates[i] / rate)) < Math.abs(Math.log(root.rates[best] / rate)))
+                best = i
+        }
+        return best
+    }
+    function cardStats(key: string, unit: string): var {
+        const e = root.entry(key)
+        if (!e || e.count <= 0)
+            return null
+        const f = v => isNaN(v) ? "—" : Units.format(v, unit, 4)
+        return { min: f(e.minimum), max: f(e.maximum), mean: f(e.mean), stdDev: f(e.deviation) }
+    }
+    function cardValue(key: string, unit: string): string {
+        const e = root.entry(key)
+        if (!e || e.count <= 0)
+            return ""
+        return e.overload ? qsTr("Over") : Units.format(e.last, unit, 4)
+    }
+    function toggleTool(id: string) {
+        root.tool = root.tool === id ? "" : id
     }
 
     FolderDialog {
@@ -94,389 +130,379 @@ Item {
         }
         displayInfo: root.analog ? qsTr("Sampling Rate %1").arg(Units.format(root.controller.coercedRate, "S/s", 4))
                                  : qsTr("DMM readings")
-        runBarControls: [
-            ActionButton {
-                text: root.controller.recording || root.controller.recordPending ? qsTr("Stop Recording") : qsTr("Record")
-                iconName: root.controller.recording || root.controller.recordPending ? "stop" : "record"
-                tone: root.controller.recording ? "danger" : "subtle"
-                color: Theme.danger
-                compact: true
-                toolTip: root.controller.recording ? qsTr("Close %1").arg(root.fileName(root.controller.recordFile))
-                                                   : qsTr("Write the data to a new file in %1").arg(root.controller.folder)
-                onClicked: root.controller.recording || root.controller.recordPending ? root.controller.stopRecording()
-                                                                                      : root.controller.startRecording()
-            },
-            ActionButton {
-                visible: root.controller.recording
-                text: root.controller.recordPaused ? qsTr("Resume") : qsTr("Pause")
-                iconName: root.controller.recordPaused ? "record" : root.pauseIcon
-                compact: true
-                toolTip: root.controller.recordPaused ? qsTr("Continue writing to the file")
-                                                      : qsTr("Stop writing to the file for now; the chart keeps running")
-                onClicked: root.controller.setRecordPaused(!root.controller.recordPaused)
+        showRunControls: false
+        inspector: []
+
+        headerContent: [
+            RowLayout {
+                spacing: Theme.spacingS
+                RunButton {
+                    objectName: "logRunButton"
+                    running: root.controller.running
+                    busy: root.controller.state === InstrumentController.Stopping
+                    enabled: root.controller.running || root.controller.canRun
+                    stateText: root.controller.running ? root.duration(root.controller.runSeconds) : ""
+                    onToggled: root.controller.toggle()
+                }
+                Button {
+                    objectName: "logRecordButton"
+                    readonly property bool active: root.controller.recording || root.controller.recordPending
+                    Layout.preferredHeight: Theme.controlHeightL
+                    text: active ? qsTr("Stop Recording") : qsTr("Record")
+                    icon.source: Theme.icon(active ? "stop" : "record")
+                    icon.color: active ? Theme.negative : Theme.text
+                    checkable: true
+                    checked: active
+                    focusPolicy: Qt.TabFocus
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.controller.recording ? qsTr("Close %1").arg(root.fileName(root.controller.recordFile))
+                                                            : qsTr("Write the data to a new file in %1").arg(root.controller.folder)
+                    onClicked: {
+                        if (active)
+                            root.controller.stopRecording()
+                        else
+                            root.controller.startRecording()
+                        checked = Qt.binding(() => active)
+                    }
+                }
+                Button {
+                    visible: root.controller.recording
+                    Layout.preferredHeight: Theme.controlHeightL
+                    text: root.controller.recordPaused ? qsTr("Resume") : qsTr("Pause")
+                    icon.source: root.controller.recordPaused ? Theme.icon("record") : root.pauseIcon
+                    focusPolicy: Qt.TabFocus
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.controller.recordPaused ? qsTr("Continue writing to the file")
+                                                               : qsTr("Stop writing to the file for now; the chart keeps running")
+                    onClicked: root.controller.setRecordPaused(!root.controller.recordPaused)
+                }
+                // Wrapped so the "locked while running" tooltip shows over the disabled knob.
+                Item {
+                    visible: root.analog
+                    implicitWidth: rateKnob.implicitWidth
+                    implicitHeight: rateKnob.implicitHeight
+                    HoverHandler { id: rateHover }
+                    ToolTip.visible: root.controller.running && rateHover.hovered
+                    ToolTip.text: root.lockedText
+                    KnobField {
+                        id: rateKnob
+                        objectName: "logRateKnob"
+                        anchors.fill: parent
+                        label: qsTr("Sampling Rate")
+                        unit: "S/s"
+                        knobSize: 34
+                        compact: root.narrow
+                        values: root.rates
+                        currentIndex: root.rateIndex(root.controller.samplingRate)
+                        caption: root.narrow ? "" : qsTr("chart keeps %1").arg(root.controller.chartCapacity)
+                        enabled: !root.controller.running
+                        toolTip: qsTr("Samples per second, per channel (1 – 1000 S/s)")
+                        onIndexActivated: index => root.controller.samplingRate = root.rates[index]
+                    }
+                }
             }
         ]
 
-        ColumnLayout {
+        Item {
             anchors.fill: parent
-            anchors.margins: Theme.spacingS
-            spacing: Theme.spacingS
 
-            // --- Channels and recording state -------------------------------------------------
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: false
+            // --- Display ----------------------------------------------------------------------
+            ColumnLayout {
+                id: display
+                objectName: "logDisplay"
+                anchors { left: parent.left; top: parent.top; bottom: parent.bottom; right: column.left; margins: Theme.spacingS }
                 spacing: Theme.spacingS
 
-                LogChannelCard {
-                    visible: root.controller.ai0Enabled
+                TrendView {
+                    id: trend
+                    objectName: "logTrend"
+                    visible: root.analog
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    name: "AI 0"
-                    unit: "V"
-                    accent: Theme.ch0
-                    stats: root.entry("ai0")
-                    stale: !root.controller.running
-                    compact: root.width < 700
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: Theme.controlHeightL * 3
+                    windows: [ { text: "10 s", seconds: 10 }, { text: qsTr("1 min"), seconds: 60 }, { text: qsTr("10 min"), seconds: 600 },
+                               { text: qsTr("1 h"), seconds: 3600 }, { text: qsTr("All"), seconds: 0 } ]
+                    windowIndex: root.spanIndex
+                    onWindowActivated: index => root.showSpan(index)
+                    onClearRequested: root.controller.clearChart()
+                    plot.objectName: "logPlot"
+                    plot.hoverReadout: true
+                    plot.legendVisible: root.controller.ai0Enabled && root.controller.ai1Enabled
+                    plot.leftMargin: Math.max(trend.plot.implicitLeftMargin, dmmPlot.visible ? dmmPlot.implicitLeftMargin : 0)
+                    plot.placeholderText: root.controller.running ? qsTr("Waiting for samples…") : qsTr("Press Run to start logging")
+                    plot.xAxis.labelFormat: PlotAxis.Time
+                    plot.xAxis.follow: true
+                    plot.xAxis.tickSpacing: 110
+                    plot.yAxis.autoScale: true
+                    plot.yAxis.min: root.controller.minimum
+                    plot.yAxis.max: root.controller.maximum
+                    plot.yAxis.unit: "V"
+                    plot.yAxis.unitInLabels: true
+                    PlotTrace { visible: root.controller.ai0Enabled; name: "AI 0"; unit: "V"; buffer: root.controller.ai0; color: Theme.signalCh0; width: 1.3 }
+                    PlotTrace { visible: root.controller.ai1Enabled; name: "AI 1"; unit: "V"; buffer: root.controller.ai1; color: Theme.signalCh1; width: 1.3 }
+                    Component.onCompleted: trend.plot.xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
                 }
-                LogChannelCard {
-                    visible: root.controller.ai1Enabled
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    name: "AI 1"
-                    unit: "V"
-                    accent: Theme.ch1
-                    stats: root.entry("ai1")
-                    stale: !root.controller.running
-                    compact: root.width < 700
-                }
-                LogChannelCard {
+
+                BenchPlot {
+                    id: dmmPlot
+                    objectName: "logDmmPlot"
                     visible: root.controller.dmmEnabled
                     Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    name: qsTr("DMM · %1").arg(root.controller.dmmFunctionNames[root.controller.dmmFunction])
-                    unit: root.controller.dmmUnit
-                    accent: Theme.math
-                    stats: root.entry("dmm")
-                    stale: !root.controller.running
-                    compact: root.width < 700
+                    Layout.fillHeight: !root.analog
+                    Layout.preferredHeight: root.analog ? Math.max(Theme.controlHeightL * 3, trend.height * 0.35) : -1
+                    interactive: !root.analog
+                    hoverReadout: true
+                    leftMargin: trend.visible ? trend.plot.leftMargin : -1
+                    placeholderText: qsTr("DMM")
+                    xAxis { labelFormat: PlotAxis.Time; follow: !root.analog; tickSpacing: 110 }
+                    yAxis { autoScale: true; unit: root.controller.dmmUnit; unitInLabels: true; title: qsTr("DMM") }
+                    Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
+                    PlotTrace { name: qsTr("DMM"); unit: root.controller.dmmUnit; buffer: root.controller.dmm; color: Theme.text; width: 1.3; pointsVisible: true }
+                    Connections {
+                        target: trend.plot.xAxis
+                        enabled: root.analog
+                        function onRangeChanged() { dmmPlot.xAxis.setViewRange(trend.plot.xAxis.min, trend.plot.xAxis.max) }
+                    }
                 }
 
-                // Recording state.
-                Rectangle {
-                    Layout.fillHeight: true
-                    Layout.preferredWidth: Math.max(170, recColumn.implicitWidth + 2 * Theme.spacingM)
-                    radius: Theme.radiusM
-                    readonly property bool active: root.controller.recording && !root.controller.recordPaused
-                    color: active ? Theme.alpha(Theme.danger, Theme.dark ? 0.12 : 0.08) : "transparent"
-                    border.color: active ? Theme.alpha(Theme.danger, 0.55) : Theme.displayBorder
+                // Overview of the whole run with the visible window (drag it to scroll back).
+                BenchPlot {
+                    id: overview
+                    visible: root.analog && root.overviewVisible
+                             && (root.controller.ai0.count > 0 || root.controller.ai1.count > 0)
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.controlHeightL * 2
+                    interactive: false
+                    leftMargin: trend.plot.leftMargin
+                    yLabelsVisible: false
+                    xAxis { labelFormat: PlotAxis.Time; autoScale: true; interactive: false; tickSpacing: 110 }
+                    yAxis { autoScale: true; gridVisible: false; interactive: false }
+                    PlotTrace { visible: root.controller.ai0Enabled; buffer: root.controller.ai0; color: Theme.alpha(Theme.signalCh0, 0.8); width: 1 }
+                    PlotTrace { visible: root.controller.ai1Enabled; buffer: root.controller.ai1; color: Theme.alpha(Theme.signalCh1, 0.8); width: 1 }
+                    PlotRegion {
+                        from: trend.plot.xAxis.min
+                        to: trend.plot.xAxis.max
+                        draggable: true
+                        color: Theme.alpha(Theme.accent, 0.20)
+                        onMoved: (from, to) => {
+                            trend.plot.xAxis.follow = false
+                            trend.plot.xAxis.setViewRange(from, to)
+                        }
+                    }
+                }
+            }
+
+            // --- Right column ---------------------------------------------------------------------
+            Rectangle {
+                id: column
+                objectName: "logControls"
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                // Split screen: the column shrinks with the pane so the display stays the larger part.
+                width: root.narrow ? Math.round(Math.max(150, Math.min(212, root.width * 0.42))) : 256
+                color: Theme.window
+                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+
+                Flickable {
+                    id: columnFlick
+                    anchors { fill: parent; leftMargin: 1 }
+                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { }
+
                     ColumnLayout {
-                        id: recColumn
-                        anchors.fill: parent
-                        anchors.margins: Theme.spacingS
-                        anchors.leftMargin: Theme.spacingM
-                        spacing: 2
-                        RowLayout {
-                            spacing: Theme.spacingS
-                            Rectangle {
-                                id: recDot
-                                implicitWidth: 9
-                                implicitHeight: 9
-                                radius: 4.5
-                                color: root.controller.recording ? (root.controller.recordPaused ? Theme.warning : Theme.danger)
-                                                                 : Theme.textMuted
-                                SequentialAnimation on opacity {
-                                    running: root.controller.recording && !root.controller.recordPaused && Theme.animations
-                                    loops: Animation.Infinite
-                                    NumberAnimation { to: 0.25; duration: 700 }
-                                    NumberAnimation { to: 1; duration: 700 }
-                                    onStopped: recDot.opacity = 1
+                        id: columnLayout
+                        x: Theme.spacingS
+                        y: Theme.spacingS
+                        width: columnFlick.width - 2 * Theme.spacingS
+                        spacing: Theme.spacingS
+
+                        // Recording state.
+                        Rectangle {
+                            objectName: "logRecordState"
+                            readonly property bool active: root.controller.recording && !root.controller.recordPaused
+                            Layout.fillWidth: true
+                            implicitHeight: recColumn.implicitHeight + 2 * Theme.spacingS
+                            radius: Theme.radiusPopup
+                            color: active ? Theme.alpha(Theme.negative, Theme.dark ? 0.14 : 0.08) : Theme.cardFill
+                            border.color: active ? Theme.alpha(Theme.negative, 0.55) : Theme.cardBorder
+                            ColumnLayout {
+                                id: recColumn
+                                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Theme.spacingS }
+                                spacing: 2
+                                RowLayout {
+                                    spacing: Theme.spacingS
+                                    Rectangle {
+                                        id: recDot
+                                        implicitWidth: Theme.spacingS
+                                        implicitHeight: Theme.spacingS
+                                        radius: width / 2
+                                        color: root.controller.recording ? (root.controller.recordPaused ? Theme.caution : Theme.negative)
+                                                                         : Theme.textTertiary
+                                        SequentialAnimation on opacity {
+                                            running: root.controller.recording && !root.controller.recordPaused && Theme.animations
+                                            loops: Animation.Infinite
+                                            NumberAnimation { to: 0.25; duration: 700 }
+                                            NumberAnimation { to: 1; duration: 700 }
+                                            onStopped: recDot.opacity = 1
+                                        }
+                                    }
+                                    Text {
+                                        text: root.controller.recording ? (root.controller.recordPaused ? qsTr("Paused") : qsTr("Recording"))
+                                                                        : root.controller.running ? qsTr("Monitoring") : qsTr("Not recording")
+                                        color: root.controller.recording ? (root.controller.recordPaused ? Theme.caution : Theme.negative)
+                                                                         : Theme.textSecondary
+                                        font.pixelSize: Theme.fontSizeCaption
+                                        font.weight: Font.DemiBold
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: root.controller.recording ? root.duration(root.controller.recordSeconds) : ""
+                                        color: Theme.text
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.features: Theme.tabularFigures
+                                    }
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: root.controller.recordFile.length > 0
+                                          ? root.fileName(root.controller.recordFile) + (root.controller.recording
+                                                ? "  ·  " + Units.format(root.controller.recordBytes, "B", 3) : "")
+                                          : qsTr("Press Record to save to a file")
+                                    color: Theme.textTertiary
+                                    font.pixelSize: Theme.fontSizeCaption
+                                    elide: Text.ElideMiddle
                                 }
                             }
-                            Text {
-                                text: root.controller.recording ? (root.controller.recordPaused ? qsTr("PAUSED") : qsTr("REC"))
-                                                                : root.controller.running ? qsTr("MONITORING") : qsTr("NOT RECORDING")
-                                color: root.controller.recording ? (root.controller.recordPaused ? Theme.warning : Theme.danger)
-                                                                 : Theme.textMuted
-                                font.pixelSize: Theme.fontSizeS
-                                font.weight: Font.Bold
-                                font.letterSpacing: 1.0
-                            }
                         }
-                        Text {
-                            text: root.controller.recording ? root.duration(root.controller.recordSeconds)
-                                                            : root.controller.running ? root.duration(root.controller.runSeconds) : "—"
-                            color: Theme.text
-                            font.pixelSize: Theme.fontSizeTitle
-                            font.weight: Font.Light
-                            font.features: Theme.tabularFigures
-                        }
-                        Text {
+
+                        // The channel cards are locked while the logger runs; hovering them says why.
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            Layout.maximumWidth: 240
-                            text: root.controller.recordFile.length > 0
-                                  ? root.fileName(root.controller.recordFile) + (root.controller.recording
-                                        ? "  ·  " + Units.format(root.controller.recordBytes, "B", 3) : "")
-                                  : qsTr("Press Record to save")
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontSizeXs
-                            elide: Text.ElideMiddle
-                        }
-                    }
-                }
-            }
+                            spacing: Theme.spacingS
+                            HoverHandler { id: channelsHover }
+                            ToolTip.visible: root.controller.running && channelsHover.hovered
+                            ToolTip.text: root.lockedText
 
-            // --- View controls -----------------------------------------------------------------
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingS
-                SegmentedControl {
-                    compact: true
-                    model: ["10 s", "1 min", "10 min", "1 h", qsTr("All")]
-                    currentIndex: main.xAxis.follow || root.spanIndex === 4 ? root.spanIndex : -1
-                    onActivated: index => root.showSpan(index)
-                }
-                ActionButton {
-                    compact: true
-                    tone: main.xAxis.follow ? "subtle" : "neutral"
-                    text: main.xAxis.follow ? qsTr("Following latest") : qsTr("Follow latest")
-                    iconName: "chevron-right"
-                    toolTip: qsTr("Keep the newest data at the right edge (scrolling back turns it off)")
-                    onClicked: {
-                        if (main.xAxis.follow)
-                            main.xAxis.follow = false
-                        else
-                            root.showSpan(root.spanIndex === 4 ? 1 : root.spanIndex)
-                    }
-                }
-                Item { Layout.fillWidth: true }
-                Text {
-                    text: qsTr("View %1").arg(main.format(main.xAxis.max - main.xAxis.min, "s", 3))
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                }
-                IconButton {
-                    iconName: "trash"
-                    toolTip: qsTr("Clear the chart and the statistics (the file is not affected)")
-                    onClicked: root.controller.clearChart()
-                }
-            }
-
-            // --- Chart ------------------------------------------------------------------------
-            BenchPlot {
-                id: main
-                visible: root.analog
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.minimumHeight: 120
-                hoverReadout: true
-                legendVisible: root.controller.ai0Enabled && root.controller.ai1Enabled
-                leftMargin: Math.max(implicitLeftMargin, dmmPlot.visible ? dmmPlot.implicitLeftMargin : 0)
-                placeholderText: root.controller.running ? qsTr("Waiting for samples…") : qsTr("Press Run to start logging")
-                xAxis { labelFormat: PlotAxis.Time; follow: true; tickSpacing: 110 }
-                yAxis {
-                    autoScale: root.controller.autoScale
-                    min: root.controller.minimum
-                    max: root.controller.maximum
-                    unit: "V"
-                    unitInLabels: true
-                }
-                Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
-                PlotTrace { visible: root.controller.ai0Enabled; name: "AI 0"; unit: "V"; buffer: root.controller.ai0; color: Theme.ch0; width: 1.3 }
-                PlotTrace { visible: root.controller.ai1Enabled; name: "AI 1"; unit: "V"; buffer: root.controller.ai1; color: Theme.ch1; width: 1.3 }
-            }
-
-            BenchPlot {
-                id: dmmPlot
-                visible: root.controller.dmmEnabled
-                Layout.fillWidth: true
-                Layout.fillHeight: !root.analog
-                Layout.preferredHeight: root.analog ? Math.max(90, main.height * 0.35) : -1
-                interactive: !root.analog
-                hoverReadout: true
-                leftMargin: main.visible ? main.leftMargin : -1
-                placeholderText: qsTr("DMM")
-                xAxis { labelFormat: PlotAxis.Time; follow: !root.analog; tickSpacing: 110 }
-                yAxis { autoScale: true; unit: root.controller.dmmUnit; unitInLabels: true; title: qsTr("DMM") }
-                Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
-                PlotTrace { name: qsTr("DMM"); unit: root.controller.dmmUnit; buffer: root.controller.dmm; color: Theme.math; width: 1.3; pointsVisible: true }
-                Connections {
-                    target: main.xAxis
-                    enabled: root.analog
-                    function onRangeChanged() { dmmPlot.xAxis.setViewRange(main.xAxis.min, main.xAxis.max) }
-                }
-            }
-
-            // Overview of the whole recording with the visible window.
-            BenchPlot {
-                id: overview
-                visible: root.analog
-                Layout.fillWidth: true
-                Layout.preferredHeight: 64
-                interactive: false
-                leftMargin: main.leftMargin
-                yLabelsVisible: false
-                xAxis { labelFormat: PlotAxis.Time; autoScale: true; interactive: false; tickSpacing: 110 }
-                yAxis { autoScale: true; gridVisible: false; interactive: false }
-                PlotTrace { visible: root.controller.ai0Enabled; buffer: root.controller.ai0; color: Theme.alpha(Theme.ch0, 0.8); width: 1 }
-                PlotTrace { visible: root.controller.ai1Enabled; buffer: root.controller.ai1; color: Theme.alpha(Theme.ch1, 0.8); width: 1 }
-                PlotRegion {
-                    from: main.xAxis.min
-                    to: main.xAxis.max
-                    draggable: true
-                    color: Theme.alpha(Theme.accent, 0.20)
-                    onMoved: (from, to) => {
-                        main.xAxis.follow = false
-                        main.xAxis.setViewRange(from, to)
-                    }
-                }
-            }
-        }
-
-        inspector: [
-            Section {
-                title: qsTr("Channel Select")
-                summary: panel.displayTitle
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingS
-                    enabled: !root.controller.running
-                    RowLayout {
-                        Layout.fillWidth: true
-                        ChannelChip { text: "AI 0"; color: Theme.ch0; checked: root.controller.ai0Enabled; onToggled: root.controller.ai0Enabled = checked }
-                        ChannelChip { text: "AI 1"; color: Theme.ch1; checked: root.controller.ai1Enabled; onToggled: root.controller.ai1Enabled = checked }
-                        ChannelChip {
-                            text: qsTr("DMM")
-                            color: Theme.math
-                            checked: root.controller.dmmEnabled
-                            toolTip: qsTr("Log the multimeter too (its own reading rate, about 10/s DC, 3/s AC)")
-                            onToggled: root.controller.dmmEnabled = checked
-                        }
-                        Item { Layout.fillWidth: true }
-                    }
-                    FieldRow {
-                        visible: root.controller.dmmEnabled
-                        Field {
-                            label: qsTr("DMM Function")
-                            ComboBox {
+                            ChannelCard {
+                                objectName: "logCardAi0"
                                 Layout.fillWidth: true
-                                model: root.controller.dmmFunctionNames
-                                currentIndex: root.controller.dmmFunction
-                                onActivated: index => root.controller.dmmFunction = index
+                                title: "AI 0"
+                                subtitle: qsTr("Analog input")
+                                color: Theme.signalCh0
+                                compact: root.narrow
+                                checked: root.controller.ai0Enabled
+                                enabled: !root.controller.running
+                                facts: [qsTr("±%1 V range").arg(root.controller.hardwareRange)]
+                                onToggled: on => root.controller.ai0Enabled = on
                             }
-                        }
-                        Field {
-                            label: qsTr("Range")
-                            ComboBox {
+                            ChannelCard {
+                                objectName: "logCardAi1"
                                 Layout.fillWidth: true
-                                model: root.controller.dmmRangeNames
-                                currentIndex: root.controller.dmmRange
-                                onActivated: index => root.controller.dmmRange = index
+                                title: "AI 1"
+                                subtitle: qsTr("Analog input")
+                                color: Theme.signalCh1
+                                compact: root.narrow
+                                checked: root.controller.ai1Enabled
+                                enabled: !root.controller.running
+                                facts: [qsTr("±%1 V range").arg(root.controller.hardwareRange)]
+                                onToggled: on => root.controller.ai1Enabled = on
+                            }
+                            ChannelCard {
+                                objectName: "logCardDmm"
+                                Layout.fillWidth: true
+                                title: qsTr("DMM")
+                                subtitle: root.controller.dmmFunctionNames[root.controller.dmmFunction] ?? ""
+                                color: Theme.textSecondary
+                                compact: root.narrow
+                                checked: root.controller.dmmEnabled
+                                enabled: !root.controller.running
+                                onToggled: on => root.controller.dmmEnabled = on
+
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 2
+                                    rowSpacing: Theme.spacingXs
+                                    columnSpacing: Theme.spacingXs
+                                    Repeater {
+                                        model: root.controller.dmmFunctionNames
+                                        delegate: Button {
+                                            required property string modelData
+                                            required property int index
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 1
+                                            text: modelData
+                                            checkable: true
+                                            highlighted: checked
+                                            checked: index === root.controller.dmmFunction
+                                            focusPolicy: Qt.TabFocus
+                                            onClicked: {
+                                                root.controller.dmmFunction = index
+                                                checked = Qt.binding(() => index === root.controller.dmmFunction)
+                                            }
+                                        }
+                                    }
+                                }
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 3
+                                    rowSpacing: Theme.spacingXs
+                                    columnSpacing: Theme.spacingXs
+                                    Repeater {
+                                        model: root.controller.dmmRangeNames
+                                        delegate: Button {
+                                            required property string modelData
+                                            required property int index
+                                            Layout.fillWidth: true
+                                            Layout.preferredWidth: 1
+                                            text: modelData
+                                            checkable: true
+                                            highlighted: checked
+                                            checked: index === root.controller.dmmRange
+                                            focusPolicy: Qt.TabFocus
+                                            onClicked: {
+                                                root.controller.dmmRange = index
+                                                checked = Qt.binding(() => index === root.controller.dmmRange)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-                    Text {
-                        visible: root.controller.running
-                        Layout.fillWidth: true
-                        text: qsTr("Stop the logger to change the channels.")
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSizeS
-                        wrapMode: Text.WordWrap
-                    }
-                }
-            },
-            Section {
-                visible: root.analog
-                title: qsTr("Sampling")
-                summary: Units.format(root.controller.samplingRate, "S/s", 4)
-                Field {
-                    label: qsTr("Sampling Rate")
-                    trailing: "1 – 1000 S/s"
-                    SiField {
-                        Layout.fillWidth: true
-                        enabled: !root.controller.running
-                        unit: "S/s"
-                        engineering: false
-                        decimals: 2
-                        stepSize: 1
-                        from: 1
-                        to: 1000
-                        value: root.controller.samplingRate
-                        onValueModified: v => root.controller.samplingRate = v
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Actual %1 per channel · the chart keeps the last %2; the file keeps everything")
-                              .arg(Units.format(root.controller.coercedRate, "S/s", 7))
-                              .arg(root.controller.chartCapacity)
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-            },
-            Section {
-                visible: root.analog
-                title: qsTr("Input Limits")
-                summary: qsTr("±%1 V").arg(root.controller.hardwareRange)
-                FieldRow {
-                    enabled: !root.controller.running
-                    Field {
-                        label: qsTr("Maximum (V)")
-                        SiField {
+
+                        ToolPalette {
+                            objectName: "logTools"
                             Layout.fillWidth: true
-                            unit: "V"
-                            engineering: false
-                            decimals: 2
-                            stepSize: 0.1
-                            from: -10
-                            to: 10
-                            value: root.controller.maximum
-                            onValueModified: v => root.controller.maximum = v
-                        }
-                    }
-                    Field {
-                        label: qsTr("Minimum (V)")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "V"
-                            engineering: false
-                            decimals: 2
-                            stepSize: 0.1
-                            from: -10
-                            to: 10
-                            value: root.controller.minimum
-                            onValueModified: v => root.controller.minimum = v
+                            Layout.topMargin: Theme.spacingXs
+                            columns: 3
+                            currentId: root.tool
+                            model: [
+                                { id: "file", text: root.narrow ? "" : qsTr("Log File"), icon: "folder-open" },
+                                { id: "limits", text: root.narrow ? "" : qsTr("Limits"), icon: "sliders" },
+                                { id: "display", text: root.narrow ? "" : qsTr("Display"), icon: "settings" }
+                            ]
+                            onActivated: id => root.toggleTool(id)
                         }
                     }
                 }
-                Text {
-                    Layout.fillWidth: true
-                    visible: root.controller.minimum >= root.controller.maximum
-                    text: qsTr("Minimum must be below Maximum: Run is refused until it is.")
-                    color: Theme.danger
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Hardware range ±%1 V (limits within ±2 V use the finer range)").arg(root.controller.hardwareRange)
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-                ToggleSwitch {
-                    text: qsTr("Auto-scale graph")
-                    checked: root.controller.autoScale
-                    onToggled: root.controller.autoScale = checked
-                }
-            },
-            Section {
-                title: qsTr("Log File")
-                summary: root.controller.fileLayout === LogController.ElvismxLayout ? qsTr("ELVISmx")
-                       : root.controller.fileFormat === LogController.CommaSeparated ? "CSV" : qsTr("Tab")
-                Field {
-                    label: qsTr("Folder")
+            }
+
+            // --- Tool panels: float over the right part of the display -----------------------------
+            Item {
+                id: toolArea
+                anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
+                width: Math.min(320, Math.max(220, display.width * 0.5))
+                z: 10
+
+                ToolPanel {
+                    objectName: "filePanel"
+                    visible: root.tool === "file"
+                    width: parent.width
+                    maximumHeight: parent.height
+                    title: qsTr("Log File")
+                    onCloseRequested: root.tool = ""
+
+                    Text { text: qsTr("Folder"); color: Theme.textSecondary; font.pixelSize: Theme.fontSizeCaption }
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.spacingXs
@@ -485,7 +511,6 @@ Item {
                             Layout.preferredWidth: 60
                             text: root.controller.folder
                             ToolTip.visible: hovered
-                            ToolTip.delay: 600
                             ToolTip.text: text
                             onEditingFinished: root.controller.folder = text
                         }
@@ -496,97 +521,211 @@ Item {
                             onClicked: folderDialog.open()
                         }
                     }
-                }
-                FieldRow {
-                    Field {
-                        label: qsTr("File Name")
-                        TextField {
+                    Text { text: qsTr("File Name"); color: Theme.textSecondary; font.pixelSize: Theme.fontSizeCaption }
+                    TextField {
+                        Layout.fillWidth: true
+                        text: root.controller.baseName
+                        onEditingFinished: root.controller.baseName = text
+                    }
+                    Switch {
+                        text: qsTr("Date and time in the name")
+                        checked: root.controller.appendTimestamp
+                        onToggled: root.controller.appendTimestamp = checked
+                    }
+                    Text { text: qsTr("Format"); color: Theme.textSecondary; font.pixelSize: Theme.fontSizeCaption }
+                    SegmentedControl {
+                        objectName: "logFileType"
+                        Layout.fillWidth: true
+                        model: [ { text: qsTr("Tab"), toolTip: qsTr("Tab-separated (.tsv)") },
+                                 { text: "CSV", toolTip: qsTr("Comma-separated (.csv)") },
+                                 { text: qsTr("ELVISmx"), toolTip: qsTr("The text layout of the NI ELVISmx Data Logger (.txt), for scripts written for it") } ]
+                        currentIndex: root.controller.fileType
+                        onActivated: index => root.controller.fileType = index
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.elvismx ? qsTr("Time / myDAQ1/ai0 pairs, absolute date-time, CR LF. AI channels only; the DMM is not written.")
+                                           : qsTr("Header lines, then seconds since the start.")
+                        color: Theme.textTertiary
+                        font.pixelSize: Theme.fontSizeCaption
+                        wrapMode: Text.WordWrap
+                    }
+                    Switch {
+                        visible: root.elvismx
+                        text: qsTr("Append to an existing file")
+                        checked: root.controller.appendToExisting
+                        onToggled: root.controller.appendToExisting = checked
+                    }
+                    Switch {
+                        visible: !root.elvismx
+                        text: qsTr("Timestamp column")
+                        checked: root.controller.timestampColumn
+                        onToggled: root.controller.timestampColumn = checked
+                    }
+                    Switch {
+                        text: qsTr("Record when Run starts")
+                        checked: root.controller.recordOnRun
+                        onToggled: root.controller.recordOnRun = checked
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Switch {
+                            text: qsTr("Stop after")
+                            checked: root.controller.stopAfterEnabled
+                            onToggled: root.controller.stopAfterEnabled = checked
+                        }
+                        SiField {
                             Layout.fillWidth: true
                             Layout.preferredWidth: 60
-                            text: root.controller.baseName
-                            onEditingFinished: root.controller.baseName = text
+                            enabled: root.controller.stopAfterEnabled
+                            unit: "min"
+                            engineering: false
+                            decimals: 2
+                            stepSize: 1
+                            from: 0.01
+                            to: 100000
+                            value: root.controller.stopAfterMinutes
+                            onValueModified: v => root.controller.stopAfterMinutes = v
                         }
                     }
-                    Field {
-                        label: qsTr("Format")
-                        disabled: root.elvismx
-                        SegmentedControl {
-                            Layout.fillWidth: true
-                            enabled: !root.elvismx
-                            model: [{ text: qsTr("Tab"), toolTip: qsTr("Tab-separated (.tsv)") }, { text: "CSV", toolTip: qsTr("Comma-separated (.csv)") }]
-                            currentIndex: root.controller.fileFormat
-                            onActivated: index => root.controller.fileFormat = index
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.controller.recording ? qsTr("Writing %1 · %2 rows").arg(root.controller.recordFile)
+                                                                                     .arg(Math.round(root.controller.recordRows))
+                                                        : qsTr("Next file: %1").arg(root.controller.nextFilePath)
+                        color: Theme.textTertiary
+                        font.pixelSize: Theme.fontSizeCaption
+                        wrapMode: Text.WrapAnywhere
+                    }
+                    Button {
+                        text: qsTr("Show Folder")
+                        icon.source: Theme.icon("folder-open")
+                        onClicked: Qt.openUrlExternally(root.controller.folderUrl())
+                    }
+                }
+
+                ToolPanel {
+                    objectName: "limitsPanel"
+                    visible: root.tool === "limits"
+                    width: parent.width
+                    maximumHeight: parent.height
+                    title: qsTr("Input Limits")
+                    onCloseRequested: root.tool = ""
+                    KnobField {
+                        Layout.fillWidth: true
+                        label: qsTr("Maximum")
+                        unit: "V"
+                        knobSize: 34
+                        compact: root.narrow
+                        from: -10
+                        to: 10
+                        stepSize: 0.1
+                        value: root.controller.maximum
+                        enabled: !root.controller.running
+                        toolTip: root.controller.running ? root.lockedText : qsTr("Highest expected input voltage")
+                        onValueModified: v => root.controller.maximum = v
+                    }
+                    KnobField {
+                        Layout.fillWidth: true
+                        label: qsTr("Minimum")
+                        unit: "V"
+                        knobSize: 34
+                        compact: root.narrow
+                        from: -10
+                        to: 10
+                        stepSize: 0.1
+                        value: root.controller.minimum
+                        enabled: !root.controller.running
+                        toolTip: root.controller.running ? root.lockedText : qsTr("Lowest expected input voltage")
+                        onValueModified: v => root.controller.minimum = v
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.controller.minimum >= root.controller.maximum
+                        text: qsTr("Minimum must be below Maximum: Run is refused until it is.")
+                        color: Theme.negative
+                        font.pixelSize: Theme.fontSizeCaption
+                        wrapMode: Text.WordWrap
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Hardware range ±%1 V (limits within ±2 V use the finer range).").arg(root.controller.hardwareRange)
+                        color: Theme.textTertiary
+                        font.pixelSize: Theme.fontSizeCaption
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                ToolPanel {
+                    objectName: "displayPanel"
+                    visible: root.tool === "display"
+                    width: parent.width
+                    maximumHeight: parent.height
+                    title: qsTr("Display")
+                    onCloseRequested: root.tool = ""
+                    Switch {
+                        text: qsTr("Follow the latest data")
+                        checked: trend.plot.xAxis.follow
+                        onToggled: {
+                            if (checked)
+                                root.showSpan(root.spanIndex === 4 ? 1 : root.spanIndex)
+                            else
+                                trend.plot.xAxis.follow = false
+                            checked = Qt.binding(() => trend.plot.xAxis.follow)
                         }
                     }
-                }
-                Field {
-                    label: qsTr("Layout")
-                    hint: root.elvismx ? qsTr("Time / myDAQ1/ai0 pairs, absolute date-time, CR LF (.txt). AI channels only; the DMM is not written.")
-                                       : qsTr("MYBENCH: header lines, seconds since the start")
-                    SegmentedControl {
+                    Switch {
+                        text: qsTr("Overview of the whole run")
+                        checked: root.overviewVisible
+                        onToggled: root.overviewVisible = checked
+                    }
+                    Text {
                         Layout.fillWidth: true
-                        model: [{ text: qsTr("MYBENCH") }, { text: qsTr("ELVISmx compatible"), toolTip: qsTr("The file layout of the NI ELVISmx Data Logger, for scripts written for it") }]
-                        currentIndex: root.controller.fileLayout
-                        onActivated: index => root.controller.fileLayout = index
+                        text: qsTr("The chart keeps the last %1 at %2 per channel; the file keeps everything.")
+                                  .arg(root.controller.chartCapacity)
+                                  .arg(Units.format(root.controller.coercedRate, "S/s", 7))
+                        color: Theme.textTertiary
+                        font.pixelSize: Theme.fontSizeCaption
+                        wrapMode: Text.WordWrap
                     }
                 }
-                ToggleSwitch {
-                    visible: root.elvismx
-                    text: qsTr("Append to an existing file")
-                    checked: root.controller.appendToExisting
-                    onToggled: root.controller.appendToExisting = checked
-                }
-                ToggleSwitch {
-                    text: qsTr("Date and time in the name")
-                    checked: root.controller.appendTimestamp
-                    onToggled: root.controller.appendTimestamp = checked
-                }
-                ToggleSwitch {
-                    visible: !root.elvismx
-                    text: qsTr("Timestamp column")
-                    checked: root.controller.timestampColumn
-                    onToggled: root.controller.timestampColumn = checked
-                }
-                ToggleSwitch {
-                    text: qsTr("Record when Run starts")
-                    checked: root.controller.recordOnRun
-                    onToggled: root.controller.recordOnRun = checked
-                }
-                RowLayout {
+            }
+        }
+
+        // --- Bottom: per-channel value + statistics cards ----------------------------------------
+        measurements: [
+            RowLayout {
+                objectName: "logCards"
+                spacing: Theme.spacingS
+                MeasurementCard {
+                    visible: root.controller.ai0Enabled
                     Layout.fillWidth: true
-                    ToggleSwitch {
-                        text: qsTr("Stop after")
-                        checked: root.controller.stopAfterEnabled
-                        onToggled: root.controller.stopAfterEnabled = checked
-                    }
-                    SiField {
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 60
-                        enabled: root.controller.stopAfterEnabled
-                        unit: "min"
-                        engineering: false
-                        decimals: 2
-                        stepSize: 1
-                        from: 0.01
-                        to: 100000
-                        value: root.controller.stopAfterMinutes
-                        onValueModified: v => root.controller.stopAfterMinutes = v
-                    }
+                    Layout.preferredWidth: 1
+                    title: "AI 0"
+                    color: Theme.signalCh0
+                    removable: false
+                    value: root.cardValue("ai0", "V")
+                    stats: root.cardStats("ai0", "V")
                 }
-                Text {
+                MeasurementCard {
+                    visible: root.controller.ai1Enabled
                     Layout.fillWidth: true
-                    text: root.controller.recording ? qsTr("Writing %1 · %2 rows").arg(root.controller.recordFile)
-                                                                                 .arg(Math.round(root.controller.recordRows))
-                                                    : qsTr("Next file: %1").arg(root.controller.nextFilePath)
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WrapAnywhere
+                    Layout.preferredWidth: 1
+                    title: "AI 1"
+                    color: Theme.signalCh1
+                    removable: false
+                    value: root.cardValue("ai1", "V")
+                    stats: root.cardStats("ai1", "V")
                 }
-                ActionButton {
-                    text: qsTr("Show Folder")
-                    iconName: "folder-open"
-                    compact: true
-                    onClicked: Qt.openUrlExternally(root.controller.folderUrl())
+                MeasurementCard {
+                    visible: root.controller.dmmEnabled
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    title: qsTr("DMM")
+                    color: Theme.textSecondary
+                    removable: false
+                    value: root.cardValue("dmm", root.controller.dmmUnit)
+                    stats: root.cardStats("dmm", root.controller.dmmUnit)
                 }
             }
         ]

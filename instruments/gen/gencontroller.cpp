@@ -683,6 +683,30 @@ void GenController::updateStatusText()
     }
     if (isRunning())
         setStatusText(parts.join(u" · "_s));
+    // Key value (sidebar, Overview): what AO 0 (else AO 1) plays, "1 kHz sine · 500 mVpp".
+    auto describe = [](const GenChannel& ch) {
+        switch (ch.mode()) {
+        case GenChannel::Function: {
+            static const QStringList shapes{tr("sine"), tr("triangle"), tr("square")};
+            const double f = ch.expectedFrequency() > 0 ? ch.expectedFrequency() : ch.frequency();
+            return mydaq::dsp::formatEng(f, u"Hz"_s, 3) + u' ' + shapes.value(int(ch.shape())) + u" · "_s
+                   + mydaq::dsp::formatEng(ch.amplitude(), u"Vpp"_s, 3);
+        }
+        case GenChannel::Dc: return mydaq::dsp::formatEng(ch.dcLevel(), u"V"_s, 3) + u" DC"_s;
+        case GenChannel::Arbitrary: return ch.waveformName();
+        case GenChannel::Off: break;
+        }
+        return QString();
+    };
+    const auto active = [](const GenChannel& ch) {
+        return ch.state() == GenChannel::Running || ch.state() == GenChannel::Sweeping;
+    };
+    const GenChannel& ao0 = *m_channels[0];
+    const GenChannel& ao1 = *m_channels[1];
+    setKeyValue(!isRunning() ? QString()
+                : active(ao0) ? describe(ao0)
+                : active(ao1) ? ao1.name() + u' ' + describe(ao1)
+                : tr("%1 off").arg(ao0.name()));
     emit channelsChanged();
 }
 
@@ -1133,8 +1157,14 @@ void GenController::restoreExtraSettings(const QJsonObject& settings)
         applyChannelsJson(settings);
     if (settings.contains(u"editor"_s))
         m_editor.restoreState(settings.value(u"editor"_s).toObject());
-    for (auto& ch : m_channels)
+    // The panel no longer offers an Engine choice nor "whole 250 ms sweep steps": settings saved
+    // by older versions fall back to the defaults (Auto engine, exact Step Interval) instead of
+    // silently applying an option the user cannot see.
+    setEngineMode(Auto);
+    for (auto& ch : m_channels) {
+        ch->setSweepBlockTiming(false);
         ch->setSpectrumVisible(m_displayMode == Frequency);
+    }
 }
 
 // --- Export ------------------------------------------------------------------------------------------
@@ -1219,6 +1249,7 @@ void registerGen(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Gen"_s,
         .icon = u"instrument-gen"_s,
         .order = 30,
+        .group = QStringLiteral("generate"),
         .createController = [] { return new GenController; },
     });
 }

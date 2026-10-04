@@ -32,7 +32,7 @@ QColor PlotPrivate::color(const std::optional<QColor> &value, QRgb dark, QRgb li
     return c;
 }
 
-// Dark: near-black display area on a dark panel (docs/UI.md); light mirrors it.
+// Neutral fallbacks only: MyBench binds every role from its Theme (BenchPlot).
 QColor PlotPrivate::backgroundColor() const { return color(background, 0x121418, 0xffffff); }
 QColor PlotPrivate::areaColor() const { return color(plotAreaColor, 0x0b0d10, 0xfcfcfd); }
 QColor PlotPrivate::gridColor() const { return color(grid, 0xffffff, 0x0b1220, 26, 30); }
@@ -41,10 +41,15 @@ QColor PlotPrivate::frameColor() const { return color(frame, 0xffffff, 0x0b1220,
 QColor PlotPrivate::textColor() const { return color(text, 0x8e97a3, 0x5c6672); }
 QColor PlotPrivate::titleColor() const { return color(title, 0xc5ccd6, 0x2a3038); }
 QColor PlotPrivate::accentColor() const { return color(accent, 0x4c8dff, 0x2563eb); }
+QColor PlotPrivate::panelColor() const { return color(panel, 0x1e1e1e, 0xffffff); }
 
 QColor PlotPrivate::palette(int index) const
 {
-    // CH0 green, CH1 cyan, math amber, ref violet, then pink, blue, orange, lime.
+    if (!series.isEmpty()) {
+        const int n = int(series.size());
+        return series.at(((index % n) + n) % n);
+    }
+    // Fallback: green, cyan, amber, violet, then pink, blue, orange, lime.
     static constexpr QRgb dark[] = {0x3ddc84, 0x22d3ee, 0xfbbf24, 0xa78bfa, 0xf472b6, 0x60a5fa, 0xfb923c, 0xa3e635};
     static constexpr QRgb light[] = {0x16a34a, 0x0891b2, 0xd97706, 0x7c3aed, 0xdb2777, 0x2563eb, 0xea580c, 0x65a30d};
     const int i = ((index % 8) + 8) % 8;
@@ -218,7 +223,26 @@ MYBENCH_PLOT_COLOR_IMPL(frameColor, FrameColor, frame)
 MYBENCH_PLOT_COLOR_IMPL(textColor, TextColor, text)
 MYBENCH_PLOT_COLOR_IMPL(titleColor, TitleColor, title)
 MYBENCH_PLOT_COLOR_IMPL(accentColor, AccentColor, accent)
+MYBENCH_PLOT_COLOR_IMPL(panelColor, PanelColor, panel)
 #undef MYBENCH_PLOT_COLOR_IMPL
+
+QList<QColor> Plot::seriesColors() const { return d->series; }
+void Plot::setSeriesColors(const QList<QColor> &colors)
+{
+    if (d->series == colors)
+        return;
+    d->series = colors;
+    d->staticDirty = true;
+    emit styleChanged();
+}
+void Plot::resetSeriesColors()
+{
+    if (d->series.isEmpty())
+        return;
+    d->series.clear();
+    d->staticDirty = true;
+    emit styleChanged();
+}
 
 QColor Plot::plotAreaColor() const { return d->areaColor(); }
 void Plot::setPlotAreaColor(const QColor &c)

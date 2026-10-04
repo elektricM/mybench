@@ -1,17 +1,17 @@
 import QtQuick
 
-// Keyboard-focus outline around its parent. Put it inside a control's background:
-//     background: Rectangle { radius: 6; FocusRing { shown: control.visualFocus; radius: 9 } }
+// Keyboard-focus ring (docs/UI.md §4): 2 px accent, 1 px outside the control, shown only for
+// keyboard focus (`visualFocus`). Put it inside a control's background:
+//     background: Rectangle { radius: Theme.radiusControl; FocusRing { shown: control.visualFocus } }
 Rectangle {
     property bool shown: false
+    property color ringColor: Theme.focusRing
 
     anchors.fill: parent
-    anchors.margins: -3
-    radius: Theme.radiusM + 3
+    anchors.margins: -(Theme.focusWidth + 1)
+    radius: Theme.radiusControl + Theme.focusWidth + 1
     color: "transparent"
     border.width: Theme.focusWidth
-    border.color: Theme.focusRing
-    opacity: shown ? 1 : 0
-    visible: opacity > 0
-    Behavior on opacity { NumberAnimation { duration: Theme.durationFast } }
+    border.color: ringColor
+    visible: shown
 }

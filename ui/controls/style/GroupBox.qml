@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// A titled group: heading text over the content, no box (docs/UI.md: no cards).
 T.GroupBox {
     id: control
 
@@ -11,26 +12,19 @@ T.GroupBox {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              contentHeight + topPadding + bottomPadding)
 
-    spacing: 8
-    padding: 12
-    topPadding: padding + (implicitLabelWidth > 0 ? implicitLabelHeight + spacing : 0)
+    spacing: Theme.spacingS
+    padding: 0
+    topPadding: implicitLabelWidth > 0 ? implicitLabelHeight + spacing : 0
 
     label: Text {
-        x: control.leftPadding
         width: control.availableWidth
         text: control.title
-        font.pixelSize: Theme.fontSizeBody
+        font.pixelSize: Theme.fontSizeHeading
         font.weight: Font.DemiBold
         color: control.enabled ? Theme.text : Theme.textDisabled
         elide: Text.ElideRight
         verticalAlignment: Text.AlignVCenter
-        topPadding: 10
     }
 
-    background: Rectangle {
-        radius: Theme.radiusL
-        color: Theme.surfaceRaised
-        border.width: 1
-        border.color: Theme.border
-    }
+    background: Item {}
 }

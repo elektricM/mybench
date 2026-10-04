@@ -69,6 +69,7 @@ public:
     using InstrumentController::removeCommand;
     using InstrumentController::restart;
     using InstrumentController::setHoldsOutputs;
+    using InstrumentController::setKeyValue;
     using InstrumentController::setSingleEnabled;
     using InstrumentController::setUnsavedDocument;
 
@@ -462,6 +463,116 @@ private slots:
         QVERIFY(sessions->load(QUrl::fromLocalFile(path)));
         QVERIFY(restored.count() >= 1);
         QVERIFY(sessions->viewValue(u"collapsed/out/Timebase"_s).toBool());
+    }
+
+    // --- UI v2 hooks (docs/UI.md §13.7, audit U11) -----------------------------------------------
+
+    // keyValueChanged is coalesced to <= 4 Hz: the first change at once, a burst gives one more
+    // notification later, and the last value always arrives.
+    void keyValueThrottle()
+    {
+        OutputInstrument* c = out();
+        QTest::qWait(300);   // a quiet interval since any earlier change
+        QSignalSpy changed(c, &InstrumentController::keyValueChanged);
+        c->setKeyValue(u"1.000 V"_s);
+        QCOMPARE(changed.count(), 1);   // immediate
+        QCOMPARE(c->keyValue(), u"1.000 V"_s);
+        for (int i = 2; i <= 50; ++i)
+            c->setKeyValue(u"%1.000 V"_s.arg(i));
+        QCOMPARE(changed.count(), 1);   // the burst waits for the interval
+        QCOMPARE(c->keyValue(), u"1.000 V"_s);
+        QTRY_COMPARE_WITH_TIMEOUT(changed.count(), 2, 2000);
+        QCOMPARE(c->keyValue(), u"50.000 V"_s);   // the last value, once
+        QTest::qWait(400);
+        QCOMPARE(changed.count(), 2);
+        c->setKeyValue(u"50.000 V"_s);   // unchanged: no notification
+        QTest::qWait(300);
+        QCOMPARE(changed.count(), 2);
+
+        // A change and its revert inside one interval: nothing to deliver.
+        c->setKeyValue(u"7 V"_s);
+        QCOMPARE(changed.count(), 3);
+        c->setKeyValue(u"8 V"_s);
+        c->setKeyValue(u"7 V"_s);
+        QTest::qWait(400);
+        QCOMPARE(changed.count(), 3);
+        QCOMPARE(c->keyValue(), u"7 V"_s);
+
+        // The model role follows.
+        InstrumentRegistry* registry = InstrumentRegistry::instance();
+        const QModelIndex row = registry->index(registry->indexOf(u"out"_s));
+        QCOMPARE(registry->data(row, InstrumentRegistry::KeyValueRole).toString(), u"7 V"_s);
+        QTest::qWait(300);
+        c->setKeyValue({});
+        QCOMPARE(c->keyValue(), QString());
+    }
+
+    void descriptorGroupAndViews()
+    {
+        InstrumentRegistry* registry = InstrumentRegistry::instance();
+        registry->registerInstrument({.id = u"fake"_s, .title = u"Fake Generator"_s, .module = u"Test.Fake"_s,
+                                      .icon = u"instrument-gen"_s, .order = 3, .group = u"generate"_s,
+                                      .views = {{u"fake/editor"_s, u"Waveform Editor"_s, u"wave-arbitrary"_s,
+                                                 u"FakeEditorPanel"_s}},
+                                      .createController = [] { return new OutputInstrument(u"fake"_s); }});
+        const InstrumentDescriptor* fake = registry->descriptor(u"fake"_s);
+        QVERIFY(fake);
+        QCOMPARE(fake->group, u"generate"_s);
+        QCOMPARE(fake->panelUrl(), QUrl(u"qrc:/qt/qml/Test/Fake/FakePanel.qml"_s));   // naming rule unchanged
+        QCOMPARE(fake->viewUrl(u"fake/editor"_s), QUrl(u"qrc:/qt/qml/Test/Fake/FakeEditorPanel.qml"_s));
+        QCOMPARE(fake->viewUrl(u"fake/nothing"_s), QUrl());
+
+        const QVariantMap info = registry->info(u"fake"_s);
+        QCOMPARE(info.value(u"group"_s).toString(), u"generate"_s);
+        const QVariantList views = info.value(u"views"_s).toList();
+        QCOMPARE(views.size(), 1);
+        const QVariantMap view = views.first().toMap();
+        QCOMPARE(view.value(u"id"_s).toString(), u"fake/editor"_s);
+        QCOMPARE(view.value(u"title"_s).toString(), u"Waveform Editor"_s);
+        QCOMPARE(view.value(u"icon"_s).toString(), u"wave-arbitrary"_s);
+        QCOMPARE(view.value(u"panelType"_s).toString(), u"FakeEditorPanel"_s);
+        QCOMPARE(view.value(u"panelUrl"_s).toUrl(), QUrl(u"qrc:/qt/qml/Test/Fake/FakeEditorPanel.qml"_s));
+        QCOMPARE(registry->viewInfo(u"fake/editor"_s).value(u"instrumentId"_s).toString(), u"fake"_s);
+        QVERIFY(registry->viewInfo(u"fake/other"_s).isEmpty());
+
+        // Roles, and the default group of a descriptor without one.
+        const QHash<int, QByteArray> roles = registry->roleNames();
+        QCOMPARE(roles.value(InstrumentRegistry::GroupRole), QByteArray("group"));
+        QCOMPARE(roles.value(InstrumentRegistry::ViewsRole), QByteArray("views"));
+        QCOMPARE(roles.value(InstrumentRegistry::KeyValueRole), QByteArray("keyValue"));
+        const QModelIndex fakeRow = registry->index(registry->indexOf(u"fake"_s));
+        QCOMPARE(registry->data(fakeRow, InstrumentRegistry::GroupRole).toString(), u"generate"_s);
+        QCOMPARE(registry->data(fakeRow, InstrumentRegistry::ViewsRole).toList().size(), 1);
+        const QModelIndex outRow = registry->index(registry->indexOf(u"out"_s));
+        QCOMPARE(registry->data(outRow, InstrumentRegistry::GroupRole).toString(), u"apps"_s);
+        QVERIFY(registry->data(outRow, InstrumentRegistry::ViewsRole).toList().isEmpty());
+    }
+
+    // Collapsed sections were keyed "collapsed/<instrument>/<translated title>" (v1); UI v2 keys
+    // them "section/<paneId>/<sectionId>". Old keys are pruned once: from a session saved before
+    // v2 on load, never from a v2 session.
+    void legacySectionKeysPruned()
+    {
+        QVariantMap state{{u"collapsed/scope/Trigger"_s, true}, {u"section/scope/trigger"_s, true},
+                          {u"measurements/scope"_s, false}};
+        QCOMPARE(SessionManager::pruneLegacyViewKeys(state), 1);
+        QCOMPARE(state.size(), 2);
+        QVERIFY(!state.contains(u"collapsed/scope/Trigger"_s));
+
+        SessionManager* sessions = SessionManager::instance();
+        QJsonObject v1 = sessions->toJson();
+        QCOMPARE(v1.value(u"viewVersion"_s).toInt(), SessionManager::kViewStateVersion);
+        v1.remove(u"viewVersion"_s);
+        v1.insert(u"view"_s, QJsonObject{{u"collapsed/scope/Trigger"_s, true}, {u"section/scope/trigger"_s, true}});
+        QVERIFY(sessions->fromJson(v1));
+        QVERIFY(!sessions->viewState().contains(u"collapsed/scope/Trigger"_s));
+        QVERIFY(sessions->viewValue(u"section/scope/trigger"_s).toBool());
+
+        QJsonObject v2 = sessions->toJson();
+        v2.insert(u"view"_s, QJsonObject{{u"collapsed/scope/Trigger"_s, true}});
+        QVERIFY(sessions->fromJson(v2));
+        QVERIFY(sessions->viewValue(u"collapsed/scope/Trigger"_s).toBool());   // v2 session: kept
+        sessions->newSession();
     }
 
     // --- Print options (audit row 11) ---------------------------------------------------------

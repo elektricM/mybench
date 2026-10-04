@@ -39,6 +39,9 @@ public:
 signals:
     void gestureGapChanged();
     void freshGestureChanged();
+    // Emitted for every wheel event that starts a gesture (even when freshGesture was already
+    // true): controls that keep the rest of a gesture they started reset their ownership here.
+    void gestureStarted();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;

@@ -1,14 +1,8 @@
-// Launcher (Home favorites, user tools, pinned files, recent exports; app.md 18.1), the About
-// fields of AppInfo and the dashboard tile list of app/WorkspaceState.qml (app.md 2.4). Settings
-// live in a temporary INI folder.
+// Launcher (Home favorites, user tools, pinned files, recent exports; app.md 18.1) and the About
+// fields of AppInfo. Settings live in a temporary INI folder.
 #include <mybench/appinfo.h>
 #include <mybench/dataexport.h>
-#include <mybench/instrumentregistry.h>
 #include <mybench/launcher.h>
-
-#include <QQmlComponent>
-#include <QQmlEngine>
-#include <memory>
 
 #include <QCoreApplication>
 #include <QDir>
@@ -223,51 +217,6 @@ private slots:
         QCOMPARE(info->qtVersion(), QString::fromLatin1(qVersion()));
         QVERIFY(!info->licenseText().trimmed().isEmpty());
         Q_UNUSED(info->usbBackend());
-    }
-
-    // app/WorkspaceState.qml: dashboardTiles (default DMM + DIO, add/remove/move, stored in the
-    // layout map; sessions without the key get the default).
-    void workspaceDashboardTiles()
-    {
-        mybench::InstrumentRegistry* registry = mybench::InstrumentRegistry::instance();
-        for (const QString& id : {u"dmm"_s, u"dio"_s, u"scope"_s})
-            if (!registry->contains(id))
-                registry->registerInstrument({.id = id, .title = id, .createController = [] { return nullptr; }});
-
-        QQmlEngine engine;
-        engine.addImportPath(QStringLiteral(MYBENCH_QML_IMPORT_DIR));
-        QQmlComponent component(&engine, QUrl::fromLocalFile(QStringLiteral(MYBENCH_APP_QML_DIR "/WorkspaceState.qml")));
-        std::unique_ptr<QObject> workspace(component.create());
-        QVERIFY2(workspace, qPrintable(component.errorString()));
-        auto tiles = [&] { return workspace->property("dashboardTiles").toStringList(); };
-        auto call = [&](const char* method, auto... arguments) {
-            const bool invoked = QMetaObject::invokeMethod(workspace.get(), method, arguments...);
-            QVERIFY2(invoked, method);
-        };
-        QCOMPARE(tiles(), QStringList({u"dmm"_s, u"dio"_s}));
-
-        call("addDashboardTile", Q_ARG(QString, u"scope"_s));
-        call("addDashboardTile", Q_ARG(QString, u"dmm"_s));      // already there
-        call("addDashboardTile", Q_ARG(QString, u"bogus"_s));    // not an instrument
-        QCOMPARE(tiles(), QStringList({u"dmm"_s, u"dio"_s, u"scope"_s}));
-        call("moveDashboardTile", Q_ARG(int, 2), Q_ARG(int, 0));
-        QCOMPARE(tiles(), QStringList({u"scope"_s, u"dmm"_s, u"dio"_s}));
-        call("removeDashboardTile", Q_ARG(QString, u"dmm"_s));
-        QCOMPARE(tiles(), QStringList({u"scope"_s, u"dio"_s}));
-
-        QVariant map;
-        QVERIFY(QMetaObject::invokeMethod(workspace.get(), "toMap", Q_RETURN_ARG(QVariant, map)));
-        QCOMPARE(map.toMap().value(u"dashboardTiles"_s).toStringList(), QStringList({u"scope"_s, u"dio"_s}));
-
-        const QVariantMap older{{u"tabs"_s, QVariantList()}};   // session saved before dashboardTiles
-        call("fromMap", Q_ARG(QVariant, older));
-        QCOMPARE(tiles(), QStringList({u"dmm"_s, u"dio"_s}));
-        const QVariantMap invalid{{u"dashboardTiles"_s, QStringList{u"dio"_s, u"bogus"_s, u"dio"_s}}};
-        call("fromMap", Q_ARG(QVariant, invalid));
-        QCOMPARE(tiles(), QStringList({u"dio"_s}));
-        const QVariantMap empty{{u"dashboardTiles"_s, QVariantList()}};   // the user removed every tile
-        call("fromMap", Q_ARG(QVariant, empty));
-        QVERIFY(tiles().isEmpty());
     }
 
     void aboutRequest()

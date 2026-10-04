@@ -2,13 +2,15 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import MyBench.Framework
 import MyBench.Controls
 
-// Command palette (Ctrl/⌘K): fuzzy search over every command of the app.
-// `commands()` returns [{ title, subtitle, icon, keys, keywords, run: function }]. A command with
-// `argumentLabel` ("Voltage (V)") asks for a value first: the field switches to that prompt and
-// Enter calls run(text).
+// The command palette (⌘K, docs/UI.md §9): a centered popup with a search field over every
+// command. `commands()` returns [{ title, subtitle, icon, keys, keywords, argumentLabel, run }]
+// (AppActions.paletteCommands()). A command with `argumentLabel` ("Voltage (V)") asks for a value
+// first: the field switches to that prompt and Return calls run(text).
+//     palette.openFor(command)   // opens directly in argument mode (menu entries with a value)
 Popup {
     id: palette
 
@@ -18,6 +20,8 @@ Popup {
     property int current: 0
     // The command waiting for its argument (argument mode), or null.
     property var pending: null
+    readonly property int rowHeight: Theme.controlHeight + Theme.spacingXs + 2
+    readonly property int visibleRows: 9
 
     function score(command: var, query: string): real {
         if (query.length === 0)
@@ -71,15 +75,25 @@ Popup {
         if (command)
             Qt.callLater(command.run)
     }
+    function openFor(command: var) {
+        open()
+        pending = command
+        field.text = ""
+    }
+    function move(step: int) {
+        if (results.length > 0)
+            current = Math.max(0, Math.min(results.length - 1, current + step))
+    }
 
     readonly property Item host: parent as Item
     x: Math.round(((host ? host.width : 800) - width) / 2)
-    y: 76
-    width: Math.min(600, (host ? host.width : 800) - 48)
-    height: Math.min(content.implicitHeight, (host ? host.height : 600) - 140)
+    y: Math.round(Math.min((host ? host.height : 600) * 0.16, 120))
+    width: Math.min(640, (host ? host.width : 800) - 2 * Theme.spacingXl)
+    height: Math.min(content.implicitHeight, (host ? host.height : 600) - y - Theme.spacingXl)
     padding: 0
     modal: true
     focus: true
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     onAboutToShow: {
         all = commands()
@@ -89,53 +103,77 @@ Popup {
     }
     onOpened: field.forceActiveFocus()
 
+    background: PopupFrame {}
+    T.Overlay.modal: Rectangle { color: Theme.alpha(Theme.overlay, 0.5) }
+
     contentItem: ColumnLayout {
         id: content
         spacing: 0
 
-        RowLayout {
+        // The search field (or the argument prompt).
+        SearchField {
+            id: field
+            objectName: "paletteField"
             Layout.fillWidth: true
-            Layout.leftMargin: Theme.spacingL
-            Layout.rightMargin: Theme.spacingM
-            implicitHeight: 52
-            spacing: Theme.spacingM
-            Icon {
-                name: palette.pending ? (palette.pending.icon ?? "chevron-right") : "search"
-                size: 18
-                color: palette.pending ? Theme.accent : Theme.textMuted
+            implicitHeight: Theme.controlHeightL + Theme.spacingS
+            leftPadding: Theme.spacingL + Theme.iconSize + Theme.spacingS
+            rightPadding: Theme.spacingL
+            font.pixelSize: Theme.fontSizeHeading
+            onTextChanged: {
+                if (!palette.pending)
+                    palette.refresh(text)
             }
-            Text {
-                visible: palette.pending !== null
-                text: palette.pending ? palette.pending.title + " ›" : ""
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeL + 1
+            searchIndicator.indicator: Icon {
+                x: Theme.spacingL
+                y: Math.round((field.height - height) / 2)
+                name: palette.pending ? "chevron-right" : "search"
+                color: palette.pending ? Theme.accent : Theme.textSecondary
             }
-            TextField {
-                id: field
-                Layout.fillWidth: true
-                objectName: "paletteField"
-                placeholderText: palette.pending ? palette.pending.argumentLabel : qsTr("Type a command or an instrument…")
-                font.pixelSize: Theme.fontSizeL + 1
-                background: Item {}
-                leftPadding: 0
-                onTextEdited: if (!palette.pending) palette.refresh(text)
-                Keys.onDownPressed: palette.current = Math.min(palette.current + 1, palette.results.length - 1)
-                Keys.onUpPressed: palette.current = Math.max(palette.current - 1, 0)
+            clearIndicator.indicator: Item {}
+            contentItem: T.TextField {
+                id: input
+                text: field.text
+                onTextEdited: field.text = text
+                color: Theme.text
+                font: field.font
+                selectionColor: Theme.selection
+                selectedTextColor: Theme.selectionText
+                verticalAlignment: TextInput.AlignVCenter
+                placeholderText: palette.pending ? palette.pending.title + " — " + palette.pending.argumentLabel
+                                                 : qsTr("Search commands and instruments")
+                // The template draws no placeholder.
+                Text {
+                    anchors.fill: parent
+                    visible: input.text.length === 0 && !input.preeditText
+                    text: input.placeholderText
+                    color: Theme.textTertiary
+                    font: input.font
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                }
+                Keys.onDownPressed: palette.move(1)
+                Keys.onUpPressed: palette.move(-1)
                 Keys.onReturnPressed: palette.runCurrent()
                 Keys.onEnterPressed: palette.runCurrent()
                 Keys.onEscapePressed: palette.close()
             }
-            KeyHint { keys: "Esc" }
+            background: Item {}
         }
-        Divider { Layout.fillWidth: true }
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: Theme.borderWidth
+            color: Theme.separator
+        }
 
         ListView {
             id: list
+            objectName: "paletteList"
             Layout.fillWidth: true
             visible: palette.pending === null
-            Layout.preferredHeight: visible ? Math.min(contentHeight, 8 * 44) + 12 : 0
-            Layout.topMargin: 6
-            Layout.bottomMargin: 6
+            Layout.preferredHeight: visible ? Math.min(Math.max(contentHeight, palette.rowHeight), palette.visibleRows * palette.rowHeight)
+                                              + 2 * Theme.spacingXs : 0
+            topMargin: Theme.spacingXs
+            bottomMargin: Theme.spacingXs
             clip: true
             model: palette.results
             currentIndex: palette.current
@@ -144,73 +182,79 @@ Popup {
             ScrollBar.vertical: ScrollBar {}
             onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
 
-            delegate: ItemDelegate {
+            delegate: T.ItemDelegate {
                 id: row
                 required property var modelData
                 required property int index
-                width: list.width - 12
-                x: 6
-                height: 44
+                width: ListView.view.width
+                height: palette.rowHeight
+                leftPadding: Theme.spacingL
+                rightPadding: Theme.spacingL
                 highlighted: index === palette.current
+                hoverEnabled: true
                 onClicked: {
                     palette.current = index
                     palette.runCurrent()
                 }
-                onHoveredChanged: if (hovered) palette.current = index
+                onHoveredChanged: {
+                    if (hovered)
+                        palette.current = index
+                }
+                background: Rectangle {
+                    x: Theme.spacingXs + 2
+                    width: parent.width - 2 * x
+                    radius: Theme.radiusControl
+                    color: row.highlighted ? Theme.selection : "transparent"
+                }
                 contentItem: RowLayout {
-                    spacing: Theme.spacingM
-                    Rectangle {
-                        implicitWidth: 28
-                        implicitHeight: 28
-                        radius: Theme.radiusM
-                        color: row.highlighted ? Theme.accentMuted : Theme.surfaceSunken
-                        border.width: 1
-                        border.color: row.highlighted ? Theme.alpha(Theme.accent, 0.4) : Theme.border
-                        Icon {
-                            anchors.centerIn: parent
-                            name: row.modelData.icon ?? "chevron-right"
-                            size: Theme.iconSizeS
-                            color: row.highlighted ? Theme.accent : Theme.textSecondary
-                        }
+                    spacing: Theme.spacingS + 2
+                    Icon {
+                        name: row.modelData.icon ?? ""
+                        color: row.highlighted ? Theme.selectionText : Theme.textSecondary
                     }
                     Text {
+                        Layout.preferredWidth: implicitWidth
+                        Layout.minimumWidth: Math.min(implicitWidth, row.width / 3)
+                        Layout.fillWidth: false
                         text: row.modelData.title
-                        color: Theme.text
+                        color: row.highlighted ? Theme.selectionText : Theme.text
                         font.pixelSize: Theme.fontSizeBody
-                        font.weight: row.highlighted ? Font.DemiBold : Font.Normal
+                        elide: Text.ElideRight
                     }
                     Text {
                         Layout.fillWidth: true
                         text: row.modelData.subtitle ?? ""
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSizeM
-                        elide: Text.ElideRight
+                        color: row.highlighted ? Theme.selectionText : Theme.textTertiary
+                        font.pixelSize: Theme.fontSizeSmall
+                        elide: Text.ElideMiddle
                     }
-                    KeyHint {
-                        visible: (row.modelData.keys ?? "").length > 0
-                        keys: row.modelData.keys ?? ""
+                    Text {
+                        visible: text.length > 0
+                        text: Theme.keys(row.modelData.keys ?? "")
+                        color: row.highlighted ? Theme.selectionText : Theme.textTertiary
+                        font.pixelSize: Theme.fontSizeSmall
                     }
                 }
             }
 
-            EmptyState {
+            Text {
                 anchors.centerIn: parent
                 visible: palette.results.length === 0
-                title: qsTr("No matching command")
+                text: qsTr("No matching commands")
+                color: Theme.textTertiary
+                font.pixelSize: Theme.fontSizeBody
             }
         }
 
-        Divider { Layout.fillWidth: true }
-        RowLayout {
+        // Argument mode: what Return does.
+        Text {
+            visible: palette.pending !== null
             Layout.fillWidth: true
-            Layout.leftMargin: Theme.spacingL
-            Layout.rightMargin: Theme.spacingL
-            implicitHeight: 32
-            spacing: Theme.spacingM
-            Text { text: qsTr("↑↓ navigate"); color: Theme.textMuted; font.pixelSize: Theme.fontSizeS }
-            Text { text: palette.pending ? qsTr("↵ apply") : qsTr("↵ run"); color: Theme.textMuted; font.pixelSize: Theme.fontSizeS }
-            Item { Layout.fillWidth: true }
-            Text { text: qsTr("%n command(s)", "", palette.results.length); color: Theme.textMuted; font.pixelSize: Theme.fontSizeS }
+            Layout.margins: Theme.spacingL
+            text: palette.pending ? qsTr("Type a value and press Return. Esc cancels.") : ""
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSizeSmall
+            wrapMode: Text.WordWrap
         }
     }
 }

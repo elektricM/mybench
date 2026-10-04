@@ -1000,6 +1000,8 @@ InstrumentController::WorkerFunction CtrController::measureLoop(std::shared_ptr<
                 m_rate = r;
                 m_stats = stats;
                 emit resultsChanged();
+                // Key value (sidebar, Overview): "1.000 kHz", "Count 1234".
+                setKeyValue(m_measurement == CountEdges ? tr("Count %1").arg(valueText()) : valueText());
             });
         };
         auto handleReset = [&] {
@@ -1151,6 +1153,7 @@ void registerCtr(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Ctr"_s,
         .icon = u"instrument-ctr"_s,
         .order = 70,
+        .group = QStringLiteral("digital"),
         .createController = [] { return new CtrController; },
     });
 }

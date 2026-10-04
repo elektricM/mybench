@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// A 4 px bar: accent fill on a faint track; indeterminate = a sliding segment.
 T.ProgressBar {
     id: control
 
@@ -18,10 +19,9 @@ T.ProgressBar {
             width: control.indeterminate ? parent.width * 0.3 : control.visualPosition * parent.width
             height: parent.height
             radius: 2
-            color: Theme.accent
-            x: 0
+            color: control.enabled ? Theme.accent : Theme.textDisabled
             SequentialAnimation on x {
-                running: control.indeterminate && control.visible
+                running: control.indeterminate && control.visible && Theme.animations
                 loops: Animation.Infinite
                 NumberAnimation { from: -control.width * 0.3; to: control.width; duration: 1200; easing.type: Easing.InOutQuad }
             }
@@ -32,6 +32,6 @@ T.ProgressBar {
         implicitWidth: 160
         implicitHeight: 4
         radius: 2
-        color: Theme.dark ? "#2A2E37" : "#DADDE3"
+        color: Theme.alpha(Theme.text, 0.12)
     }
 }

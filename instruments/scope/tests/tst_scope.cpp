@@ -3,7 +3,9 @@
 #include "scopecontroller.h"
 #include "scopecore.h"
 
+#include <mybench/dataexport.h>
 #include <mybench/devicehub.h>
+#include <mybench/instrumentregistry.h>
 #include <mydaq/sim_device.h>
 
 #include <QElapsedTimer>
@@ -73,6 +75,7 @@ private slots:
     void searchWindowGrows();
     void extraMeasurements();
     void phaseMeasurement();
+    void peakMeasurement();
     void triggerTimeoutModes();
     void persistenceEpoch();
     void averaging();
@@ -87,7 +90,12 @@ private slots:
     void timeoutOnlyWithEdge();
     void traceStylePalettes();
     void cursorStylePalettes();
-    void resetGraphProperties();
+    void resetRestoresStyles();
+    void legacyStylesMigrate();
+    void legacyMathFftMigrates();
+    void measurementSelectionIsShared();
+    void stateText();
+    void textLogWriter();
     void triggerTypeEdgeResetsSource();
     void wheelSteps();
 };
@@ -577,6 +585,30 @@ void TestScope::extraMeasurements()
     QVERIFY(std::abs(sinus.acRms - std::sqrt(0.5)) < 0.005);
 }
 
+void TestScope::peakMeasurement()
+{
+    // Peak = largest |v| of the record: an offset sine 0.5 + 1.2 sin -> +1.7 V; its negative -> 1.7 V too.
+    std::vector<double> x(2000);
+    for (size_t i = 0; i < x.size(); ++i)
+        x[i] = 0.5 + 1.2 * std::sin(2 * M_PI * 1000.0 * double(i) / 200000.0);
+    const sc::Measurements m = sc::measure(x, 200000.0, 1.0);
+    QVERIFY(std::abs(m.peak - 1.7) < 1e-3);
+    for (double& v : x)
+        v = -v;
+    QVERIFY(std::abs(sc::measure(x, 200000.0, 1.0).peak - 1.7) < 1e-3);
+    QVERIFY(std::isnan(sc::Measurements{}.peak));
+    // In the catalog (label "Peak", volts) and as a readout.
+    bool found = false;
+    for (const QVariant& e : ScopeChannel::measurementCatalog())
+        found = found || (e.toMap().value(u"flag"_s).toInt() == ScopeChannel::Peak && e.toMap().value(u"label"_s).toString() == u"Peak"_s);
+    QVERIFY(found);
+    QCOMPARE(ScopeChannel::measurementUnit(ScopeChannel::Peak), u"V"_s);
+    // The numeric accessor used by the measurement cards' statistics.
+    ScopeController c;
+    c.initialize();
+    QVERIFY(std::isnan(c.channel0()->measurement(ScopeChannel::Peak)));
+}
+
 void TestScope::phaseMeasurement()
 {
     const double fs = 50000;
@@ -831,7 +863,7 @@ void TestScope::controllerDefaultsAndPersistence()
     c.channel1()->setSource(ScopeChannel::AI0);
     c.channel1()->setVoltsPerDiv(0.2);
     c.channel1()->style()->setLineWidth(3);
-    c.channel1()->style()->setLineColor(u"#ff0000"_s);
+    c.channel1()->style()->setLineColor(QColor(u"#ff0000"_s));
     c.setTimePerDiv(1e-3);
     c.setTriggerType(ScopeController::Edge);
     c.setTriggerLevel(0.25);
@@ -846,7 +878,7 @@ void TestScope::controllerDefaultsAndPersistence()
     QCOMPARE(d.channel1()->source(), ScopeChannel::AI0);
     QCOMPARE(d.channel1()->voltsPerDiv(), 0.2);
     QCOMPARE(d.channel1()->style()->lineWidth(), 3.0);
-    QCOMPARE(d.channel1()->style()->lineColor(), u"#ff0000"_s);
+    QCOMPARE(d.channel1()->style()->lineColor(), QColor(u"#ff0000"_s));
     QCOMPARE(d.timePerDiv(), 1e-3);
     QCOMPARE(d.triggerType(), ScopeController::Edge);
     QCOMPARE(d.triggerLevel(), 0.25);
@@ -987,11 +1019,6 @@ void TestScope::controllerRun()
     const QString text = QString::fromUtf8(file.readAll());
     QVERIFY(text.contains(u"# Time/Div: 50 ms"_s));
     QVERIFY(text.contains(u"Time (s),CH 0 (V)"_s));
-    const QString txt = dir.filePath(u"scope.txt"_s);
-    QVERIFY(c.exportElvisText(QUrl::fromLocalFile(txt)));
-    QFile log(txt);
-    QVERIFY(log.open(QIODevice::ReadOnly));
-    QVERIFY(QString::fromUtf8(log.readAll()).startsWith(u"waveform\tCh0"_s));
 }
 
 
@@ -1018,91 +1045,261 @@ void TestScope::timeoutOnlyWithEdge()
     QVERIFY(!c.timedOut());
 }
 
+// The trace and cursor looks are the shared TraceStyle (edited in the TraceStyleDialog) and persist.
 void TestScope::traceStylePalettes()
 {
+    using TS = mybench::plot::TraceStyle;
     ScopeController c;
     c.initialize();
-    ScopeTraceStyle* style = c.channel0()->style();
-    QCOMPARE(style->lineWidth(), 1.0);
+    TS* style = c.channel0()->style();
+    QCOMPARE(style->lineWidth(), 1.0);   // ELVISmx default width
+    QVERIFY(style->isDefault());
     style->setLineWidth(0);
-    QCOMPARE(style->lineWidth(), 0.0);   // "none"
-    style->setLineStyle(ScopeTraceStyle::DashDotDot);
-    QCOMPARE(style->lineStyle(), ScopeTraceStyle::DashDotDot);
-    style->setInterpolation(ScopeTraceStyle::CenterStepVertical);
-    QVERIFY(!style->points());
-    style->setPoints(true);   // the shortcut picks a marker
-    QCOMPARE(style->pointStyle(), ScopeTraceStyle::FilledCircle);
-    style->setPointStyle(ScopeTraceStyle::Diamond);
-    QVERIFY(style->points());
-    style->setFillColor(u"#123456"_s);
-    QVERIFY(style->fillColor() == u"#123456"_s);
-    const QJsonObject saved = c.saveSettings();
+    QCOMPARE(style->lineWidth(), 0.0);   // "none": points only
+    style->setLineStyle(TS::DashDotDot);
+    style->setInterpolation(TS::CenterStepVertical);
+    style->setPointStyle(TS::Diamond);
+    style->setFillColor(QColor(u"#123456"_s));
     ScopeController d;
     d.initialize();
-    d.restoreSettings(saved);
-    ScopeTraceStyle* restored = d.channel0()->style();
+    d.restoreSettings(c.saveSettings());
+    TS* restored = d.channel0()->style();
     QCOMPARE(restored->lineWidth(), 0.0);
-    QCOMPARE(restored->lineStyle(), ScopeTraceStyle::DashDotDot);
-    QCOMPARE(restored->interpolation(), ScopeTraceStyle::CenterStepVertical);
-    QCOMPARE(restored->pointStyle(), ScopeTraceStyle::Diamond);
-    QCOMPARE(restored->fillColor(), u"#123456"_s);
+    QCOMPARE(restored->lineStyle(), TS::DashDotDot);
+    QCOMPARE(restored->interpolation(), TS::CenterStepVertical);
+    QCOMPARE(restored->pointStyle(), TS::Diamond);
+    QCOMPARE(restored->fillColor(), QColor(u"#123456"_s));
     // The reference traces have a style of their own (dashed / dotted by default).
-    QCOMPARE(d.refAStyle()->lineStyle(), ScopeTraceStyle::Dash);
-    QCOMPARE(d.refBStyle()->lineStyle(), ScopeTraceStyle::Dot);
-    c.refAStyle()->setLineColor(u"#00ff00"_s);
+    QCOMPARE(d.refAStyle()->lineStyle(), TS::Dash);
+    QCOMPARE(d.refBStyle()->lineStyle(), TS::Dot);
+    QCOMPARE(d.refBStyle()->lineWidth(), 1.2);
+    c.refAStyle()->setLineColor(QColor(u"#00ff00"_s));
     ScopeController e;
     e.initialize();
     e.restoreSettings(c.saveSettings());
-    QCOMPARE(e.refAStyle()->lineColor(), u"#00ff00"_s);
+    QCOMPARE(e.refAStyle()->lineColor(), QColor(u"#00ff00"_s));
+    // A style change is a settings change (saved, live).
+    QSignalSpy changed(&c, &ScopeController::settingsChanged);
+    c.math()->style()->setLineWidth(2);
+    QCOMPARE(changed.count(), 1);
 }
 
 void TestScope::cursorStylePalettes()
 {
+    using TS = mybench::plot::TraceStyle;
     ScopeController c;
     c.initialize();
     ScopeCursor* cursor = c.cursor1();
-    QCOMPARE(cursor->lineWidth(), 1.0);
-    cursor->setLineWidth(3);
-    cursor->setPointStyle(ScopeTraceStyle::Circle);
+    QCOMPARE(cursor->style()->lineStyle(), TS::Dash);   // cursors are dashed
+    QCOMPARE(cursor->style()->lineWidth(), 1.0);
+    cursor->style()->setLineWidth(3);
+    cursor->style()->setPointStyle(TS::Circle);
+    cursor->style()->setLineStyle(TS::DashDotDot);
     cursor->setCursorStyle(ScopeCursor::SmallCrosshair);
-    cursor->setLineStyle(ScopeTraceStyle::DashDotDot);
     ScopeController d;
     d.initialize();
     d.restoreSettings(c.saveSettings());
-    QCOMPARE(d.cursor1()->lineWidth(), 3.0);
-    QCOMPARE(d.cursor1()->pointStyle(), ScopeTraceStyle::Circle);
+    QCOMPARE(d.cursor1()->style()->lineWidth(), 3.0);
+    QCOMPARE(d.cursor1()->style()->pointStyle(), TS::Circle);
     QCOMPARE(d.cursor1()->cursorStyle(), ScopeCursor::SmallCrosshair);
     cursor->setCursorStyle(ScopeCursor::NoCursor);
     QCOMPARE(cursor->cursorStyle(), ScopeCursor::NoCursor);
     cursor->resetStyle();
-    QCOMPARE(cursor->lineWidth(), 1.0);
+    QCOMPARE(cursor->style()->lineWidth(), 1.0);
+    QCOMPARE(cursor->style()->lineStyle(), TS::Dash);
     QCOMPARE(cursor->cursorStyle(), ScopeCursor::VerticalLine);
-    QCOMPARE(cursor->pointStyle(), ScopeTraceStyle::NoPoints);
+    QCOMPARE(cursor->style()->pointStyle(), TS::NoPoints);
 }
 
-// Audit scope #5: one Reset to Default for the whole Graph Properties card.
-void TestScope::resetGraphProperties()
+// Reset Settings… (pane ⋯ menu) also returns every trace style, the cursors and the measurement
+// selection to their defaults (the old Graph Properties "Reset to Default").
+void TestScope::resetRestoresStyles()
 {
+    using TS = mybench::plot::TraceStyle;
     ScopeController c;
     c.initialize();
     c.channel0()->style()->setLineWidth(4);
-    c.channel1()->style()->setPointStyle(ScopeTraceStyle::Cross);
-    c.math()->style()->setLineColor(u"#ff0000"_s);
+    c.channel1()->style()->setPointStyle(TS::Cross);
+    c.math()->style()->setLineColor(QColor(u"#ff0000"_s));
     c.refBStyle()->setLineWidth(3);
-    c.cursor2()->setLineWidth(5);
-    c.setBackground(ScopeController::White);
-    c.channel0()->setMeasurementMask(ScopeChannel::Mean | ScopeChannel::Rms);
+    c.cursor2()->style()->setLineWidth(5);
+    c.setMeasurementShown(ScopeChannel::Mean, true);
     c.setShowDeltaTime(false);
-    c.resetGraphProperties();
+    c.resetSettings();
     QCOMPARE(c.channel0()->style()->lineWidth(), 1.0);
-    QCOMPARE(c.channel1()->style()->pointStyle(), ScopeTraceStyle::NoPoints);
-    QVERIFY(c.math()->style()->lineColor().isEmpty());
+    QCOMPARE(c.channel1()->style()->pointStyle(), TS::NoPoints);
+    QVERIFY(!c.math()->style()->lineColor().isValid());
     QCOMPARE(c.refBStyle()->lineWidth(), 1.2);
-    QCOMPARE(c.refBStyle()->lineStyle(), ScopeTraceStyle::Dot);
-    QCOMPARE(c.cursor2()->lineWidth(), 1.0);
-    QCOMPARE(c.background(), ScopeController::ThemeBackground);
+    QCOMPARE(c.refBStyle()->lineStyle(), TS::Dot);
+    QCOMPARE(c.cursor2()->style()->lineWidth(), 1.0);
     QCOMPARE(c.channel0()->measurementMask(), int(ScopeChannel::kElvisMeasurements));
     QVERIFY(c.showDeltaTime());
+}
+
+// Sessions of older versions: ScopeTraceStyle key names, the cursor look in the cursor, the
+// Graph Properties background (now the app's dark-displays preference) and Display Measurements.
+void TestScope::legacyStylesMigrate()
+{
+    using TS = mybench::plot::TraceStyle;
+    const QByteArray old = R"({
+        "background": "White",
+        "channel0": { "source": "AI0", "enabled": true, "voltsPerDiv": 0.5, "displayMeasurements": false,
+                      "style": { "lineColor": "#ff8800", "lineWidth": 2, "lineStyle": "DashDot",
+                                 "pointStyle": "FilledSquare", "interpolation": "Step", "fillTo": "Zero",
+                                 "fillColor": "", "points": true } },
+        "mathTrace": { "enabled": false, "operation": "Difference",
+                       "style": { "lineStyle": "Solid", "pointStyle": "NoPoints", "fillTo": "NoFill" } },
+        "cursor1": { "channel": 1, "color": "#00ffff", "lineStyle": "Dot", "lineWidth": 3,
+                     "pointStyle": "Circle", "cursorStyle": "FullCrosshair", "showValue": false },
+        "refAStyle": { "lineStyle": "DashDotDot", "lineWidth": 2 }
+    })";
+    ScopeController c;
+    c.initialize();
+    c.restoreSettings(QJsonDocument::fromJson(old).object());
+    TS* style = c.channel0()->style();
+    QCOMPARE(style->lineColor(), QColor(u"#ff8800"_s));
+    QCOMPARE(style->lineWidth(), 2.0);
+    QCOMPARE(style->lineStyle(), TS::DashDot);
+    QCOMPARE(style->pointStyle(), TS::FilledSquare);
+    QCOMPARE(style->interpolation(), TS::Step);
+    QCOMPARE(style->fillTo(), TS::Zero);
+    QVERIFY(!style->fillColor().isValid());
+    QCOMPARE(c.channel0()->voltsPerDiv(), 0.5);
+    QCOMPARE(c.math()->operation(), ScopeMath::Difference);
+    QCOMPARE(c.math()->style()->pointStyle(), TS::NoPoints);
+    QCOMPARE(c.math()->style()->fillTo(), TS::NoFill);
+    QCOMPARE(c.cursor1()->channel(), 1);
+    QCOMPARE(c.cursor1()->style()->lineColor(), QColor(u"#00ffff"_s));
+    QCOMPARE(c.cursor1()->style()->lineStyle(), TS::Dot);
+    QCOMPARE(c.cursor1()->style()->lineWidth(), 3.0);
+    QCOMPARE(c.cursor1()->style()->pointStyle(), TS::Circle);
+    QCOMPARE(c.cursor1()->cursorStyle(), ScopeCursor::FullCrosshair);
+    QVERIFY(!c.cursor1()->showValue());
+    QCOMPARE(c.refAStyle()->lineStyle(), TS::DashDotDot);
+    // Saved again in the new format, without the removed settings.
+    const QJsonObject saved = c.saveSettings();
+    QVERIFY(!saved.contains(u"background"_s));
+    QVERIFY(!saved.value(u"channel0"_s).toObject().contains(u"displayMeasurements"_s));
+    QCOMPARE(saved.value(u"channel0"_s).toObject().value(u"style"_s).toObject().value(u"lineStyle"_s).toString(), u"dashDot"_s);
+}
+
+// Older sessions had the spectrum as a math function: it moves to the FFT section (the only FFT
+// path) and the math trace goes off; a disabled FFT math only falls back to a regular operation.
+void TestScope::legacyMathFftMigrates()
+{
+    const QByteArray fftOfCh1 = R"({ "fftSource": "FftOff",
+        "mathTrace": { "enabled": true, "operation": "FftB", "voltsPerDiv": 2 } })";
+    ScopeController c;
+    c.initialize();
+    c.restoreSettings(QJsonDocument::fromJson(fftOfCh1).object());
+    QCOMPARE(c.fftSource(), ScopeController::FftChannel1);
+    QVERIFY(c.fftShown());
+    QVERIFY(!c.math()->enabled());
+    QVERIFY(!c.math()->fft());
+    QCOMPARE(c.math()->operation(), ScopeMath::Sum);
+    QCOMPARE(c.math()->voltsPerDiv(), 2.0);
+
+    const QByteArray disabledFft = R"({ "fftSource": "FftOff",
+        "mathTrace": { "enabled": false, "operation": "FftA" } })";
+    ScopeController d;
+    d.initialize();
+    d.restoreSettings(QJsonDocument::fromJson(disabledFft).object());
+    QCOMPARE(d.fftSource(), ScopeController::FftOff);
+    QVERIFY(!d.fftShown());
+    QCOMPARE(d.math()->operation(), ScopeMath::Sum);
+
+    // The math trace cannot become an FFT any more; the FFT view does not depend on math.
+    d.math()->setEnabled(true);
+    d.math()->setOperation(ScopeMath::FftA);
+    QCOMPARE(d.math()->operation(), ScopeMath::Sum);
+    QVERIFY(!d.fftShown());
+    d.setFftSource(ScopeController::FftChannel0);
+    QVERIFY(d.fftShown());
+}
+
+// The measurement strip has one set of rows for every channel: adding or removing one writes both
+// channels; older sessions with per-channel choices keep the union. Every measurement can be shown.
+void TestScope::measurementSelectionIsShared()
+{
+    ScopeController c;
+    c.initialize();
+    c.setMeasurementShown(ScopeChannel::Phase, true);   // the last flag of the catalog
+    c.setMeasurementShown(ScopeChannel::Rms, false);
+    const int expected = (ScopeChannel::kElvisMeasurements & ~ScopeChannel::Rms) | ScopeChannel::Phase;
+    QCOMPARE(c.channel0()->measurementMask(), expected);
+    QCOMPARE(c.channel1()->measurementMask(), expected);
+    QVERIFY(c.channel1()->shows(ScopeChannel::Phase));
+    QCOMPARE(c.measurementCatalog().size(), qsizetype(ScopeChannel::kMeasurementCount));
+    c.channel0()->setMeasurementMask(ScopeChannel::kAllMeasurements);
+    QCOMPARE(c.channel0()->readouts().size(), qsizetype(ScopeChannel::kMeasurementCount));
+
+    const QByteArray old = R"({ "channel0": { "measurementMask": 1 }, "channel1": { "measurementMask": 8 } })";
+    ScopeController d;
+    d.initialize();
+    d.restoreSettings(QJsonDocument::fromJson(old).object());
+    QCOMPARE(d.channel0()->measurementMask(), int(ScopeChannel::Rms | ScopeChannel::Mean));
+    QCOMPARE(d.channel1()->measurementMask(), int(ScopeChannel::Rms | ScopeChannel::Mean));
+}
+
+// The pane-header state text comes from the controller only: Running (Immediate), Triggered,
+// Waiting for trigger (Normal / Clear) and Timeout — free running (Auto).
+void TestScope::stateText()
+{
+    mybench::DeviceHub::instance()->select(u"sim:0"_s);
+    ScopeController c;
+    c.initialize();
+    c.setTimePerDiv(1e-3);
+    c.run();
+    QTRY_VERIFY_WITH_TIMEOUT(c.hasRecord(), 5000);
+    QVERIFY(c.statusText().isEmpty());   // Immediate: "Running"
+    c.setTriggerType(ScopeController::Edge);
+    QTRY_COMPARE_WITH_TIMEOUT(c.statusText(), u"Triggered"_s, 5000);
+    c.setTriggerTimeout(0.25);
+    c.setTriggerLevel(3.0);   // above the 1 V test signal
+    QTRY_COMPARE_WITH_TIMEOUT(c.statusText(), u"Waiting for trigger"_s, 5000);
+    c.setNoTriggerMode(ScopeController::ShowUntriggered);
+    QTRY_COMPARE_WITH_TIMEOUT(c.statusText(), u"Timeout — free running"_s, 5000);
+    c.setTriggerLevel(0.0);
+    QTRY_COMPARE_WITH_TIMEOUT(c.statusText(), u"Triggered"_s, 5000);
+    c.setTriggerType(ScopeController::Immediate);
+    QTRY_VERIFY_WITH_TIMEOUT(c.statusText().isEmpty(), 5000);
+    c.stop();
+    QTRY_VERIFY_WITH_TIMEOUT(c.isIdle(), 2000);
+    QVERIFY(c.statusText().isEmpty());
+}
+
+// The ELVISmx "Log" TXT layout is a registered table writer of the scope (Export Data… "*.txt").
+void TestScope::textLogWriter()
+{
+    registerScope(*mybench::InstrumentRegistry::instance());
+    QVERIFY(mybench::DataExport::instance()->nameFiltersFor(u"scope"_s).first().contains(u"*.txt"_s));
+    mybench::DeviceHub::instance()->select(u"sim:0"_s);
+    ScopeController c;
+    c.initialize();
+    c.setChannelEnabled(1, true);
+    c.runOnce();
+    QTRY_VERIFY_WITH_TIMEOUT(c.isIdle() && c.hasRecord(), 5000);
+    QTemporaryDir dir;
+    const QString txt = dir.filePath(u"scope.txt"_s);
+    QVERIFY(c.exportData(QUrl::fromLocalFile(txt)));
+    QFile log(txt);
+    QVERIFY(log.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QStringList lines = QString::fromUtf8(log.readAll()).split(u'\n');
+    QCOMPARE(lines.value(0), u"waveform\tCh0\t\tCh1\t"_s);
+    QVERIFY(lines.value(1).startsWith(u"t0\t"_s));
+    QCOMPARE(lines.value(2), u"delta t\t2.000000E-5\t\t2.000000E-5\t"_s);   // 50 kS/s at 5 ms/div
+    QVERIFY(lines.value(3).isEmpty());
+    QCOMPARE(lines.value(4), u"time[0]\tCh0\ttime[1]\tCh1"_s);
+    QCOMPARE(lines.size(), 5 + c.recordLength() + 1);   // + the empty string after the last newline
+    const QStringList first = lines.value(5).split(u'\t');
+    QCOMPARE(first.size(), 4);
+    QVERIFY(first[1].contains(u'E'));
+    // The generic tab-separated writer keeps "*.tsv".
+    const QString tsv = dir.filePath(u"scope.tsv"_s);
+    QVERIFY(c.exportData(QUrl::fromLocalFile(tsv)));
+    QFile table(tsv);
+    QVERIFY(table.open(QIODevice::ReadOnly));
+    QVERIFY(QString::fromUtf8(table.readAll()).contains(u"Time (s)\tCH 0 (V)\tCH 1 (V)"_s));
 }
 
 // Audit scope #7: Trigger Type Edge selects Chan 0 Source again.

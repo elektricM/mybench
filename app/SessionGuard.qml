@@ -1,9 +1,9 @@
 import QtQuick
 import MyBench.Framework
 
-// Save-first guard of the session actions (app.md 11.2): Open, Open recent and Quit ask to save
-// a modified *named* session first (Save / Don't save / Cancel); an untitled session is handled
-// by the New-session confirmation. Also the window title (app.md 2.1: name + modified marker).
+// Save-first guard of the session actions: Open, Open Recent and Quit ask to save a modified
+// *named* session first (Save / Don't Save / Cancel); an untitled session is handled by the
+// New Session confirmation. Also the titles: the session name, "— Edited" while modified.
 //     SessionGuard { id: guard; onSaveFirstRequested: saveFirstDialog.open() }
 //     guard.run(() => SessionManager.load(file))
 QtObject {
@@ -13,8 +13,9 @@ QtObject {
     property var pending: null
     readonly property bool named: SessionManager.currentFile.toString().length > 0
     readonly property bool needsPrompt: SessionManager.modified && named
-    readonly property string windowTitle: AppInfo.name + " — " + SessionManager.currentName
-                                          + (SessionManager.modified ? " •" : "")
+    readonly property string editedSuffix: SessionManager.modified ? " — " + qsTr("Edited") : ""
+    readonly property string documentTitle: SessionManager.currentName + editedSuffix
+    readonly property string windowTitle: AppInfo.name + " — " + documentTitle
 
     signal saveFirstRequested()
 

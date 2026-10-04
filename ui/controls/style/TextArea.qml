@@ -3,6 +3,7 @@ import QtQuick.Controls.impl
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// Multi-line text: the text field look.
 T.TextArea {
     id: control
 
@@ -13,12 +14,15 @@ T.TextArea {
                              implicitBackgroundHeight + topInset + bottomInset,
                              placeholder.implicitHeight + topPadding + bottomPadding)
 
-    padding: 8
+    padding: Theme.spacingS
+    topPadding: Theme.spacingXs + 2
+    bottomPadding: Theme.spacingXs + 2
     hoverEnabled: true
+    font.pixelSize: Theme.fontSizeBody
     color: enabled ? Theme.text : Theme.textDisabled
-    selectionColor: Theme.alpha(Theme.accent, 0.35)
-    selectedTextColor: Theme.text
-    placeholderTextColor: Theme.textMuted
+    selectionColor: Theme.selection
+    selectedTextColor: Theme.selectionText
+    placeholderTextColor: Theme.textTertiary
     selectByMouse: true
 
     ContextMenu.menu: TextEditMenu {
@@ -42,10 +46,11 @@ T.TextArea {
 
     background: Rectangle {
         implicitWidth: 200
-        implicitHeight: 60
-        radius: Theme.radiusM
-        color: Theme.surfaceSunken
-        border.width: 1
-        border.color: control.activeFocus ? Theme.accent : control.hovered ? Theme.borderStrong : Theme.border
+        implicitHeight: 3 * Theme.lineHeight
+        radius: Theme.radiusControl
+        color: Theme.base
+        opacity: control.enabled ? 1 : 0.6
+        border.width: Theme.borderWidth
+        border.color: control.activeFocus && !control.readOnly ? Theme.accent : Theme.controlBorder
     }
 }

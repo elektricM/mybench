@@ -10,6 +10,7 @@
 
 #include <QClipboard>
 #include <QFile>
+#include <QJsonObject>
 #include <QGuiApplication>
 #include <QSignalSpy>
 #include <QSettings>
@@ -295,6 +296,23 @@ private slots:
         QVERIFY(!a->outputOn());
         QCOMPARE(a->readoutText(), u"OFF"_s);
         QVERIFY(std::abs(ai0()) < 0.01);
+    }
+
+    void restoreIgnoresHiddenOptions()
+    {
+        // Round 2 UI: no Engine combo, no "Whole 250 ms steps" switch; old sessions that set
+        // them are restored with the defaults.
+        m_gen->setEngineMode(GenController::Regenerate);
+        m_gen->channel0()->setSweepBlockTiming(true);
+        m_gen->channel1()->setSweepBlockTiming(true);
+        m_gen->channel0()->setFrequency(1234);
+        const QJsonObject saved = m_gen->saveSettings();
+        m_gen->resetSettings();
+        m_gen->restoreSettings(saved);
+        QCOMPARE(m_gen->engineMode(), GenController::Auto);
+        QVERIFY(!m_gen->channel0()->sweepBlockTiming());
+        QVERIFY(!m_gen->channel1()->sweepBlockTiming());
+        QCOMPARE(m_gen->channel0()->frequency(), 1234.0);   // everything else is restored
     }
 
     void singleHoldsThenReleases()

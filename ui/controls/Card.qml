@@ -1,30 +1,25 @@
 import QtQuick
 import QtQuick.Layouts
 
-// Plain raised container with an optional title row (Home cards, dashboard groups). Children
-// are stacked in a column (give them Layout.fillWidth: true).
+// v1 compatibility (no cards in panes): a flat titled group — heading, optional subtitle and tools,
+// then the content in a column (give children Layout.fillWidth: true).
 //     Card { title: qsTr("Device"); ColumnLayout { ... } }
-Rectangle {
+Item {
     id: root
 
     property string title
     property string subtitle
     property string iconName
-    property int padding: Theme.spacingL
-    property bool hoverable: false
-    readonly property bool hovered: hover.hovered
+    property int padding: 0
+    property bool hoverable: false      // v1, ignored
+    readonly property bool hovered: false
+    property color color: "transparent" // v1, ignored
+    property real radius: 0             // v1, ignored
     default property alias content: body.data
     property alias headerTools: tools.data
 
-    implicitWidth: Math.max(200, body.implicitWidth + 2 * padding)
-    implicitHeight: (titleRow.visible ? titleRow.implicitHeight + Theme.spacingM : 0) + body.implicitHeight + 2 * padding
-    radius: Theme.radiusXl
-    color: Theme.surfaceRaised
-    border.width: 1
-    border.color: hoverable && hovered ? Theme.borderStrong : Theme.border
-    Behavior on border.color { ColorAnimation { duration: Theme.durationFast } }
-
-    HoverHandler { id: hover; enabled: root.hoverable }
+    implicitWidth: Math.max(titleRow.visible ? titleRow.implicitWidth : 0, body.implicitWidth) + 2 * padding
+    implicitHeight: (titleRow.visible ? titleRow.implicitHeight + Theme.spacingS : 0) + body.implicitHeight + 2 * padding
 
     RowLayout {
         id: titleRow
@@ -44,14 +39,14 @@ Rectangle {
             Text {
                 text: root.title
                 color: Theme.text
-                font.pixelSize: Theme.fontSizeL
+                font.pixelSize: Theme.fontSizeHeading
                 font.weight: Font.DemiBold
             }
             Text {
                 visible: root.subtitle.length > 0
                 text: root.subtitle
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeM
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeSmall
             }
         }
         Row {
@@ -63,7 +58,7 @@ Rectangle {
     ColumnLayout {
         id: body
         x: root.padding
-        y: root.padding + (titleRow.visible ? titleRow.implicitHeight + Theme.spacingM : 0)
+        y: root.padding + (titleRow.visible ? titleRow.implicitHeight + Theme.spacingS : 0)
         width: root.width - 2 * root.padding
         spacing: Theme.spacingS
     }

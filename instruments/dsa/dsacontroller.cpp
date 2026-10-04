@@ -70,6 +70,17 @@ DsaController::DsaController() : InstrumentController(u"dsa"_s)
         setSummary(isOctave() ? tr("AI %1 · 1/3 octave").arg(Units::format(expectedSampleRate(), u"S/s"_s, 3))
                               : tr("AI %1 · %2 lines").arg(Units::format(expectedSampleRate(), u"S/s"_s, 3)).arg(lines()));
     });
+    // Key value (sidebar, Overview): "1.00 kHz −6.02 dBV" (fundamental), "Overall −12.3 dBV(A)".
+    auto updateKeyValue = [this] {
+        setKeyValue(isOctave() ? (hasOctaveResult() ? tr("Overall %1 dBV%2").arg(dsa::fixedText(octaveOverall(), 1).replace(u'-', QChar(0x2212)),
+                                                                            octaveWeightingSuffix())
+                                                    : QString())
+                    : hasResult() && fundamentalFrequency() > 0
+                        ? Units::format(fundamentalFrequency(), u"Hz"_s, 3, false) + u' ' + fundamentalPowerText()
+                        : QString());
+    };
+    connect(this, &DsaController::resultsChanged, this, updateKeyValue);
+    connect(this, &DsaController::octaveResultsChanged, this, updateKeyValue);
 }
 
 DsaController::~DsaController()
@@ -1377,6 +1388,7 @@ void registerDsa(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Dsa"_s,
         .icon = u"instrument-dsa"_s,
         .order = 50,
+        .group = QStringLiteral("measure"),
         .createController = [] { return new DsaController; },
     });
 }

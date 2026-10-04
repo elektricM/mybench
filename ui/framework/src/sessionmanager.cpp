@@ -30,6 +30,8 @@ constexpr int kVersion = 1;
 constexpr int kMaxRecent = 10;
 const QString kWorkspaceKey = u"workspace/layout"_s;
 const QString kViewKey = u"workspace/view"_s;
+const QString kViewVersionKey = u"workspace/viewVersion"_s;   // QSettings
+const QString kSessionViewVersion = u"viewVersion"_s;         // session JSON
 const QString kRecentKey = u"session/recent"_s;
 const QString kCurrentKey = u"session/current"_s;
 
@@ -52,6 +54,12 @@ SessionManager::SessionManager(QObject* parent) : QObject(parent)
     const QJsonDocument view = QJsonDocument::fromJson(settings.value(kViewKey).toByteArray());
     if (view.isObject())
         m_viewState = view.object().toVariantMap();
+    // Once: the v1 section keys used the translated title (UI v2 keys them by section id).
+    if (settings.value(kViewVersionKey, 1).toInt() < kViewStateVersion) {
+        if (pruneLegacyViewKeys(m_viewState) > 0)
+            settings.setValue(kViewKey, QJsonDocument(QJsonObject::fromVariantMap(m_viewState)).toJson(QJsonDocument::Compact));
+        settings.setValue(kViewVersionKey, kViewStateVersion);
+    }
     const QString current = settings.value(kCurrentKey).toString();
     if (!current.isEmpty() && QFileInfo::exists(current))
         m_currentFile = QUrl::fromLocalFile(current);
@@ -107,6 +115,7 @@ QJsonObject SessionManager::toJson() const
                                             {u"name"_s, DeviceHub::instance()->name()}});
     session.insert(u"layout"_s, QJsonObject::fromVariantMap(m_workspace));
     session.insert(u"view"_s, QJsonObject::fromVariantMap(m_viewState));
+    session.insert(kSessionViewVersion, kViewStateVersion);
     QJsonObject instruments;
     InstrumentRegistry* registry = InstrumentRegistry::instance();
     for (const InstrumentDescriptor& descriptor : registry->descriptors()) {
@@ -166,6 +175,8 @@ bool SessionManager::fromJson(const QJsonObject& session)
     m_workspace = (session.contains(u"layout"_s) ? session.value(u"layout"_s) : session.value(u"workspace"_s))
                       .toObject().toVariantMap();
     m_viewState = session.value(u"view"_s).toObject().toVariantMap();
+    if (session.value(kSessionViewVersion).toInt(1) < kViewStateVersion)
+        pruneLegacyViewKeys(m_viewState);   // a session saved before UI v2
     m_workspaceSaveTimer.start();
     emit workspaceChanged();
     emit viewStateChanged();
@@ -338,6 +349,20 @@ void SessionManager::setWorkspace(const QVariantMap& workspace)
     if (!m_applying)
         setModified(true);
     m_workspaceSaveTimer.start();
+}
+
+int SessionManager::pruneLegacyViewKeys(QVariantMap& viewState)
+{
+    int removed = 0;
+    for (auto it = viewState.begin(); it != viewState.end();) {
+        if (it.key().startsWith(u"collapsed/"_s)) {
+            it = viewState.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+    return removed;
 }
 
 void SessionManager::setViewValue(const QString& key, const QVariant& value)

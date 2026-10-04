@@ -2,38 +2,43 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// Tooltip: a small neutral surface with a hairline border, secondary-size text, sentence case.
+// One delay everywhere (Theme.toolTipDelay): a positive delay set by a caller is normalized to it;
+// 0 still means "show now" (validation messages).
 T.ToolTip {
     id: control
 
-    x: parent ? (parent.width - implicitWidth) / 2 : 0
-    y: -implicitHeight - 6
-    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            implicitContentWidth + leftPadding + rightPadding)
+    x: parent ? Math.round((parent.width - implicitWidth) / 2) : 0
+    y: -implicitHeight - 4
+    implicitWidth: Math.min(360, Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                                          implicitContentWidth + leftPadding + rightPadding))
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-    margins: 8
-    topPadding: 5
-    bottomPadding: 5
-    leftPadding: 9
-    rightPadding: 9
-    font.pixelSize: Theme.fontSizeM
+    margins: Theme.spacingS
+    topPadding: 4
+    bottomPadding: 4
+    leftPadding: Theme.spacingS
+    rightPadding: Theme.spacingS
+    font.pixelSize: Theme.fontSizeSmall
+    delay: Theme.toolTipDelay
+    onDelayChanged: {
+        if (delay > 0 && delay !== Theme.toolTipDelay)
+            delay = Theme.toolTipDelay
+    }
     closePolicy: T.Popup.CloseOnEscape | T.Popup.CloseOnPressOutsideParent | T.Popup.CloseOnReleaseOutsideParent
-
-    enter: Transition { NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationFast } }
-    exit: Transition { NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durationFast } }
 
     contentItem: Text {
         text: control.text
         font: control.font
         wrapMode: Text.Wrap
-        color: Theme.dark ? Theme.text : "#F4F5F7"
+        color: Theme.text
     }
 
     background: Rectangle {
-        radius: Theme.radiusS
-        color: Theme.dark ? "#2A2D35" : "#22252C"
-        border.width: Theme.dark ? 1 : 0
-        border.color: "#383C46"
+        radius: Theme.radiusControl
+        color: Theme.dark ? Theme.mix(Theme.window, "#FFFFFF", 0.06) : Theme.base
+        border.width: Theme.borderWidth
+        border.color: Theme.alpha(Theme.text, Theme.dark ? 0.2 : 0.16)
     }
 }

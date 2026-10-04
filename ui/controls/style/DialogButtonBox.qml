@@ -3,6 +3,8 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// The button row of a dialog: right-aligned, the accept button is the primary (accent) button,
+// dialog buttons are Theme.controlHeightL tall and at least 80 px wide.
 T.DialogButtonBox {
     id: control
 
@@ -12,13 +14,15 @@ T.DialogButtonBox {
                              implicitContentHeight + topPadding + bottomPadding)
     contentWidth: (contentItem as ListView)?.contentWidth ?? 0
 
-    spacing: 8
-    padding: 16
-    topPadding: 8
-    alignment: count === 1 ? Qt.AlignRight : undefined
+    spacing: Theme.spacingS
+    padding: Theme.spacingL + 4
+    topPadding: Theme.spacingM
+    bottomPadding: Theme.spacingL
+    alignment: Qt.AlignRight
 
     delegate: Button {
         width: Math.max(implicitWidth, 80)
+        implicitHeight: Theme.controlHeightL
         highlighted: DialogButtonBox.buttonRole === DialogButtonBox.AcceptRole || DialogButtonBox.buttonRole === DialogButtonBox.YesRole
     }
 

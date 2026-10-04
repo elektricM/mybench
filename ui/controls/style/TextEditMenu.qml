@@ -1,16 +1,15 @@
 import QtQuick
 import QtQuick.Templates as T
 
-// Context menu of text fields: Undo/Redo, Cut/Copy/Paste/Delete, Select All. Native where the
-// platform has native menus (macOS, Windows), our Menu otherwise.
+// Context menu of text fields: Undo/Redo, Cut/Copy/Paste/Delete, Select All. Native (the style's
+// Menu rule: in-window only in screenshot/test mode).
 // The actions are defined here rather than taken from QtQuick.Controls.impl: RedoAction (and
 // possibly others) only exist from Qt 6.10, and the minimum is 6.9.
 Menu {
     id: menu
 
-    required property Item editor
+    required property var editor   // TextField or TextArea (TextInput/TextEdit API)
 
-    popupType: T.Popup.Native
 
     T.Action {
         text: qsTr("Undo")

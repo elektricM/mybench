@@ -1,13 +1,16 @@
 // Settings groups of the Oscilloscope, exposed to QML as sub-objects of ScopeController:
-//   ScopeTraceStyle  Graph Properties > Plots of one trace (color, line, points, interpolation, fill)
-//   ScopeChannel     "Channel 0 Settings" / "Channel 1 Settings" + its measurement results
+//   ScopeChannel     the Channel 0 / Channel 1 inspector sections + the channel's measurement results
 //   ScopeMath        the math trace (MYBENCH extension)
-//   ScopeCursor      C1 / C2 (Cursors Settings + Graph Properties > Cursors)
+//   ScopeCursor      C1 / C2 (linked trace, position, cursor style)
+// Trace and cursor looks (ELVISmx Graph Properties > Plots / Cursors) are shared
+// mybench::plot::TraceStyle objects, edited in the shared TraceStyleDialog.
 // Every writable, notifying property is a setting: the controller persists these objects with
 // saveExtraSettings()/restoreExtraSettings() and watches their notify signals.
 #pragma once
 
 #include "scopecore.h"
+
+#include <mybench/plot/tracestyle.h>
 
 #include <QColor>
 #include <QJsonObject>
@@ -17,73 +20,6 @@
 #include <QtQml/qqmlregistration.h>
 
 namespace mybench::instruments {
-
-class ScopeTraceStyle : public QObject
-{
-    Q_OBJECT
-    QML_ELEMENT
-    QML_UNCREATABLE("Owned by ScopeController")
-    // Color name ("#rrggbb"); empty = the theme's channel color.
-    Q_PROPERTY(QString lineColor READ lineColor WRITE setLineColor NOTIFY changed)
-    Q_PROPERTY(double lineWidth READ lineWidth WRITE setLineWidth NOTIFY changed)
-    Q_PROPERTY(LineStyle lineStyle READ lineStyle WRITE setLineStyle NOTIFY changed)
-    Q_PROPERTY(bool points READ points WRITE setPoints NOTIFY changed)
-    // Point marker shape (NoPoints hides the points); `points` is the on/off shortcut.
-    Q_PROPERTY(PointStyle pointStyle READ pointStyle WRITE setPointStyle NOTIFY changed)
-    Q_PROPERTY(Interpolation interpolation READ interpolation WRITE setInterpolation NOTIFY changed)
-    Q_PROPERTY(FillTo fillTo READ fillTo WRITE setFillTo NOTIFY changed)
-    // Empty = the line color.
-    Q_PROPERTY(QString fillColor READ fillColor WRITE setFillColor NOTIFY changed)
-
-public:
-    // LineStyle has the order of PlotElement::LineStyle, Interpolation of PlotTrace::Interpolation
-    // (after PointsOnly), PointStyle of PlotTrace::PointShape (after NoPoints).
-    enum LineStyle { Solid, Dash, Dot, DashDot, DashDotDot };
-    Q_ENUM(LineStyle)
-    enum Interpolation { PointsOnly, Linear, Step, StepVertical, CenterStep, CenterStepVertical };
-    Q_ENUM(Interpolation)
-    enum PointStyle { NoPoints, FilledCircle, Circle, Square, FilledSquare, Diamond, FilledDiamond, Cross, Plus, X };
-    Q_ENUM(PointStyle)
-    enum FillTo { NoFill, Zero, MinusInfinity, PlusInfinity };
-    Q_ENUM(FillTo)
-
-    explicit ScopeTraceStyle(QObject* parent = nullptr) : QObject(parent) {}
-
-    QString lineColor() const { return m_lineColor; }
-    void setLineColor(const QString& color);
-    double lineWidth() const { return m_lineWidth; }
-    void setLineWidth(double width);
-    LineStyle lineStyle() const { return m_lineStyle; }
-    void setLineStyle(LineStyle style);
-    bool points() const { return m_pointStyle != NoPoints; }
-    void setPoints(bool on);
-    PointStyle pointStyle() const { return m_pointStyle; }
-    void setPointStyle(PointStyle style);
-    Interpolation interpolation() const { return m_interpolation; }
-    void setInterpolation(Interpolation interpolation);
-    FillTo fillTo() const { return m_fillTo; }
-    void setFillTo(FillTo fill);
-    QString fillColor() const { return m_fillColor; }
-    void setFillColor(const QString& color);
-
-    // What reset() restores (default: 1 px solid line); the reference traces are dashed / dotted.
-    void setDefaults(LineStyle style, double width);
-    Q_INVOKABLE void reset();
-
-signals:
-    void changed();
-
-private:
-    QString m_lineColor;
-    double m_lineWidth = 1.0;   // ELVISmx default; 0 = "none" (no line)
-    LineStyle m_lineStyle = Solid;
-    LineStyle m_defaultLineStyle = Solid;
-    double m_defaultLineWidth = 1.0;
-    PointStyle m_pointStyle = NoPoints;
-    Interpolation m_interpolation = Linear;
-    FillTo m_fillTo = NoFill;
-    QString m_fillColor;
-};
 
 class ScopeChannel : public QObject
 {
@@ -99,9 +35,8 @@ class ScopeChannel : public QObject
     Q_PROPERTY(double voltsPerDiv READ voltsPerDiv WRITE setVoltsPerDiv NOTIFY voltsPerDivChanged)
     Q_PROPERTY(double position READ position WRITE setPosition NOTIFY positionChanged)
     Q_PROPERTY(InputRange inputRange READ inputRange WRITE setInputRange NOTIFY inputRangeChanged)
-    Q_PROPERTY(bool displayMeasurements READ displayMeasurements WRITE setDisplayMeasurements NOTIFY displayMeasurementsChanged)
     Q_PROPERTY(int measurementMask READ measurementMask WRITE setMeasurementMask NOTIFY measurementMaskChanged)
-    Q_PROPERTY(mybench::instruments::ScopeTraceStyle* style READ style CONSTANT)
+    Q_PROPERTY(mybench::plot::TraceStyle* style READ style CONSTANT)
     // Derived
     Q_PROPERTY(bool audio READ audio NOTIFY sourceChanged)
     Q_PROPERTY(QString sourceName READ sourceName NOTIFY sourceChanged)
@@ -125,18 +60,19 @@ public:
     Q_ENUM(Source)
     enum InputRange { Auto, Range10V, Range2V };
     Q_ENUM(InputRange)
-    // Measurement flags (Graph Properties > Measurements + MYBENCH extras).
+    // Measurement flags (the ELVISmx three + MYBENCH extras), chosen in the measurement strip.
     enum Measurement {
         Rms = 1 << 0, Frequency = 1 << 1, PeakToPeak = 1 << 2,
         Mean = 1 << 3, Minimum = 1 << 4, Maximum = 1 << 5, Amplitude = 1 << 6,
         Period = 1 << 7, CounterFrequency = 1 << 8, DutyCycle = 1 << 9,
         RiseTime = 1 << 10, FallTime = 1 << 11, PositiveWidth = 1 << 12, NegativeWidth = 1 << 13,
         AcRms = 1 << 14, CrestFactor = 1 << 15, Overshoot = 1 << 16, Preshoot = 1 << 17,
-        SlewRate = 1 << 18, Phase = 1 << 19,
+        SlewRate = 1 << 18, Phase = 1 << 19, Peak = 1 << 20,
     };
     Q_ENUM(Measurement)
     static constexpr int kElvisMeasurements = Rms | Frequency | PeakToPeak;
-    static constexpr int kMeasurementCount = 20;
+    static constexpr int kMeasurementCount = 21;
+    static constexpr int kAllMeasurements = (1 << kMeasurementCount) - 1;
 
     ScopeChannel(int index, Source source, bool enabled, QObject* parent = nullptr);
 
@@ -152,12 +88,10 @@ public:
     void setPosition(double divisions);
     InputRange inputRange() const { return m_inputRange; }
     void setInputRange(InputRange range);
-    bool displayMeasurements() const { return m_displayMeasurements; }
-    void setDisplayMeasurements(bool on);
     int measurementMask() const { return m_measurementMask; }
     void setMeasurementMask(int mask);
-    ScopeTraceStyle* style() { return &m_style; }
-    const ScopeTraceStyle* style() const { return &m_style; }
+    plot::TraceStyle* style() { return &m_style; }
+    const plot::TraceStyle* style() const { return &m_style; }
 
     scope::Source coreSource() const { return scope::Source(int(m_source)); }
     scope::InputRange coreRange() const { return scope::InputRange(int(m_inputRange)); }
@@ -186,6 +120,8 @@ public:
     Q_INVOKABLE void setShown(int measurement, bool on);
     // Every measurement: [{ flag, label, name, extension }], in display order.
     Q_INVOKABLE static QVariantList measurementCatalog();
+    // Numeric value of one measurement of the last record (NaN without one); duty cycle in %.
+    Q_INVOKABLE double measurement(int flag) const;
     static QString measurementLabel(Measurement m);   // short: "RMS", "Freq", "Vp-p"
     static QString measurementName(Measurement m);    // long: "RMS Voltage"
     static double measurementValue(const scope::Measurements& r, Measurement m);
@@ -201,7 +137,6 @@ signals:
     void voltsPerDivChanged();
     void positionChanged();
     void inputRangeChanged();
-    void displayMeasurementsChanged();
     void measurementMaskChanged();
     void rangeChanged();
     void resultsChanged();
@@ -214,9 +149,8 @@ private:
     double m_voltsPerDiv = 1.0;
     double m_position = 0.0;
     InputRange m_inputRange = Auto;
-    bool m_displayMeasurements = true;
     int m_measurementMask = kElvisMeasurements;
-    ScopeTraceStyle m_style;
+    plot::TraceStyle m_style;
     bool m_hasResults = false;
     bool m_frequencyByEdges = false;
     scope::Measurements m_results;
@@ -231,7 +165,7 @@ class ScopeMath : public QObject
     Q_PROPERTY(Operation operation READ operation WRITE setOperation NOTIFY operationChanged)
     Q_PROPERTY(double voltsPerDiv READ voltsPerDiv WRITE setVoltsPerDiv NOTIFY voltsPerDivChanged)
     Q_PROPERTY(double position READ position WRITE setPosition NOTIFY positionChanged)
-    Q_PROPERTY(mybench::instruments::ScopeTraceStyle* style READ style CONSTANT)
+    Q_PROPERTY(mybench::plot::TraceStyle* style READ style CONSTANT)
     Q_PROPERTY(bool fft READ fft NOTIFY operationChanged)
     Q_PROPERTY(QString functionName READ functionName NOTIFY operationChanged)
     Q_PROPERTY(QString unit READ unit NOTIFY operationChanged)          // "V", "V²", "dBV"
@@ -244,7 +178,9 @@ class ScopeMath : public QObject
     Q_PROPERTY(double peakLevel READ peakLevel NOTIFY resultsChanged)           // FFT: dBV
 
 public:
-    // Same order as scope::MathFunction.
+    // Same order as scope::MathFunction. FftA / FftB only exist so that sessions of older versions
+    // (math = FFT of CH n) can be migrated to the FFT section (ScopeController::fftSource):
+    // setOperation() refuses them.
     enum Operation { Sum, Difference, Product, InvertA, InvertB, FftA, FftB };
     Q_ENUM(Operation)
 
@@ -258,7 +194,7 @@ public:
     void setVoltsPerDiv(double v);
     double position() const { return m_position; }
     void setPosition(double divisions);
-    ScopeTraceStyle* style() { return &m_style; }
+    plot::TraceStyle* style() { return &m_style; }
     bool fft() const { return scope::isFft(coreFunction()); }
     QString functionName() const { return scope::mathName(coreFunction()); }
     QString unit() const;
@@ -288,7 +224,7 @@ private:
     Operation m_operation = Sum;
     double m_voltsPerDiv = 1.0;
     double m_position = 0.0;
-    ScopeTraceStyle m_style;
+    plot::TraceStyle m_style;
     double m_rms = scope::kNaN;
     double m_peakToPeak = scope::kNaN;
     double m_peakFrequency = scope::kNaN;
@@ -303,13 +239,12 @@ class ScopeCursor : public QObject
     Q_PROPERTY(QString label READ label CONSTANT)                  // "C1"
     Q_PROPERTY(int channel READ channel WRITE setChannel NOTIFY channelChanged)   // 0, 1 (2 = math)
     Q_PROPERTY(double position READ position WRITE setPosition NOTIFY positionChanged)   // s
-    Q_PROPERTY(QString color READ color WRITE setColor NOTIFY styleChanged)   // "" = theme
-    Q_PROPERTY(mybench::instruments::ScopeTraceStyle::LineStyle lineStyle READ lineStyle WRITE setLineStyle NOTIFY styleChanged)
-    Q_PROPERTY(CursorStyle cursorStyle READ cursorStyle WRITE setCursorStyle NOTIFY styleChanged)
-    Q_PROPERTY(bool showValue READ showValue WRITE setShowValue NOTIFY styleChanged)   // "C1 Volts"
-    Q_PROPERTY(double lineWidth READ lineWidth WRITE setLineWidth NOTIFY styleChanged)
-    // Marker at the cursor's point on the linked plot (ScopeTraceStyle::NoPoints: none).
-    Q_PROPERTY(mybench::instruments::ScopeTraceStyle::PointStyle pointStyle READ pointStyle WRITE setPointStyle NOTIFY styleChanged)
+    Q_PROPERTY(CursorStyle cursorStyle READ cursorStyle WRITE setCursorStyle NOTIFY cursorStyleChanged)
+    // The cursor's C1/C2 row in the measurement strip ("C1 Volts" of ELVISmx).
+    Q_PROPERTY(bool showValue READ showValue WRITE setShowValue NOTIFY showValueChanged)
+    // Color, line style and width, marker at the cursor's point on the linked trace (pointStyle;
+    // NoPoints = none). Interpolation and fill do not apply to a cursor.
+    Q_PROPERTY(mybench::plot::TraceStyle* style READ style CONSTANT)
 
 public:
     // NoCursor hides the cursor graphics (the cursor readouts stay); SmallCrosshair = vertical line
@@ -324,18 +259,13 @@ public:
     void setChannel(int channel);
     double position() const { return m_position; }
     void setPosition(double seconds);
-    QString color() const { return m_color; }
-    void setColor(const QString& color);
-    ScopeTraceStyle::LineStyle lineStyle() const { return m_lineStyle; }
-    void setLineStyle(ScopeTraceStyle::LineStyle style);
     CursorStyle cursorStyle() const { return m_cursorStyle; }
     void setCursorStyle(CursorStyle style);
     bool showValue() const { return m_showValue; }
     void setShowValue(bool on);
-    double lineWidth() const { return m_lineWidth; }
-    void setLineWidth(double width);
-    ScopeTraceStyle::PointStyle pointStyle() const { return m_pointStyle; }
-    void setPointStyle(ScopeTraceStyle::PointStyle style);
+    plot::TraceStyle* style() { return &m_style; }
+    const plot::TraceStyle* style() const { return &m_style; }
+    // Look and cursor style back to the defaults (dashed 1 px line, theme color, no marker).
     Q_INVOKABLE void resetStyle();
 
     QJsonObject save() const;
@@ -344,20 +274,24 @@ public:
 signals:
     void channelChanged();
     void positionChanged();
-    void styleChanged();
+    void cursorStyleChanged();
+    void showValueChanged();
 
 private:
     QString m_label;
     int m_channel;
     int m_defaultChannel;
     double m_position = scope::kNaN;
-    QString m_color;
-    ScopeTraceStyle::LineStyle m_lineStyle = ScopeTraceStyle::Dash;
     CursorStyle m_cursorStyle = VerticalLine;
     bool m_showValue = true;
-    double m_lineWidth = 1.0;
-    ScopeTraceStyle::PointStyle m_pointStyle = ScopeTraceStyle::NoPoints;
+    plot::TraceStyle m_style;
 };
+
+// The style JSON of TraceStyle::toJson(); also reads the format of older versions (ScopeTraceStyle,
+// enum key names such as "Dash", "NoPoints").
+QVariantMap traceStyleJson(const QJsonObject& json);
+// A TraceStyle with these values as its defaults (reset() returns to them).
+void initTraceStyle(plot::TraceStyle& style, plot::TraceStyle::LineStyle lineStyle, double width);
 
 // JSON of every stored, writable, notifying property of `object` (enums by key name).
 QJsonObject saveProperties(const QObject* object);

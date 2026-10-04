@@ -1,32 +1,32 @@
 import QtQuick
 
-// Small tinted label ("SIMULATED", "RUNNING", "AI", "×3").
-//     Badge { text: qsTr("SIMULATED"); color: Theme.simulated }
+// v1 compatibility (deleted in the cleanup phase; state is shown with StatusIndicator, channels with
+// ChannelBadge): a short label in a quiet hairline box, sentence case.
+//     Badge { text: "×3"; color: Theme.textSecondary }
 Item {
     id: root
 
     property string text
-    property color color: Theme.accent
-    property bool solid: false
-    property bool caps: true
-    property int fontSize: Theme.fontSizeXs
+    property color color: Theme.textSecondary
+    property bool solid: false          // v1, ignored (no filled badges)
+    property bool caps: false           // v1, ignored (no capitals)
+    property int fontSize: Theme.fontSizeCaption
     property string iconName
 
-    implicitWidth: row.implicitWidth + 12
-    implicitHeight: Math.max(16, label.implicitHeight + 4)
+    implicitWidth: row.implicitWidth + 2 * Theme.spacingXs + 2
+    implicitHeight: Math.max(16, label.implicitHeight + 2)
 
     Rectangle {
         anchors.fill: parent
-        radius: Theme.radiusXs + 1
-        color: root.solid ? root.color : Theme.tint(root.color)
-        border.width: root.solid ? 0 : 1
-        border.color: Theme.alpha(root.color, Theme.dark ? 0.35 : 0.3)
+        radius: 3
+        color: "transparent"
+        border.width: Theme.borderWidth
+        border.color: Theme.separator
     }
-
     Row {
         id: row
         anchors.centerIn: parent
-        spacing: 4
+        spacing: Theme.spacingXs
         Icon {
             visible: root.iconName.length > 0
             anchors.verticalCenter: parent.verticalCenter
@@ -37,11 +37,9 @@ Item {
         Text {
             id: label
             anchors.verticalCenter: parent.verticalCenter
-            text: root.caps ? root.text.toUpperCase() : root.text
-            color: root.solid ? Theme.onColor(root.color) : root.color
+            text: root.text
+            color: root.color
             font.pixelSize: root.fontSize
-            font.weight: Font.DemiBold
-            font.letterSpacing: root.caps ? 0.6 : 0
         }
     }
 }

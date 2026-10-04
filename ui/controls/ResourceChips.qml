@@ -4,13 +4,20 @@ import QtQuick.Controls
 import QtQuick.Templates as T
 import MyBench.Framework
 
-// "[AI] Scope  [AO] Gen  [DMM]  [CTR · DIO 1]" — who holds which part of the device
-// (ResourceArbiter), one chip per instrument. Clicking a chip emits instrumentClicked(id) (the
-// shell focuses that panel); right-click offers "Stop <panel>".
+// Who holds which part of the device (ResourceArbiter). Two forms:
+// - chips (v1 top bar): "[AI] Scope  [AO] Gen  [DMM]", one per instrument; a click emits
+//   instrumentClicked(id), right-click offers "Stop <panel>";
+// - `textForm: true` (status bar, docs/UI.md §7): plain text "AI: Oscilloscope · AO: Waveform
+//   Generator", also available as `summaryText`.
 Row {
     id: root
 
     property bool showIdle: true
+    property bool textForm: false
+    // "AI: Oscilloscope · AO: Waveform Generator · DIO 0–3: Digital I/O"; "" when idle.
+    readonly property string summaryText: ResourceArbiter.holders
+                                          .map(h => qsTr("%1: %2").arg(h.lines.length > 0 ? h.lines : h.resource).arg(h.title))
+                                          .join(" · ")
     // [{ instrumentId, title, shortTitle, resources: "AI · AO", names: "analog input, ..." }]
     readonly property var groups: {
         const list = []
@@ -42,12 +49,20 @@ Row {
         visible: root.showIdle && ResourceArbiter.holders.length === 0
         anchors.verticalCenter: parent.verticalCenter
         text: qsTr("Device idle")
-        color: Theme.textMuted
-        font.pixelSize: Theme.fontSizeM
+        color: Theme.textTertiary
+        font.pixelSize: root.textForm ? Theme.fontSizeSmall : Theme.fontSizeM
+    }
+    Text {
+        objectName: "resourceSummary"
+        visible: root.textForm && root.summaryText.length > 0
+        anchors.verticalCenter: parent.verticalCenter
+        text: root.summaryText
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fontSizeSmall
     }
 
     Repeater {
-        model: root.groups
+        model: root.textForm ? [] : root.groups
         delegate: T.AbstractButton {
             id: chip
             required property var modelData

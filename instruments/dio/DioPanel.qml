@@ -6,22 +6,40 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Digital I/O panel (docs/instruments/dio.md): the ELVISmx Digital Reader and Digital Writer in
-// one display — Inputs / Outputs numeric values with their radix, eight line cards (DIO 7 ...
-// DIO 0, LED, direction, manual switch, owner) and the timeline of the line states; inspector
-// cards Line Directions, Digital Reader, Digital Writer and Timeline.
+// Digital I/O panel (docs/instruments/dio.md), round-2 layout (docs/UI.md "Round 2"): the ELVISmx
+// Digital Reader and Digital Writer in one display. Pane header: Run, radix (Hex | Bin | Dec);
+// Release Outputs is the pane header's own. Display: Inputs / Outputs values, eight line tiles
+// (DIO 7 ... DIO 0: LED, direction, owner, the manual-pattern switch of OUT lines) and the
+// timeline (window selector in its toolbar). Right column: Lines (direction per line), Reader
+// (sample interval), Writer (pattern picture buttons and its settings), tools (Labels, Timeline).
 Item {
     id: root
 
     required property DioController controller
 
-    readonly property var presetNames: [qsTr("0 - 3"), qsTr("4 - 7"), qsTr("0 - 7"), qsTr("None")]
+    readonly property var presetNames: [qsTr("0-3"), qsTr("4-7"), qsTr("0-7"), qsTr("None")]
     readonly property bool hasInputs: root.controller.inputMask !== 0
     readonly property bool hasOutputs: root.controller.outputMask !== 0
+    readonly property bool narrow: width < 900
+    property string tool: ""
+    // One radix for the panel (controller state): Inputs, Outputs, pattern number, cursor values.
+    readonly property var radixChoices: [DioController.Hex, DioController.Binary, DioController.Decimal]
+    function setRadix(r: int) {
+        root.controller.inputRadix = r
+        root.controller.outputRadix = r
+    }
+    // Pattern picture buttons (32 x 18 glyphs), in DioController.WriterPattern order.
+    readonly property var patternGlyphs: [
+        "M4 15V5h6v10 M14 15V5h6v10 M7 9l3-4 3 4",
+        "M2 16h5v-3h5v-3h5v-3h5v-3h5v-3h3",
+        "M2 14h5V4h5v10h5V4h5v10h5V4h3",
+        "M2 15h5V4h4v11h16 M2 15h28 M14 2l4 2-4 2"
+    ]
+    readonly property var patternShortNames: [qsTr("Manual"), qsTr("Ramp"), qsTr("Alternate"), qsTr("Walking 1s")]
 
     function laneColor(line: int): color {
-        return (root.controller.outputMask >> line) & 1 ? Theme.math
-             : (root.controller.inputMask >> line) & 1 ? Theme.ch1 : Theme.textMuted
+        return (root.controller.outputMask >> line) & 1 ? Theme.accent
+             : (root.controller.inputMask >> line) & 1 ? Theme.text : Theme.textMuted
     }
     // Keys 0-7 flip the manual bit of an OUT line (panel focused).
     focus: true
@@ -39,11 +57,63 @@ Item {
         displayTitle: qsTr("Line States")
         displayInfo: [root.hasInputs ? qsTr("Read %1").arg(root.controller.readLinesLabel) : "",
                       root.hasOutputs ? qsTr("Write %1").arg(root.controller.writeLinesLabel) : ""].filter(s => s.length > 0).join(" · ")
+        showRunControls: false
+        runBar.showTimeout: false
+        inspector: []
+
+        headerContent: [
+            RowLayout {
+                spacing: Theme.spacingM
+                RunButton {
+                    objectName: "dioRunButton"
+                    running: root.controller.running
+                    stateText: root.controller.running ? qsTr("Running") : ""
+                    busy: root.controller.state === InstrumentController.Stopping
+                    enabled: root.controller.running || root.controller.canRun
+                    shortcutText: "⌘R"
+                    onToggled: root.controller.toggle()
+                }
+                Button {
+                    objectName: "dioSingleButton"
+                    text: qsTr("Single")
+                    Layout.preferredHeight: 52
+                    enabled: root.controller.canRun
+                             || (root.controller.state === InstrumentController.Running
+                                 && root.controller.runMode === InstrumentController.Continuous)
+                    focusPolicy: Qt.TabFocus
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Read the lines, write the value or play the pattern once, then stop")
+                    onClicked: root.controller.runOnce()
+                }
+                ColumnLayout {
+                    spacing: 3
+                    Text {
+                        visible: !root.narrow
+                        text: qsTr("Radix")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeCaption
+                    }
+                    SegmentedControl {
+                        objectName: "dioRadix"
+                        compact: root.narrow
+                        model: [{ text: qsTr("Hex"), toolTip: qsTr("Hexadecimal") },
+                                { text: qsTr("Bin"), toolTip: qsTr("Binary") },
+                                { text: qsTr("Dec"), toolTip: qsTr("Decimal") }]
+                        currentIndex: root.radixChoices.indexOf(root.controller.outputRadix)
+                        onActivated: index => root.setRadix(root.radixChoices[index])
+                    }
+                }
+            }
+        ]
+
+        Item {
+        anchors.fill: parent
 
         // --- Display -----------------------------------------------------------------------
         ColumnLayout {
             id: display
-            anchors.fill: parent
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom; right: column.left; margins: Theme.spacingS }
+            clip: true   // a very narrow pane cuts the display instead of running under the column
             spacing: Theme.spacingM
 
             // Numeric values (ELVISmx "Numeric Value", one per function).
@@ -57,9 +127,9 @@ Item {
                 Repeater {
                     model: [
                         { title: qsTr("Inputs"), shown: root.hasInputs, value: root.controller.inputValue,
-                          radix: root.controller.inputRadix, width: root.controller.inputWidth, color: Theme.ch1, output: false },
+                          radix: root.controller.inputRadix, width: root.controller.inputWidth, color: Theme.text, output: false },
                         { title: qsTr("Outputs"), shown: root.hasOutputs, value: root.controller.writtenValue,
-                          radix: root.controller.outputRadix, width: root.controller.outputWidth, color: Theme.math, output: true }
+                          radix: root.controller.outputRadix, width: root.controller.outputWidth, color: Theme.accent, output: true }
                     ]
                     delegate: ColumnLayout {
                         id: valueBlock
@@ -84,16 +154,6 @@ Item {
                         }
                         RowLayout {
                             spacing: Theme.spacingS
-                            DioRadixButton {
-                                Layout.alignment: Qt.AlignVCenter
-                                radix: valueBlock.modelData.radix
-                                onRadixSelected: r => {
-                                    if (valueBlock.modelData.output)
-                                        root.controller.outputRadix = r
-                                    else
-                                        root.controller.inputRadix = r
-                                }
-                            }
                             Text {
                                 text: {
                                     void valueBlock.modelData.value   // refresh on every new value
@@ -259,14 +319,15 @@ Item {
                     color: Theme.alpha(Theme.surfaceRaised, 0.92)
                     border.width: 1
                     border.color: Theme.border
-                    // Radix of the line values (Digital Waveform Viewer: Decimal / Hex / Binary...).
+                    // Radix of the line values (Digital Waveform Viewer: Decimal / Hex / Octal / Binary / SI): the
+                    // panel radix (controller state, saved), also reachable here for Octal and SI.
                     DioRadixButton {
                         id: cursorRadixButton
                         anchors.left: parent.left
                         anchors.leftMargin: 8
                         anchors.verticalCenter: parent.verticalCenter
-                        radix: root.cursorRadix
-                        onRadixSelected: r => root.cursorRadix = r
+                        radix: root.controller.outputRadix
+                        onRadixSelected: r => root.setRadix(r)
                     }
                     Text {
                         id: cursorText
@@ -287,328 +348,330 @@ Item {
             }
         }
 
-        // --- Inspector ---------------------------------------------------------------------
-        inspector: [
-            Section {
-                id: directionsSection
-                title: qsTr("Line Directions")
-                summary: directionsSection.collapsed ? root.controller.readLinesLabel + " in · " + root.controller.writeLinesLabel + " out" : ""
-                Repeater {
-                    model: 8
-                    delegate: RowLayout {
-                        id: directionRow
-                        required property int index
-                        readonly property var owner: root.controller.lineOwners[index] ?? ({})
+        // --- Right column ------------------------------------------------------------------
+        Rectangle {
+            id: column
+            anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+            width: root.narrow ? 220 : 266
+            color: Theme.window
+            Rectangle { width: 1; height: parent.height; color: Theme.separator }
+
+            Flickable {
+                id: columnFlick
+                anchors { fill: parent; leftMargin: 1 }
+                contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: ScrollBar { }
+
+                ColumnLayout {
+                    id: columnLayout
+                    x: Theme.spacingS
+                    y: Theme.spacingS
+                    width: columnFlick.width - 2 * Theme.spacingS
+                    spacing: Theme.spacingS
+
+                    // Lines: the direction of every line.
+                    ChannelCard {
+                        objectName: "dioLinesCard"
                         Layout.fillWidth: true
-                        spacing: Theme.spacingS
-                        Text {
-                            Layout.preferredWidth: 40
-                            text: "DIO " + directionRow.index
-                            color: Theme.text
-                            font.pixelSize: Theme.fontSizeM
-                            font.weight: Font.DemiBold
-                        }
-                        SegmentedControl {
-                            Layout.preferredWidth: 118
-                            compact: true
-                            model: [qsTr("In"), qsTr("Out"), "–"]
-                            accentColor: currentIndex === 0 ? Theme.ch1 : currentIndex === 1 ? Theme.math : Theme.textSecondary
-                            currentIndex: (root.controller.outputMask >> directionRow.index) & 1 ? 1
-                                        : (root.controller.inputMask >> directionRow.index) & 1 ? 0 : 2
-                            onActivated: i => root.controller.setLineDirection(directionRow.index, i)
-                        }
-                        TextField {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.controlHeightS
-                            placeholderText: (directionRow.owner.owner ?? "").length > 0 ? directionRow.owner.owner : qsTr("label")
-                            text: root.controller.lineLabels[directionRow.index] ?? ""
-                            font.pixelSize: Theme.fontSizeS
-                            onEditingFinished: root.controller.setLineLabel(directionRow.index, text)
-                        }
-                        Badge {
-                            visible: (directionRow.owner.owner ?? "").length > 0
-                            text: directionRow.owner.owner ?? ""
-                            caps: false
-                            color: directionRow.owner.active ? Theme.warning : Theme.textSecondary
-                            HoverHandler { id: ownerHover }
-                            ToolTip.visible: ownerHover.hovered
-                            ToolTip.text: directionRow.owner.text ?? ""
-                        }
-                    }
-                }
-                // Lines of other instruments.
-                Rectangle {
-                    Layout.fillWidth: true
-                    visible: root.controller.foreignMask !== 0
-                    implicitHeight: ownersText.implicitHeight + 16
-                    radius: Theme.radiusM
-                    color: Theme.tint(root.controller.conflictMask !== 0 ? Theme.warning : Theme.accent)
-                    Text {
-                        id: ownersText
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        wrapMode: Text.WordWrap
-                        color: Theme.text
-                        font.pixelSize: Theme.fontSizeS
-                        text: {
-                            const lines = []
-                            for (let l = 0; l < 8; ++l) {
-                                const o = root.controller.lineOwners[l]
-                                if (o && o.text.length > 0)
-                                    lines.push(o.text)
+                        title: qsTr("Lines")
+                        subtitle: root.controller.readLinesLabel + " in · " + root.controller.writeLinesLabel + " out"
+                        color: Theme.accent
+                        checkable: false
+                        compact: root.narrow
+                        // ELVISmx "Lines to Read" / "Lines to Write" groups, as quick sets.
+                        Repeater {
+                            model: [{ text: qsTr("Read"), write: false }, { text: qsTr("Write"), write: true }]
+                            delegate: RowLayout {
+                                id: presetRow
+                                required property var modelData
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingS
+                                Text {
+                                    Layout.preferredWidth: 40
+                                    text: presetRow.modelData.text
+                                    color: Theme.textSecondary
+                                    font.pixelSize: Theme.fontSizeCaption
+                                }
+                                SegmentedControl {
+                                    objectName: presetRow.modelData.write ? "dioWritePreset" : "dioReadPreset"
+                                    Layout.fillWidth: true
+                                    compact: true
+                                    model: root.presetNames
+                                    currentIndex: presetRow.modelData.write ? root.controller.writePreset : root.controller.readPreset
+                                    onActivated: index => {
+                                        if (presetRow.modelData.write)
+                                            root.controller.setWritePreset(index)
+                                        else
+                                            root.controller.setReadPreset(index)
+                                    }
+                                }
                             }
-                            return lines.join("\n") + (root.controller.conflictMask !== 0
-                                   ? "\n" + qsTr("Running Digital I/O on these lines pauses that instrument; set them to “–” to share the connector.")
-                                   : "")
+                        }
+                        Repeater {
+                            model: 8
+                            delegate: RowLayout {
+                                id: directionRow
+                                required property int index
+                                readonly property int line: 7 - index
+                                readonly property var owner: root.controller.lineOwners[line] ?? ({})
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingS
+                                Text {
+                                    Layout.preferredWidth: 40
+                                    text: "DIO " + directionRow.line
+                                    color: Theme.text
+                                    font.pixelSize: Theme.fontSizeS
+                                    font.weight: Font.DemiBold
+                                }
+                                SegmentedControl {
+                                    objectName: "dioDirection" + directionRow.line
+                                    Layout.fillWidth: true
+                                    compact: true
+                                    model: [{ text: qsTr("In") }, { text: qsTr("Out") }, { text: "–", toolTip: qsTr("Unused: free for other instruments") }]
+                                    currentIndex: (root.controller.outputMask >> directionRow.line) & 1 ? 1
+                                                : (root.controller.inputMask >> directionRow.line) & 1 ? 0 : 2
+                                    onActivated: i => root.controller.setLineDirection(directionRow.line, i)
+                                }
+                                Badge {
+                                    visible: (directionRow.owner.owner ?? "").length > 0
+                                    text: directionRow.owner.owner ?? ""
+                                    caps: false
+                                    color: directionRow.owner.active ? Theme.warning : Theme.textSecondary
+                                    HoverHandler { id: ownerHover }
+                                    ToolTip.visible: ownerHover.hovered
+                                    ToolTip.text: directionRow.owner.text ?? ""
+                                }
+                            }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: root.controller.conflictMask !== 0
+                            text: qsTr("Running Digital I/O on lines another instrument uses pauses it; set them to “–” to share the connector.")
+                            color: Theme.warning
+                            font.pixelSize: Theme.fontSizeCaption
+                            wrapMode: Text.WordWrap
                         }
                     }
-                }
-            },
-            Section {
-                id: readerSection
-                title: qsTr("Digital Reader")
-                accentColor: Theme.ch1
-                summary: readerSection.collapsed ? root.controller.readLinesLabel : ""
-                Text {
-                    text: qsTr("Configuration Settings")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                }
-                FieldRow {
-                    Field {
-                        label: qsTr("Lines to Read")
-                        ComboBox {
+
+                    // Reader: the polling period (inputs and timeline).
+                    ChannelCard {
+                        objectName: "dioReaderCard"
+                        Layout.fillWidth: true
+                        title: qsTr("Reader")
+                        subtitle: root.controller.readLinesLabel
+                        color: Theme.text
+                        checkable: false
+                        compact: root.narrow
+                        KnobField {
+                            objectName: "dioSampleInterval"
                             Layout.fillWidth: true
-                            model: root.presetNames
-                            currentIndex: Math.min(root.controller.readPreset, 3)
-                            displayText: root.controller.readPreset === 4 ? qsTr("Custom") : currentText
-                            onActivated: index => root.controller.setReadPreset(index)
-                        }
-                    }
-                    Field {
-                        label: qsTr("Sample interval")
-                        hint: qsTr("Polling period of the inputs and of the timeline (10 ms ... 1 s)")
-                        SiField {
-                            Layout.fillWidth: true
+                            label: qsTr("Sample interval")
                             unit: "s"
+                            digits: 3
+                            knobSize: 34
+                            compact: root.narrow
                             from: 0.01
                             to: 1
-                            digits: 3
+                            logarithmic: true
+                            defaultValue: 0.1
                             value: root.controller.sampleInterval / 1000
+                            caption: qsTr("Inputs and timeline; software timed")
                             onValueModified: v => root.controller.sampleInterval = Math.round(v * 1000)
                         }
                     }
-                }
-            },
-            Section {
-                id: writerSection
-                title: qsTr("Digital Writer")
-                accentColor: Theme.math
-                summary: writerSection.collapsed ? root.controller.writeLinesLabel + " · " + root.controller.patternNames[root.controller.pattern] : ""
-                Text {
-                    text: qsTr("Configuration Settings")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                }
-                FieldRow {
-                    Field {
-                        label: qsTr("Lines to Write")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: root.presetNames
-                            currentIndex: Math.min(root.controller.writePreset, 3)
-                            displayText: root.controller.writePreset === 4 ? qsTr("Custom") : currentText
-                            onActivated: index => root.controller.setWritePreset(index)
-                        }
-                    }
-                    Field {
-                        label: qsTr("Pattern")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            enabled: root.hasOutputs
-                            model: root.controller.patternNames
-                            currentIndex: root.controller.pattern
-                            onActivated: index => root.controller.pattern = index
-                        }
-                    }
-                }
-                Field {
-                    label: qsTr("Pattern Number")
-                    trailing: root.hasOutputs ? qsTr("0 … %1").arg(root.controller.formatValue(root.controller.outputMax, root.controller.outputRadix, 0)) : ""
-                    disabled: root.controller.pattern !== DioController.Manual || !root.hasOutputs
-                    DioNumberField {
+
+                    // Writer: pattern and its settings.
+                    ChannelCard {
+                        objectName: "dioWriterCard"
+                        visible: root.hasOutputs
                         Layout.fillWidth: true
-                        enabled: root.controller.pattern === DioController.Manual && root.hasOutputs
-                        value: root.controller.manualValue
-                        maximum: root.controller.outputMax
-                        radix: root.controller.outputRadix
-                        bits: root.controller.outputWidth
-                        onValueModified: v => root.controller.manualValue = v
-                        // ELVISmx: a typed value that is malformed or too large is not accepted.
-                        onEntered: text => {
-                            const v = root.controller.parseEntry(text, root.controller.outputRadix)
-                            if (v >= 0)
-                                root.controller.manualValue = v
-                        }
-                        onRadixSelected: r => root.controller.outputRadix = r
-                    }
-                }
-                // Manual Pattern switches (ELVISmx layout: lines 7 ... 0, HI up / LO down).
-                Field {
-                    label: qsTr("Manual Pattern")
-                    disabled: root.controller.pattern !== DioController.Manual
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        Repeater {
-                            model: 8
-                            delegate: ColumnLayout {
-                                id: switchColumn
-                                required property int index
-                                readonly property int line: 7 - index
-                                readonly property bool isOut: (root.controller.outputMask >> line) & 1
-                                readonly property int bit: {
-                                    let b = 0
-                                    for (let l = 0; l < line; ++l)
-                                        if ((root.controller.outputMask >> l) & 1)
-                                            ++b
-                                    return b
-                                }
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 30
-                                spacing: 2
-                                DioSwitch {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    enabled: switchColumn.isOut && root.controller.pattern === DioController.Manual
-                                    opacity: switchColumn.isOut ? 1 : 0.35
-                                    checked: switchColumn.isOut && ((root.controller.manualValue >> switchColumn.bit) & 1)
-                                    onToggled: root.controller.toggleLine(switchColumn.line)
-                                }
-                                Text {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    text: switchColumn.line
-                                    color: switchColumn.isOut ? Theme.textSecondary : Theme.textDisabled
-                                    font.pixelSize: Theme.fontSizeXs
+                        title: qsTr("Writer")
+                        subtitle: root.controller.writeLinesLabel
+                        color: Theme.accent
+                        checkable: false
+                        compact: root.narrow
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 4
+                            rowSpacing: 4
+                            Repeater {
+                                model: 4
+                                PictureButton {
+                                    required property int index
+                                    objectName: "dioPattern" + index
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    text: root.patternShortNames[index]
+                                    glyph: root.patternGlyphs[index]
+                                    checkable: false     // checked follows the controller
+                                    checked: root.controller.pattern === index
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: root.controller.patternNames[index] ?? ""
+                                    onClicked: root.controller.pattern = index
                                 }
                             }
                         }
                         ColumnLayout {
-                            spacing: 8
-                            Text { text: qsTr("HI"); color: Theme.textMuted; font.pixelSize: Theme.fontSizeXs }
-                            Text { text: qsTr("LO"); color: Theme.textMuted; font.pixelSize: Theme.fontSizeXs }
-                        }
-                    }
-                }
-                Field {
-                    label: qsTr("Action")
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        Repeater {
-                            model: [
-                                { text: qsTr("Toggle"), action: DioController.Toggle, tip: qsTr("Invert every line") },
-                                { text: qsTr("Rotate"), action: DioController.Rotate, tip: qsTr("Rotate one bit in the Direction (the bit leaving re-enters on the other side)") },
-                                { text: qsTr("Shift"), action: DioController.Shift, tip: qsTr("Shift one bit in the Direction (a 0 enters)") }
-                            ]
-                            delegate: ActionButton {
-                                required property var modelData
+                            visible: root.controller.pattern === DioController.Manual
+                            Layout.fillWidth: true
+                            spacing: 3
+                            Text {
                                 Layout.fillWidth: true
-                                compact: true
-                                text: modelData.text
-                                toolTip: modelData.tip
-                                enabled: root.controller.pattern === DioController.Manual && root.hasOutputs
-                                onClicked: root.controller.applyAction(modelData.action)
+                                text: qsTr("Pattern number (0 … %1)").arg(root.controller.formatValue(root.controller.outputMax, root.controller.outputRadix, 0))
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeCaption
+                            }
+                            DioNumberField {
+                                objectName: "dioManualValue"
+                                Layout.fillWidth: true
+                                value: root.controller.manualValue
+                                maximum: root.controller.outputMax
+                                radix: root.controller.outputRadix
+                                bits: root.controller.outputWidth
+                                onValueModified: v => root.controller.manualValue = v
+                                // ELVISmx: a typed value that is malformed or too large is not accepted.
+                                onEntered: text => {
+                                    const v = root.controller.parseEntry(text, root.controller.outputRadix)
+                                    if (v >= 0)
+                                        root.controller.manualValue = v
+                                }
+                                onRadixSelected: r => root.setRadix(r)
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingXs
+                                Repeater {
+                                    model: [
+                                        { text: qsTr("Toggle"), action: DioController.Toggle, tip: qsTr("Invert every line") },
+                                        { text: qsTr("Rotate"), action: DioController.Rotate, tip: qsTr("Rotate one bit in the direction (the bit leaving re-enters on the other side)") },
+                                        { text: qsTr("Shift"), action: DioController.Shift, tip: qsTr("Shift one bit in the direction (a 0 enters)") }
+                                    ]
+                                    delegate: ActionButton {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        compact: true
+                                        text: modelData.text
+                                        toolTip: modelData.tip
+                                        onClicked: root.controller.applyAction(modelData.action)
+                                    }
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Flip a line with its switch in the display, or keys 0–7.")
+                                color: Theme.textTertiary
+                                font.pixelSize: Theme.fontSizeCaption
+                                wrapMode: Text.WordWrap
                             }
                         }
-                    }
-                }
-                FieldRow {
-                    Field {
-                        label: qsTr("Direction")
-                        disabled: root.controller.pattern !== DioController.Manual && root.controller.pattern !== DioController.WalkingOnes
-                        SegmentedControl {
+                        ColumnLayout {
+                            visible: root.controller.pattern === DioController.Manual || root.controller.pattern === DioController.WalkingOnes
                             Layout.fillWidth: true
-                            enabled: root.controller.pattern === DioController.Manual || root.controller.pattern === DioController.WalkingOnes
-                            model: [qsTr("Left"), qsTr("Right")]
-                            currentIndex: root.controller.shiftDirection
-                            onActivated: index => root.controller.shiftDirection = index
+                            spacing: 3
+                            Text {
+                                text: qsTr("Direction")
+                                color: Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeCaption
+                            }
+                            SegmentedControl {
+                                Layout.fillWidth: true
+                                model: [qsTr("Left"), qsTr("Right")]
+                                currentIndex: root.controller.shiftDirection
+                                onActivated: index => root.controller.shiftDirection = index
+                            }
                         }
-                    }
-                    Field {
-                        label: qsTr("Step interval")
-                        hint: qsTr("Time between two values of a pattern (10 ms ... 10 s)")
-                        disabled: root.controller.pattern === DioController.Manual
-                        SiField {
+                        KnobField {
+                            objectName: "dioStepInterval"
+                            visible: root.controller.pattern !== DioController.Manual
                             Layout.fillWidth: true
-                            enabled: root.controller.pattern !== DioController.Manual
+                            label: qsTr("Step interval")
                             unit: "s"
+                            digits: 3
+                            knobSize: 34
+                            compact: root.narrow
                             from: 0.01
                             to: 10
-                            digits: 3
+                            logarithmic: true
+                            defaultValue: 0.5
                             value: root.controller.stepInterval / 1000
+                            caption: qsTr("Time between two values of the pattern")
                             onValueModified: v => root.controller.stepInterval = Math.round(v * 1000)
                         }
                     }
-                }
-                // Outputs keep driving after Stop: say so, and offer to release them.
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: root.controller.drivenMask !== 0 && !root.controller.running
-                    Icon { name: "info"; size: Theme.iconSizeS; color: Theme.math }
-                    Text {
+
+                    ToolPalette {
+                        objectName: "dioTools"
                         Layout.fillWidth: true
-                        text: qsTr("%1 still driven").arg(ResourceArbiter.dioLinesLabel(root.controller.drivenMask))
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fontSizeS
-                        wrapMode: Text.WordWrap
+                        columns: 3
+                        model: [{ id: "labels", text: qsTr("Labels"), icon: "edit" },
+                                { id: "timeline", text: qsTr("Timeline"), icon: "trend" }]
+                        currentId: root.tool
+                        onActivated: id => root.tool = root.tool === id ? "" : id
                     }
-                    ActionButton {
-                        text: qsTr("Release")
-                        compact: true
-                        tone: "subtle"
-                        color: Theme.math
-                        toolTip: qsTr("Make the driven lines inputs again (high impedance)")
-                        onClicked: root.controller.releaseOutputs()
-                    }
-                }
-            },
-            Section {
-                id: timelineSection
-                title: qsTr("Timeline")
-                collapsed: true
-                summary: timelineSection.collapsed ? qsTr("%1 s window").arg(root.controller.timelineSeconds) : ""
-                FieldRow {
-                    Field {
-                        label: qsTr("Window")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: ["5 s", "10 s", "30 s", "60 s"]
-                            currentIndex: root.controller.timelineWindow
-                            onActivated: index => root.controller.timelineWindow = index
-                        }
-                    }
-                    Field {
-                        label: qsTr("Sample interval")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "s"
-                            from: 0.01
-                            to: 1
-                            digits: 3
-                            value: root.controller.sampleInterval / 1000
-                            onValueModified: v => root.controller.sampleInterval = Math.round(v * 1000)
-                        }
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("All eight lines are sampled by software (not a hardware-timed logic analyzer): pulses shorter than the sample interval can be missed. The last 10 minutes are kept; Export data saves them.")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
                 }
             }
-        ]
+        }
+
+        // Floating tool panels over the right part of the display.
+        ToolPanel {
+            objectName: "dioLabelsPanel"
+            visible: root.tool === "labels"
+            anchors { right: column.left; top: parent.top; margins: Theme.spacingS }
+            width: 280
+            z: 10
+            title: qsTr("Line Labels")
+            onCloseRequested: root.tool = ""
+            Repeater {
+                model: 8
+                delegate: RowLayout {
+                    id: labelRow
+                    required property int index
+                    readonly property int line: 7 - index
+                    readonly property var owner: root.controller.lineOwners[line] ?? ({})
+                    Layout.fillWidth: true
+                    Text {
+                        Layout.preferredWidth: 44
+                        text: "DIO " + labelRow.line
+                        color: Theme.text
+                        font.pixelSize: Theme.fontSizeS
+                    }
+                    TextField {
+                        Layout.fillWidth: true
+                        placeholderText: (labelRow.owner.owner ?? "").length > 0 ? labelRow.owner.owner : qsTr("label")
+                        text: root.controller.lineLabels[labelRow.line] ?? ""
+                        font.pixelSize: Theme.fontSizeS
+                        onEditingFinished: root.controller.setLineLabel(labelRow.line, text)
+                    }
+                }
+            }
+        }
+        ToolPanel {
+            objectName: "dioTimelinePanel"
+            visible: root.tool === "timeline"
+            anchors { right: column.left; top: parent.top; margins: Theme.spacingS }
+            width: 300
+            z: 10
+            title: qsTr("Timeline")
+            onCloseRequested: root.tool = ""
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("All eight lines are sampled by software every sample interval (not a hardware-timed logic analyzer): pulses shorter than the interval can be missed and edges have several ms of jitter. The last 10 minutes are kept; Export Data saves them.")
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeS
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("Window, cursors, pause and clear are in the timeline's toolbar.")
+                color: Theme.textTertiary
+                font.pixelSize: Theme.fontSizeCaption
+                wrapMode: Text.WordWrap
+            }
+        }
+        }
     }
 
     function resetTimelineView() {
@@ -635,7 +698,6 @@ Item {
         cursor1.position = lo + (hi - lo) * 0.3
         cursor2.position = lo + (hi - lo) * 0.6
     }
-    property int cursorRadix: DioController.Hex
     function cursorLine(name: string, x: real): string {
         let bits = ""
         for (let l = 7; l >= 0; --l) {
@@ -644,7 +706,7 @@ Item {
                 bits += " "
         }
         return name + "  " + Units.format(x, "s") + "   7…0 " + bits + "   "
-               + root.controller.valuesAtTime(x, root.cursorRadix)
+               + root.controller.valuesAtTime(x, root.controller.outputRadix)
     }
     Connections {
         target: root.controller

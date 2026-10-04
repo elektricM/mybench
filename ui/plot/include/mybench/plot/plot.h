@@ -61,6 +61,11 @@ class Plot : public QQuickItem
     Q_PROPERTY(QColor textColor READ textColor WRITE setTextColor RESET resetTextColor NOTIFY styleChanged FINAL)
     Q_PROPERTY(QColor titleColor READ titleColor WRITE setTitleColor RESET resetTitleColor NOTIFY styleChanged FINAL)
     Q_PROPERTY(QColor accentColor READ accentColor WRITE setAccentColor RESET resetAccentColor NOTIFY styleChanged FINAL)
+    // Background of the hover readout and legend panels drawn on the plot.
+    Q_PROPERTY(QColor panelColor READ panelColor WRITE setPanelColor RESET resetPanelColor NOTIFY styleChanged FINAL)
+    // Default trace colors in order (traces without their own color take entry i % n); empty = the
+    // built-in neutral fallback palette. MyBench's BenchPlot binds Theme.seriesColors.
+    Q_PROPERTY(QList<QColor> seriesColors READ seriesColors WRITE setSeriesColors RESET resetSeriesColors NOTIFY styleChanged FINAL)
     Q_PROPERTY(Graticule graticule READ graticule WRITE setGraticule NOTIFY styleChanged FINAL)
     Q_PROPERTY(mybench::plot::PlotElement::LineStyle gridStyle READ gridStyle WRITE setGridStyle NOTIFY styleChanged FINAL)
     Q_PROPERTY(bool frameVisible READ frameVisible WRITE setFrameVisible NOTIFY styleChanged FINAL)
@@ -125,7 +130,11 @@ public:
     MYBENCH_PLOT_COLOR(textColor, TextColor)
     MYBENCH_PLOT_COLOR(titleColor, TitleColor)
     MYBENCH_PLOT_COLOR(accentColor, AccentColor)
+    MYBENCH_PLOT_COLOR(panelColor, PanelColor)
 #undef MYBENCH_PLOT_COLOR
+    QList<QColor> seriesColors() const;
+    void setSeriesColors(const QList<QColor> &colors);
+    void resetSeriesColors();
     Graticule graticule() const;
     void setGraticule(Graticule g);
     PlotElement::LineStyle gridStyle() const;
@@ -211,7 +220,7 @@ public:
     QList<PlotElement *> elements() const;
     // Resolved color of a trace (its color, or the palette color for its index).
     Q_INVOKABLE QColor traceColor(mybench::plot::PlotTrace *trace) const;
-    // Palette color i (CH0 green, CH1 cyan, amber, violet, ...), for the current color scheme.
+    // Series color i: seriesColors[i % n], or the fallback palette for the current color scheme.
     Q_INVOKABLE QColor paletteColor(int index) const;
 
     // ---- export -------------------------------------------------------------------------------

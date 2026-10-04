@@ -1,18 +1,17 @@
 import QtQuick
-import QtQuick.Effects
 
-// Indicator lamp with a soft glow when lit, and an optional label.
-//     Led { on: controller.timedOut; color: Theme.warning; text: qsTr("Timeout") }
+// v1 compatibility (use StatusIndicator): a flat state dot with an optional label; no glow.
+//     Led { on: controller.timedOut; color: Theme.caution; text: qsTr("Timeout") }
 Item {
     id: root
 
     property bool on: false
-    property color color: Theme.success
-    property real size: 10
+    property color color: Theme.positive
+    property real size: 8
     property string text
-    property color textColor: on ? Theme.text : Theme.textMuted
-    property int fontSize: Theme.fontSizeM
-    property bool glow: true
+    property color textColor: on ? Theme.text : Theme.textTertiary
+    property int fontSize: Theme.fontSizeSmall
+    property bool glow: false           // v1, ignored
     property bool labelFirst: false
 
     implicitWidth: row.implicitWidth
@@ -24,48 +23,17 @@ Item {
     Row {
         id: row
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 7
+        spacing: Theme.spacingXs + 2
         layoutDirection: root.labelFirst ? Qt.RightToLeft : Qt.LeftToRight
-
-        Item {
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
             width: root.size
             height: root.size
-            anchors.verticalCenter: parent.verticalCenter
-
-            Rectangle {
-                id: lamp
-                anchors.fill: parent
-                radius: width / 2
-                color: root.on ? root.color : Theme.alpha(root.color, Theme.dark ? 0.14 : 0.16)
-                border.width: 1
-                border.color: root.on ? Qt.lighter(root.color, 1.25) : Theme.alpha(root.color, 0.42)
-                Behavior on color { ColorAnimation { duration: Theme.durationNormal } }
-                // specular highlight
-                Rectangle {
-                    visible: root.size >= 9
-                    x: parent.width * 0.26
-                    y: parent.height * 0.18
-                    width: parent.width * 0.34
-                    height: parent.height * 0.26
-                    radius: height / 2
-                    color: Qt.rgba(1, 1, 1, root.on ? 0.45 : 0.10)
-                }
-            }
-            MultiEffect {
-                source: lamp
-                anchors.fill: lamp
-                visible: root.glow && root.on
-                shadowEnabled: true
-                shadowColor: root.color
-                shadowBlur: 1.0
-                shadowOpacity: Theme.dark ? 0.9 : 0.55
-                shadowHorizontalOffset: 0
-                shadowVerticalOffset: 0
-                shadowScale: 1.25
-                blurMax: 12
-            }
+            radius: width / 2
+            color: root.on ? root.color : "transparent"
+            border.width: root.on ? 0 : 1.5
+            border.color: root.on ? root.color : Theme.alpha(Theme.text, 0.3)
         }
-
         Text {
             id: label
             visible: root.text.length > 0

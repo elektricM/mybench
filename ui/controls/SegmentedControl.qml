@@ -3,36 +3,33 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Templates as T
 
-// Mutually exclusive choice shown as joined segments with a sliding highlight.
+// One choice out of 2–4 short options (docs/UI.md §6): joined segments sized to their content on a
+// quiet track; the current segment is a raised control-colored chip. Wider than needed, it stays at
+// its natural width (left-aligned); narrower, the segments shrink and elide.
 // `model`: strings, or objects { text, icon, toolTip, enabled }. Controlled component: bind
-// currentIndex and handle activated(index).
-//     SegmentedControl {
-//         model: [{ icon: "wave-sine-line", toolTip: "Sine" }, { icon: "wave-square-line", toolTip: "Square" }]
-//         currentIndex: ctl.waveform
-//         onActivated: index => ctl.waveform = index
-//     }
+// currentIndex and apply activated(index).
+//     SegmentedControl { model: [qsTr("Immediate"), qsTr("Edge")]; currentIndex: ctl.mode
+//                        onActivated: index => ctl.mode = index }
 T.Control {
     id: control
 
-    component SegmentButton: T.AbstractButton {
-        property real naturalWidth: 0
-    }
-
     property var model: []
     property int currentIndex: 0
-    property color accentColor: Theme.accent   // selected text/icon color
-    property bool compact: false
+    property color accentColor: Theme.text      // v1: color of the selected text/icon
+    property bool compact: false                // Theme.controlHeightS
     readonly property int count: segmentRepeater.count
-    // Sum of the segments' natural widths (the control stretches them equally when wider).
+    // Sum of the segments' natural widths.
     readonly property real naturalWidth: {
         let total = 0
         for (let i = 0; i < segmentRepeater.count; ++i) {
-            const segment = segmentRepeater.itemAt(i) as SegmentButton
+            const segment = segmentRepeater.itemAt(i) as Segment
             if (segment)
                 total += segment.naturalWidth
         }
         return total
     }
+    readonly property real trackWidth: Math.min(availableWidth, naturalWidth + 2 * inset)
+    readonly property int inset: 2
 
     signal activated(int index)
 
@@ -40,7 +37,6 @@ T.Control {
         const e = model[index]
         return (typeof e === "string" || typeof e === "number") ? { text: String(e) } : (e ?? {})
     }
-
     function select(index: int) {
         if (index < 0 || index >= count || index === currentIndex)
             return
@@ -49,77 +45,111 @@ T.Control {
         activated(index)
     }
 
+    component Segment: T.AbstractButton {
+        property real naturalWidth: 0
+    }
+
+    implicitWidth: naturalWidth + 2 * inset
     implicitHeight: compact ? Theme.controlHeightS : Theme.controlHeight
-    implicitWidth: naturalWidth + 4
     focusPolicy: Qt.TabFocus
     hoverEnabled: true
-    font.pixelSize: compact ? Theme.fontSizeM : Theme.fontSizeBody
+    font.pixelSize: compact ? Theme.fontSizeSmall : Theme.fontSizeBody
+    Accessible.role: Accessible.PageTabList
 
     Keys.onLeftPressed: select(currentIndex - 1)
     Keys.onRightPressed: select(currentIndex + 1)
 
-    background: Rectangle {
-        radius: Theme.radiusM
-        color: Theme.surfaceSunken
-        border.width: 1
-        border.color: Theme.border
-        FocusRing { shown: control.visualFocus; radius: Theme.radiusM + 3 }
+    background: Item {
+        Rectangle {
+            width: control.trackWidth
+            height: parent.height
+            radius: Theme.radiusControl
+            color: Theme.alpha(Theme.text, Theme.dark ? 0.08 : 0.06)
+            opacity: control.enabled ? 1 : 0.6
+            FocusRing { shown: control.visualFocus }
+        }
     }
 
     contentItem: Item {
         id: track
 
+        // The current segment.
         Rectangle {
-            id: highlight
+            id: chip
             readonly property Item target: segmentRepeater.count > 0 && control.currentIndex >= 0
                                            ? segmentRepeater.itemAt(Math.min(control.currentIndex, segmentRepeater.count - 1)) : null
             visible: target !== null
-            x: target ? target.x + 2 : 0
-            y: 2
+            x: target ? segments.x + target.x : 0
+            y: control.inset
             width: target ? target.width : 0
-            height: track.height - 4
-            radius: Theme.radiusS
-            color: Theme.dark ? "#2A2E38" : "#FFFFFF"
-            border.width: 1
-            border.color: Theme.dark ? "#383D49" : Theme.border
-            Behavior on x { enabled: highlight.width > 0; NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic } }
-            Behavior on width { enabled: highlight.width > 0; NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic } }
+            height: track.height - 2 * control.inset
+            radius: Theme.radiusControl - 1
+            color: Theme.dark ? Theme.mix(Theme.controlFill, "#FFFFFF", 0.06) : Theme.controlFill
+            border.width: Theme.borderWidth
+            border.color: Theme.alpha(Theme.text, Theme.dark ? 0.12 : 0.14)
+            opacity: control.enabled ? 1 : 0.6
+            Behavior on x {
+                enabled: Theme.animations && chip.width > 0
+                NumberAnimation { duration: Theme.durationFast; easing.type: Theme.easing }
+            }
+            Behavior on width {
+                enabled: Theme.animations && chip.width > 0
+                NumberAnimation { duration: Theme.durationFast; easing.type: Theme.easing }
+            }
         }
 
         Row {
-            id: segmentsRow
-            x: 2
+            id: segments
+            x: control.inset
             height: track.height
+            readonly property real shrink: control.naturalWidth > 0 ? Math.min(1, (control.trackWidth - 2 * control.inset) / control.naturalWidth) : 1
+
             Repeater {
                 id: segmentRepeater
                 model: control.model
-                delegate: SegmentButton {
+                delegate: Segment {
                     id: segment
                     required property int index
                     readonly property var info: control.entry(index)
                     readonly property bool selected: index === control.currentIndex
-                    naturalWidth: Math.max(control.compact ? 26 : 30,
-                        (iconItem.visible ? iconItem.width : 0) + (label.visible ? label.implicitWidth : 0)
-                        + (iconItem.visible && label.visible ? 6 : 0) + (control.compact ? 14 : 20))
-
-                    width: control.availableWidth > control.naturalWidth + 4.5 && control.count > 0
-                           ? (track.width - 4) / control.count : naturalWidth
-                    height: segmentsRow.height
+                    readonly property bool hasIcon: (info.icon ?? "").length > 0
+                    readonly property bool hasText: (info.text ?? "").length > 0
+                    naturalWidth: Math.ceil((hasIcon ? Theme.iconSize : 0) + (hasText ? measure.advanceWidth : 0)
+                                            + (hasIcon && hasText ? Theme.spacingXs + 2 : 0)
+                                            + (control.compact ? 2 * Theme.spacingS : 2 * Theme.spacingM))
+                    width: Math.floor(naturalWidth * segments.shrink)
+                    height: segments.height
                     enabled: control.enabled && info.enabled !== false
                     hoverEnabled: true
                     focusPolicy: Qt.NoFocus
                     onClicked: control.select(index)
-                    Accessible.role: Accessible.RadioButton
+                    Accessible.role: Accessible.PageTab
                     Accessible.name: info.text ?? info.toolTip ?? ""
                     Accessible.checked: selected
+
+                    // Width from the Medium weight, so selecting never resizes a segment.
+                    TextMetrics {
+                        id: measure
+                        font.pixelSize: control.font.pixelSize
+                        font.weight: Font.Medium
+                        text: segment.info.text ?? ""
+                    }
+                    // Hairline between two unselected segments.
+                    Rectangle {
+                        visible: segment.index > 0 && !segment.selected && segment.index - 1 !== control.currentIndex
+                        x: 0
+                        y: Math.round(segment.height * 0.28)
+                        width: Theme.borderWidth
+                        height: segment.height - 2 * y
+                        color: Theme.separator
+                    }
 
                     contentItem: Item {
                         Row {
                             anchors.centerIn: parent
-                            spacing: 6
+                            spacing: Theme.spacingXs + 2
                             Icon {
-                                id: iconItem
-                                visible: (segment.info.icon ?? "").length > 0
+                                visible: segment.hasIcon
                                 anchors.verticalCenter: parent.verticalCenter
                                 name: segment.info.icon ?? ""
                                 size: control.compact ? Theme.iconSizeS : Theme.iconSize
@@ -129,20 +159,22 @@ T.Control {
                             }
                             Text {
                                 id: label
-                                visible: (segment.info.text ?? "").length > 0
+                                visible: segment.hasText
                                 anchors.verticalCenter: parent.verticalCenter
+                                width: Math.min(implicitWidth, segment.width - (segment.hasIcon ? Theme.iconSize + 6 : 0) - 8)
                                 text: segment.info.text ?? ""
                                 font.pixelSize: control.font.pixelSize
-                                font.weight: segment.selected ? Font.DemiBold : Font.Normal
+                                font.weight: segment.selected ? Font.Medium : Font.Normal
+                                elide: Text.ElideRight
                                 color: !segment.enabled ? Theme.textDisabled
-                                     : segment.selected ? Theme.text
+                                     : segment.selected ? control.accentColor
                                      : segment.hovered ? Theme.text : Theme.textSecondary
                             }
                         }
                     }
 
                     ToolTip.visible: hovered && (info.toolTip ?? "").length > 0
-                    ToolTip.delay: 500
+                    ToolTip.delay: Theme.toolTipDelay
                     ToolTip.text: info.toolTip ?? ""
                 }
             }

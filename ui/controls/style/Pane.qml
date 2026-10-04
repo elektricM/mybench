@@ -10,9 +10,9 @@ T.Pane {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              contentHeight + topPadding + bottomPadding)
 
-    padding: 12
+    padding: Theme.spacingM
 
     background: Rectangle {
-        color: Theme.surface
+        color: Theme.window
     }
 }

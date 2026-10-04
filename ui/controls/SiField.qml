@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Templates as T
 import MyBench.Framework
 
-// Numeric entry in engineering units, like a bench instrument.
+// Numeric entry in engineering units, like a bench instrument (docs/UI.md §6, §13.8).
 //
 // - Shows the value with an SI prefix and unit ("1.000 kHz"); accepts typed prefixes ("1.5k",
 //   "20m", "4,7 k", "1e3") — Enter or focus loss commits, Escape reverts.
@@ -12,7 +12,11 @@ import MyBench.Framework
 //   wheel gesture starts over it (a scroll passing over keeps scrolling the view, WheelGuard); the small arrows step by `stepSize` (or the selected digit).
 // - `label` is the control's name (accessible name, app.md 7.4). Without a `toolTip`, the tooltip
 //   is "<label> (from <from> to <to>)" built from the range and unit (app.md 7.1).
-// - Out-of-range values are coerced to [from, to] (LabVIEW behaviour), with a short flash.
+// - `steppers` (v1 `showArrows`): the ▲/▼ buttons at the right edge; `scrubbable` (default =
+//   steppers): dragging the FormRow label scrubs the value (Shift = fine).
+// - Invalid text gets a `negative` border and a tooltip (`invalid`); Esc reverts. Out-of-range
+//   values are clamped to [from, to] and the clamp is announced in the tooltip ("Limited to 20 kHz"),
+//   never applied silently.
 // - Controlled component: bind `value` and apply valueModified(value):
 //       SiField { unit: "Hz"; from: 0.2; to: 20e3; value: ctl.frequency
 //                 onValueModified: v => ctl.frequency = v }
@@ -36,7 +40,10 @@ T.TextField {
     property var steps: []
     property real stepSize: 0            // arrows / keys without a selected digit; 0 = digit
     property real resolution: 0          // smallest tuning step (0 = none)
-    property bool showArrows: true
+    property bool steppers: true
+    property alias showArrows: control.steppers          // v1 name
+    property bool scrubbable: steppers
+    readonly property bool scrubbing: scrubState.active
     property color accentColor: Theme.accent
     property string toolTip              // "" = automatic: label and allowed range
     property string label                // name of the value (accessible name), e.g. "Frequency"
@@ -57,6 +64,9 @@ T.TextField {
                                              : label.length > 0 ? (rangeText.length > 0 ? label + " (" + rangeText + ")" : label)
                                              : rangeText.length > 0 ? rangeText.charAt(0).toUpperCase() + rangeText.slice(1) : ""
     readonly property bool valid: !dirty || !isNaN(parseText(text))
+    readonly property bool invalid: !valid || invalidFlash.running
+    // The value a typed entry was clamped to (shown in the tooltip for a moment), "" otherwise.
+    property string clampedText
     readonly property string formattedText: formatValue(value)
 
     signal valueModified(real value)
@@ -118,8 +128,11 @@ T.TextField {
     }
     function apply(v: real) {
         const c = clampValue(v)
-        if (c !== v)
+        if (c !== v) {
+            clampedText = c < v ? qsTr("Limited to the maximum, %1").arg(formatValue(c))
+                                : qsTr("Limited to the minimum, %1").arg(formatValue(c))
             coerceFlash.restart()
+        }
         if (c !== value)
             valueModified(c)
         Qt.callLater(control.refresh)
@@ -234,19 +247,52 @@ T.TextField {
         })
     }
 
+    // --- Scrubbing (FormRow drags its label) ---------------------------------------------------
+    property QtObject scrubState: QtObject { property bool active: false }
+    function beginScrub() {
+        if (readOnly || !enabled)
+            return
+        if (dirty)
+            commit()
+        scrubState.active = true
+    }
+    function endScrub() {
+        scrubState.active = false
+    }
+    // `steps` increments: a list entry, `stepSize`, or the second significant digit (fine: the
+    // last displayed digit).
+    function scrubBy(steps: int, fine: bool) {
+        if (readOnly || !enabled || steps === 0)
+            return
+        if ((control.steps && control.steps.length > 0) || stepSize > 0) {
+            tune(steps, -1)
+            return
+        }
+        const list = digitIndices(text)
+        let weight = fine && list.length > 0 ? weightAt(text, list[list.length - 1])
+                   : value !== 0 ? Math.pow(10, Math.floor(Math.log10(Math.abs(value))) - 1) : NaN
+        if (isNaN(weight) || weight <= 0)
+            weight = list.length > 0 ? weightAt(text, list[list.length - 1]) : 1
+        if (resolution > 0 && weight < resolution)
+            weight = resolution
+        const next = clampValue(Number((value + steps * weight).toPrecision(12)))
+        if (next !== value)
+            valueModified(next)
+    }
+
     implicitWidth: Math.max(96, contentWidth + leftPadding + rightPadding)
     implicitHeight: Theme.controlHeight
-    leftPadding: 9
-    rightPadding: showArrows ? 22 : 9
+    leftPadding: Theme.spacingS
+    rightPadding: steppers ? Theme.spacingS + 14 : Theme.spacingS
     topPadding: 0
     bottomPadding: 0
     verticalAlignment: TextInput.AlignVCenter
     horizontalAlignment: TextInput.AlignLeft
     font.pixelSize: Theme.fontSizeBody
     font.features: Theme.tabularFigures
-    color: !enabled ? Theme.textDisabled : !valid ? Theme.danger : Theme.text
-    selectionColor: Theme.alpha(Theme.accent, 0.35)
-    selectedTextColor: Theme.text
+    color: !enabled ? Theme.textDisabled : Theme.text
+    selectionColor: Theme.selection
+    selectedTextColor: Theme.selectionText
     selectByMouse: true
     hoverEnabled: true
     inputMethodHints: Qt.ImhFormattedNumbersOnly
@@ -292,12 +338,21 @@ T.TextField {
         }
     }
 
+    // A wheel gesture that starts over the field keeps tuning it until the gesture ends.
+    property bool wheelOwner: false
+    Connections {
+        target: WheelGuard
+        function onGestureStarted() {
+            control.wheelOwner = false
+        }
+    }
     WheelHandler {
         // native etiquette: a scroll passing over the field keeps scrolling its view
         enabled: (control.hovered || control.activeFocus) && control.enabled && !control.readOnly
-                 && (control.activeFocus || WheelGuard.freshGesture)
+                 && (control.activeFocus || WheelGuard.freshGesture || control.wheelOwner)
         acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onWheel: event => {
+            control.wheelOwner = true
             control.wheelAccumulator += event.angleDelta.y
             const steps = Math.trunc(control.wheelAccumulator / 120)
             if (steps === 0)
@@ -315,25 +370,29 @@ T.TextField {
 
     Timer {
         id: coerceFlash
-        interval: 700
-        onRunningChanged: control.coercedFlash = running
+        interval: 2500
+        onRunningChanged: {
+            control.coercedFlash = running
+            if (!running)
+                control.clampedText = ""
+        }
     }
     Timer {
         id: invalidFlash
-        interval: 900
+        interval: 2500
     }
 
     background: Rectangle {
         implicitWidth: 96
         implicitHeight: Theme.controlHeight
-        radius: Theme.radiusM
-        color: control.enabled ? Theme.surfaceSunken : Theme.alpha(Theme.surfaceSunken, 0.5)
-        border.width: 1
-        border.color: (!control.valid || invalidFlash.running) ? Theme.danger
-                    : control.coercedFlash ? Theme.warning
-                    : control.activeFocus ? control.accentColor
-                    : control.hovered ? Theme.borderStrong : Theme.border
-        Behavior on border.color { ColorAnimation { duration: Theme.durationFast } }
+        radius: Theme.radiusControl
+        color: Theme.base
+        opacity: control.enabled ? 1 : 0.6
+        border.width: Theme.borderWidth
+        border.color: control.invalid ? Theme.negative
+                    : control.coercedFlash ? Theme.caution
+                    : control.activeFocus ? control.accentColor : Theme.controlBorder
+        FocusRing { shown: control.activeFocus && (control.focusReason === Qt.TabFocusReason || control.focusReason === Qt.BacktabFocusReason); ringColor: control.invalid ? Theme.negative : Theme.focusRing }
 
         // Tuned-digit marker.
         Rectangle {
@@ -341,54 +400,65 @@ T.TextField {
             readonly property rect first: digit >= 0 ? control.positionToRectangle(digit) : Qt.rect(0, 0, 0, 0)
             readonly property rect next: digit >= 0 ? control.positionToRectangle(digit + 1) : Qt.rect(0, 0, 0, 0)
             visible: digit >= 0 && control.selectedText.length === 0
-            x: control.leftPadding + first.x - 1
-            y: parent.height - 6
-            width: Math.max(4, next.x - first.x + 2)
-            height: 2
-            radius: 1
+            x: control.leftPadding + first.x
+            y: parent.height - 5
+            width: Math.max(4, next.x - first.x)
+            height: 1.5
             color: control.accentColor
         }
 
-        // Step arrows.
-        Column {
-            visible: control.showArrows
-            anchors.right: parent.right
-            anchors.rightMargin: 3
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 0
-            Repeater {
-                model: [1, -1]
-                delegate: T.AbstractButton {
-                    id: arrow
-                    required property int modelData
-                    width: 16
-                    height: (Theme.controlHeight - 6) / 2
-                    enabled: control.enabled && !control.readOnly
-                    focusPolicy: Qt.NoFocus
-                    hoverEnabled: true
-                    autoRepeat: true
-                    autoRepeatDelay: 350
-                    autoRepeatInterval: 70
-                    onClicked: control.tune(modelData, control.stepSize > 0 ? -1 : control.activeDigit())
-                    background: Rectangle {
-                        radius: Theme.radiusXs
-                        color: arrow.down ? Theme.surfacePressed : arrow.hovered ? Theme.surfaceHover : "transparent"
-                    }
-                    contentItem: Item {
-                        Icon {
-                            anchors.centerIn: parent
-                            name: "chevron-down-line"
-                            size: 10
-                            rotation: arrow.modelData > 0 ? 180 : 0
-                            color: arrow.enabled ? (arrow.hovered ? Theme.text : Theme.textMuted) : Theme.textDisabled
-                        }
+    }
+
+    // Steppers (above the text input, so they take their own clicks).
+    Column {
+        z: 1
+        visible: control.steppers
+        anchors.right: parent.right
+        anchors.rightMargin: 2
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 0
+        Repeater {
+            model: [1, -1]
+            delegate: T.AbstractButton {
+                id: arrow
+                required property int modelData
+                objectName: modelData > 0 ? "stepUp" : "stepDown"
+                width: 14
+                height: Math.floor((control.height - 4) / 2)
+                enabled: control.enabled && !control.readOnly
+                focusPolicy: Qt.NoFocus
+                hoverEnabled: true
+                autoRepeat: true
+                autoRepeatDelay: 350
+                autoRepeatInterval: 70
+                onClicked: control.tune(modelData, control.stepSize > 0 ? -1 : control.activeDigit())
+                Accessible.name: modelData > 0 ? qsTr("Increase") : qsTr("Decrease")
+                background: Rectangle {
+                    radius: 3
+                    color: arrow.down ? Theme.pressedFill : arrow.hovered ? Theme.hoverFill : "transparent"
+                }
+                contentItem: Item {
+                    Icon {
+                        anchors.centerIn: parent
+                        name: arrow.modelData > 0 ? "chevron-up" : "chevron-down"
+                        size: 10
+                        color: arrow.enabled ? (arrow.hovered ? Theme.text : Theme.textSecondary) : Theme.textDisabled
                     }
                 }
             }
         }
     }
 
-    ToolTip.visible: hovered && !activeFocus && (effectiveToolTip.length > 0 || !valid)
-    ToolTip.delay: 600
-    ToolTip.text: !valid ? qsTr("Enter a number, e.g. 1.5k or 20m") : effectiveToolTip
+    ToolTip.visible: hovered && !activeFocus && effectiveToolTip.length > 0 && !notice.visible
+    ToolTip.delay: Theme.toolTipDelay
+    ToolTip.text: effectiveToolTip
+
+    // Validation and clamping messages: shown at once, without hovering.
+    readonly property string noticeText: invalid ? qsTr("Enter a number, e.g. 1.5k or 20m") : clampedText
+    property ToolTip notice: ToolTip {
+        parent: control
+        visible: control.noticeText.length > 0 && control.visible
+        delay: 0
+        text: control.noticeText
+    }
 }

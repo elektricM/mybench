@@ -115,6 +115,7 @@ void registerScope(mybench::InstrumentRegistry& registry)
         .id = u"scope"_s, .title = QObject::tr("Oscilloscope"), .shortTitle = QObject::tr("Scope"),
         .description = QObject::tr("Two channels, edge trigger, measurements, cursors"),
         .module = u"MyBench.Instruments.Scope"_s, .icon = u"instrument-scope"_s, .order = 20,
+        .group = u"measure"_s,   // sidebar group, see "Shell hooks of the controller and descriptor"
         .createController = [] { return new ScopeController; },
     });
 }
@@ -231,6 +232,10 @@ the Theme (`Theme.ch0`, `ch1`, `math`, `ref`, `cursor1`, `cursor2`).
 
 ## The panel (`<Name>Panel.qml`)
 
+The design contract is docs/UI.md (v2): §7 (pane, display, measurement strip, inspector dock),
+§11 (reliability rules) and §13.5 (`InstrumentPanel`). Name things for what they do, in Title Case
+for section and command titles; no ELVISmx group names or ordering are required.
+
 ```qml
 pragma ComponentBehavior: Bound
 import QtQuick
@@ -244,56 +249,108 @@ Item {
     id: root
     required property ScopeController controller
 
-    InstrumentPanel {                          // display + banners + inspector + run bar
+    InstrumentPanel {                          // pane header + banners + display + strip + inspector
         anchors.fill: parent
         controller: root.controller
-        displayTitle: "CH 0 · 5 ms/div"         // header line of the display area
-        displayInfo: qsTr("Sample Rate %1").arg(Units.format(root.controller.sampleRate, "S/s"))
-        runBar.showTimeout: true               // RunBar options: runText, singleText, showSingle...
-
-        BenchPlot { anchors.fill: parent }     // default children = display content
-
-        inspector: [                           // clear group names (docs/UI.md v2 §3: no ELVISmx naming/order rule)
-            Section {
-                title: qsTr("Channel 0 Settings"); accentColor: Theme.ch0
-                summary: "AI 0 · 1 V/div"                       // shown when collapsed
-                headerTools: ToggleSwitch { checked: root.controller.ch0Enabled; onToggled: root.controller.ch0Enabled = checked }
-                FieldRow {
-                    Field { label: qsTr("Source"); ComboBox { Layout.fillWidth: true; model: ["AI 0"] } }
-                    Field { label: qsTr("Coupling"); ComboBox { Layout.fillWidth: true; model: ["DC"]; enabled: false } }
-                }
-            },
-            Section { title: qsTr("Timebase") }
+        headerControls: [                      // ≤ 3 extras, left of Single / Run
+            Button { text: qsTr("Autoscale"); onClicked: root.controller.autoscale() }
         ]
-        runBarControls: [ ActionButton { text: qsTr("Autoscale"); iconName: "autoscale" } ]   // after Single
-        // runBarActions: [ ... ]            // right side of the run bar (rarely needed)
+        menuItems: [ MenuItem { text: qsTr("Save Reference…"); onTriggered: refDialog.open() } ]   // extra ⋯ entries
+        runBar.showTimeout: true               // PaneHeader options, see below
+
+        BenchPlot { anchors.fill: parent }     // default children = the display, edge to edge
+
+        measurements: [ MeasurementTable { columns: [...]; rows: [...] } ]   // optional strip
+        banners: [ Banner { visible: root.controller.clipping; tone: "warning"; text: qsTr("Input clipped") } ]
+
+        inspector: [
+            Section {
+                sectionId: "channel0"; title: qsTr("Channel 0"); swatchColor: Theme.signalCh0
+                summary: "AI 0 · 1 V/div"                       // shown while collapsed
+                trailing: Switch { checked: root.controller.ch0Enabled; onToggled: root.controller.ch0Enabled = checked }
+                FormRow { label: qsTr("Source"); ComboBox { Layout.fillWidth: true; model: ["AI 0", "AI 1"] } }
+                FormRow { label: qsTr("Scale"); StepSelector { model: [0.01, 0.1, 1, 10]; unit: "V/div" } }
+            },
+            Section { sectionId: "timebase"; title: qsTr("Timebase") }
+        ]
     }
 }
 ```
 
-`InstrumentPanel` already provides: the display header (SIMULATED tag, your title/info, and the
-actions Export ▾, Help, ⋯ Reset to defaults, Focus mode, settings toggle), the pause banner
-(Resume), the "device reconnected" banner, the error banner, the inspector (docked and
-resizable, or an overlay drawer when the panel is narrower than 820 px, e.g. in a split pane) and
-the RunBar bound to the controller (Run/Stop/Resume, Single, status, rate, timeout LED; compact in
-narrow panes). Don't add your own Help/Export buttons. The shell provides Space (Run/Stop),
-Shift+Space (Single), F5/Shift+F5, F1 (help), Ctrl+I (settings), Ctrl+L/Ctrl+P (export),
-Ctrl+Shift+F (focus mode) and the palette entries (Open/Run/Stop/Help/Reset <instrument>).
+What the frame gives you, with no code:
 
-**Controls** (`MyBench.Controls`, look at `mybench-controls-gallery`):
-`SiField` (every numeric entry: `unit`, `from`/`to`, `digits` or `engineering: false; decimals`,
-`stepSize`; bind `value`, handle `valueModified(v)`), `Knob` (ring: `values`/`labels`/
-`currentIndex` + `indexMoved(i)`; continuous: `from`/`to`/`logarithmic`/`value` + `moved(v)`;
-pair it with an SiField/ComboBox), `SegmentedControl` (`model` of strings or
-`{text, icon, toolTip, enabled}`, `currentIndex`, `activated(i)`), `ComboBox`/`CheckBox`/
-`RadioButton`/`Switch`/`Slider`/`SpinBox`/`TabBar`/`Menu`/`ToolTip`/`TextField` (standard
-QtQuick.Controls, styled by MyBench.Style), `ToggleSwitch`, `Led`, `StatusDot`, `Badge`,
-`ChannelChip`, `Readout` (big value + unit, OL, hold, stale, % FS bar), `Section`/`Card`,
-`Field`/`FieldRow`, `IconButton`/`ActionButton`, `Banner`, `DisplayArea`, `EmptyState`,
-`KeyHint`, `Icon` (names = `assets/icons/*.svg`, tinted). Tokens: `Theme.*` (surfaces, text,
-accent, status, channel colors, spacing, radii, font sizes, `Theme.tabularFigures`). Never
-hard-code colors or sizes. Notifications from QML: `Notifications.notify(Notifications.Warning,
-title, message)`. Engineering formatting: `Units.format(v, unit, digits)`, `Units.parse(text, unit)`.
+- **Pane header** (`PaneHeader`, `runBar` is its alias): icon, name and a state text derived from
+  the controller (`state`, `statusText`, `pauseReason`, `summary`; "Starting…" only for a start
+  slower than 300 ms), your extras, **Single**, the **Run/Stop** toggle (accent "Run" when
+  stopped, neutral "Stop" while running), **Release Outputs** while `holdsOutputs` and stopped,
+  and **⋯**: Export Data…, Export Image…, Print…, your `controller.commands` (those without an
+  argument), Trace Style… (when `traceStyles` is set), Show Measurements, your `menuItems`, Reset
+  Settings… (confirmed), Help. Options: `showSingle`, `singleText`, `singleIcon`, `singleToolTip`,
+  `singleEnabled`, `runText`, `stopText`, `resumeText`, `releaseText`, `releaseToolTip`,
+  `showTimeout` + `timeoutText` (a caution word while `controller.timedOut`), `showRate`, and
+  `compact` (read it to shorten your extras in narrow panes). `stateText` overrides the state
+  text; set the controller's `summary` for the detail after it ("Running · 200 kS/s").
+- **Banners** under the header: Paused [Resume], Reconnected [Resume], input warning, error
+  [Details], and the pre-run conflict hint ("Uses AI, now held by Oscilloscope — Run pauses it").
+  Your `banners` come after them; never show device errors in a modal dialog.
+- **Display**: `Theme.display`, no frame, no badge, no export or help buttons (Export is in ⋯, in
+  File and in the plots' context menu). `displayTitle` is the read-only one-line summary at its
+  top left.
+- **Measurement strip**: `measurements` (MeasurementTable / StatisticsTable) stacked under the
+  display; `measurementsVisible` is view state saved per pane; below `Theme.shortHeight` the strip
+  shows the first table's `summaryText`.
+- **Inspector**: your `inspector` sections live in one `Inspector` item. The app's
+  `InspectorDock` shows the focused pane's inspector (Settings | Help); without a dock (tests) the
+  panel docks it on its right. Don't bind anything to the inspector's parent or size.
+- **Section state**: give every `Section` a stable, untranslated `sectionId`; the panel keys its
+  collapsed state `section/<paneId>/<sectionId>` (the title is the fallback).
+- **Shell commands**: the panel registers in `PanelRegistry` under its `paneId` once complete;
+  shell commands reach it through `PanelRegistry.whenReady(paneId, panel => …)` (exportData(),
+  exportImage(pdf), printPanel(), toggleInspector(), showHelp()). The shell provides Space
+  (Run/Stop), Shift+Space (Single), the menus and the palette.
+
+A secondary view of an instrument (its own pane, e.g. the Waveform Editor) is an
+`InstrumentPanel` with `viewId: "gen/editor"` in a QML file named by the descriptor's `views`.
+
+v1 names still accepted until the cleanup (don't use them in new code): `runBarControls` (=
+`headerControls`), `runBarActions` and `displayTools` (header items left of Single),
+`displayInfo` (state detail when the controller has no `summary`), `narrowWidth`,
+`inspectorWidth`, `showErrorBanner`, `showExport`, `inspectorItem`, `displayArea`; `RunBar`,
+`DisplayArea`, `ExportButton`, `HelpButton`, `ShellActions` (now forwarding to PanelRegistry).
+
+### Shell hooks of the controller and descriptor
+
+- **`keyValue`**: call `setKeyValue(text)` in your publish path with the one short value that
+  identifies the instrument's state, unit-bearing and formatted with `Units` ("1.2346 V DC",
+  "1.00 kHz · 2.00 Vpp", "In 0x5A · Out 0x0F"); `""` when there is nothing meaningful (stopped
+  generator, no result yet). Sidebar rows, tooltips and Overview tiles show it. Call it at any
+  rate: the base class delivers the first change at once, then at most 4 per second, and always
+  the last value.
+- **`group`** in the descriptor: `"measure"`, `"generate"`, `"digital"` or `"apps"` (sidebar
+  group, Overview order); **`views`**: secondary panes,
+  `{ "gen/editor", tr("Waveform Editor"), "wave-arbitrary", "GenEditorPanel" }` →
+  `<module>/GenEditorPanel.qml`, sharing the instrument's controller.
+
+```cpp
+registry.registerInstrument({
+    .id = u"gen"_s, .title = QObject::tr("Waveform Generator"), .module = u"MyBench.Instruments.Gen"_s,
+    .icon = u"instrument-gen"_s, .order = 30, .group = u"generate"_s,
+    .views = {{u"gen/editor"_s, QObject::tr("Waveform Editor"), u"wave-arbitrary"_s, u"GenEditorPanel"_s}},
+    .createController = [] { return new GenController; },
+});
+```
+
+**Controls** (`MyBench.Controls`, see `mybench-controls-gallery` and docs/UI.md §13): numeric
+entry is `SiField` (`unit`, `from`/`to`, `digits`; `steppers: true` for ‹ › steps and drag-scrub)
+or `StepSelector` for 1-2-5 style lists (`model`, `unit`, `activated(index)`) — no knobs.
+`FormRow` (label + control) inside `Section`; `SegmentedControl`, `Readout` (`size` s/m/l/xl, OL,
+hold, stale, %FS), `StatusIndicator`, `ChannelBadge`, `MeasurementTable`, `StatisticsTable`,
+`TrendView`, `Banner`, `Icon`, and the standard `QtQuick.Controls` (Button, ToolButton,
+ComboBox, CheckBox, Switch, Slider, SpinBox, TextField, Menu, ToolTip…) styled by
+MyBench.Style. Colors, sizes and fonts only from `Theme` (`Theme.signalCh0`, `Theme.spacingM`,
+`Theme.fontSizeBody`, `Theme.tabularFigures`…). Notifications from QML:
+`Notifications.notify(Notifications.Warning, title, message)`. Engineering formatting:
+`Units.format(v, unit, digits)`, `Units.parse(text, unit)`.
 
 ## The tile (`<Name>Tile.qml`)
 
@@ -313,8 +370,8 @@ The shell calls `closePanel()` when the last tab/pane showing the instrument clo
 SessionManager calls `resetForSession()` before a new or loaded session is applied. Both emit a
 signal (`panelClosed()`, `sessionReset()`) and then `returnToSafeState()`: stop, and **once the
 worker has finished** call your `applySafeState()` (UI thread, idle). An idle instrument that
-still drives an output declares it with `setHoldsOutputs(true)`: the run bar then shows a
-"Release outputs" button, and Stop / Shift+F5 / Stop all call `applySafeState()` for it.
+still drives an output declares it with `setHoldsOutputs(true)`: the pane header then shows a
+"Release Outputs" button, and Stop / Shift+F5 / Stop all call `applySafeState()` for it.
 
 ```cpp
 class DioController : public InstrumentController {
@@ -326,7 +383,7 @@ protected:
 connect(this, &DioController::drivenMaskChanged, this, [this] { setHoldsOutputs(m_drivenMask != 0); });
 ```
 QML: `Connections { target: controller; function onPanelClosed() { ... } }` for view state.
-`RunBar { releaseText: qsTr("Output to 0 V") }` renames the button.
+`runBar.releaseText: qsTr("Output to 0 V")` (InstrumentPanel) renames the button.
 
 ### Stale worker results are dropped (run tagging)
 
@@ -439,10 +496,11 @@ unsaved changes (`""` once saved or discarded): quitting asks first ("Quit witho
 
 ### Collapsed inspector sections are remembered
 
-`Section`s of an `InstrumentPanel` inspector keep the collapsed state the user chooses per
-instrument (`stateKey` = "<id>/<title>", stored in the session's view state). Set `stateKey`
-yourself for sections elsewhere, or keep titles stable. A section whose `collapsed` is bound
-(e.g. to `!ch1.enabled`) follows the user's last manual choice once the user toggled it, as before.
+`Section`s of an `InstrumentPanel` inspector keep the collapsed state the user chooses per pane
+(`stateKey` = "section/<paneId>/<sectionId>", the title when `sectionId` is empty, stored in the
+session's view state; the v1 keys "collapsed/<id>/<title>" are pruned once). Set `stateKey`
+yourself for sections elsewhere. A section whose `collapsed` is bound (e.g. to `!ch1.enabled`)
+follows the user's last manual choice once the user toggled it, as before.
 
 ### Plot tools (toolbar, context menu, trace styles)
 
@@ -502,3 +560,92 @@ InstrumentPanel {
 - [ ] Export data (and image/PDF where the spec asks); help button → `docs/help/<id>.md`.
 - [ ] Dark and light screenshots of panel and tiles look right; no QML warnings on the console;
       no compiler warnings (`-Wall -Wextra`).
+
+## Panel patterns (reference: Oscilloscope)
+
+`instruments/scope` is the reference v2 panel. The other instruments copy these patterns; a
+deviation gets a reason in the work package's checkpoint.
+
+**Files.** `<Name>Panel.qml` holds the `InstrumentPanel` and its inspector sections inline. A section
+used more than once is its own file (`ScopeChannelSection.qml`, per channel), the display is its
+own file (`ScopeDisplay.qml`), and so is the strip's model (`ScopeMeasurements.qml`, a `QtObject`
+with `columns`, `rows`, `available`, `summaryText`, `add(id)`, `remove(id)`). The panel root
+exposes `panel`, `display` and the models as read-only aliases for tests.
+
+**Pane header or ⋯.**
+- `headerControls`: one or two frequent instrument actions, never settings (Scope: Autoscale):
+  `Button { text: panel.paneHeader.compact ? "" : qsTr("Autoscale"); icon.source: Theme.icon(...);
+  display: compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon }`. Single, Run/Stop,
+  Export, Print, Trace Style…, Show Measurements, Reset Settings… and Help come from the frame.
+- Other actions go into ⋯ through `menuItems` (Scope: Center Cursors) or `controller.commands`.
+  No Log, Export or Help buttons of your own.
+- State text: leave `stateText` empty (setting it hides the rate detail). The worker reports the
+  instrument's state words with `ctx.setStatus()` only when they change ("Triggered", "Waiting for
+  trigger", "Timeout — free running"; "" = "Running"); the frame clears them at start and stop.
+  Say it once: no `showTimeout` word, no plot placeholder or badge repeating it.
+
+**Display.**
+- Plots edge to edge in a `ColumnLayout`; a second view (the spectrum) sits under a 1 px
+  `Theme.separator`. Stacked plots align their plot areas (`leftMargin: other.plotArea.x`, same for
+  `rightMargin`); XY plots are square.
+- `displayTitle` is the read-only summary of the global settings ("5 ms/div · Edge ↑ CH0 0.00 V ·
+  Average of 4"). Per-trace scales are a legend line under each plot, aligned to
+  `plot.x + plot.plotArea.x`: an 8 px swatch (radius 2), the name (`displayText`, Medium) and the
+  scale (`displayTextSecondary`), caption size. A value is in one of them, never both.
+- The placeholder is only the empty state ("Press Run or Space to start") or an impossible
+  configuration ("XY needs Channel 0 and Channel 1"), never a run state.
+- Settings with a place on the graph get draggable markers (`PlotLine`: channel position, trigger
+  level and position) in the trace's color, `lineMode: PlotLine.WhileDragging` unless the line
+  itself is information. Status colors never draw traces or markers.
+- Zoom, pan, reset, Copy Image, Export Data and the cursors toggle come from `BenchPlot` (tools,
+  context menu, `cursorsAvailable`/`cursorsEnabled`): no zoom or reset buttons of your own.
+- Trace colors: `style.lineColor.valid ? style.lineColor : Theme.signalCh0` (the user's trace style
+  wins over the signal palette).
+
+**Measurement strip.** `measurements: [MeasurementTable { columns; rows; available; summaryText;
+onAddRequested: id => model.add(id); onRemoveRequested: id => model.remove(id) }]`.
+- Columns are the shown traces only ("CH0", "CH1", "Math", with their colors); rows are the chosen
+  measurements, plus the cursor rows while cursors are on.
+- `available` lists every measurement (the "+" menu checks the shown ones): it is the only place to
+  choose measurements — no checkboxes in the inspector, no per-channel selection.
+- Always set `summaryText`: the strip collapses to it in short windows.
+- "?" = undefined (the spec's value formatting); "" = not applicable (drawn "—").
+
+**Inspector.**
+- Order: inputs (one section per channel), horizontal (Timebase), trigger or acquisition, derived
+  traces (Math, FFT), tools (Cursors, References), presentation (Display), options (Analysis).
+  Title Case titles without "Settings"; a stable `sectionId` ("channel0", "timebase", "trigger").
+- Header: `swatchColor` = the trace's color for trace sections; the section's on/off `Switch` in
+  `trailing` — the only enable control of that thing (no chips or checkboxes elsewhere); `summary`
+  = a few words for the collapsed header ("AI 0 · 1 V/div", "Off"). Sections of things that are off
+  start collapsed (`collapsed: !channel.enabled`), rarely used ones `collapsed: true`.
+- One `FormRow` per setting; sentence-case label without units (the control shows them), `hint` for
+  a longer explanation.
+- Controls: 1-2-5 sequences and short value lists → `StepSelector` (ascending numbers with `unit`
+  "V/div", or `{ value, text }` for lists such as timeouts with "Never"); free numbers → `SiField`
+  with `unit`, `from`/`to`, `digits` and a tooltip with the range (`engineering: false` + `decimals`
+  for divisions and percent); 2–3 short options that fit the control column at 300 px →
+  `SegmentedControl`; longer choices, or choices that would push the label above the control →
+  `ComboBox`; on/off → `Switch`. No knobs.
+- Facts that follow from other settings (coupling, range in use, sample rate and record length) are
+  a caption line under the rows (`textTertiary`, caption size), not a disabled control.
+- Hide, don't disable, what does not apply (Immediate trigger → no edge fields; audio input → no
+  input range; Roll only from 50 ms/div; cursor rows only while cursors are on). Disable only what
+  is temporarily impossible, with the reason in the tooltip; inside a `SegmentedControl` use the
+  entry's `enabled` (a trigger source whose channel is off).
+- Every setting control has an `objectName`: the QML test walks the panel and compares them with
+  the expected list (`tst_scope_qml everySettingOnce`), so a second control for a setting fails.
+
+**Trace styles.** Each trace and cursor owns a C++ `mybench::plot::TraceStyle` (set the defaults,
+then `setAsDefault()`), saved with `toJson()`/`fromJson()` in `saveExtraSettings`. List them in
+`traceStyles`; traces use `PlotTrace { userStyle: ...; color: Theme.signal... }`. The Display section
+has a "Trace Styles…" button (`panel.openTraceStyleDialog()`).
+
+**Tile.** A `RowLayout`: a `Theme.display` rectangle (`radiusControl`) holding a bare `BenchPlot`
+(no grid, no labels), then a column with a `Readout { size: "m" }` for the key value ("CH0
+frequency") and a `Readout { size: "s" }` for the second one; neutral text, `stale:
+!controller.running`, "—" before the first result.
+
+**Restoring older sessions.** The automatic property restore ignores unknown keys, so a removed
+setting needs no code. A moved or renamed one is migrated in `restoreExtraSettings` (it runs after
+the automatic properties), with a test that restores a JSON literal of the old format.

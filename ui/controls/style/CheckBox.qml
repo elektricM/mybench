@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// Check box (lists and dialogs; forms use Switch): a 14 px box, accent when checked.
 T.CheckBox {
     id: control
 
@@ -11,30 +12,30 @@ T.CheckBox {
                              implicitContentHeight + topPadding + bottomPadding,
                              implicitIndicatorHeight + topPadding + bottomPadding)
 
-    padding: 2
-    spacing: 8
+    padding: 0
+    spacing: Theme.spacingS
     hoverEnabled: true
+    font.pixelSize: Theme.fontSizeBody
 
     indicator: Rectangle {
-        implicitWidth: 16
-        implicitHeight: 16
+        readonly property bool on: control.checkState !== Qt.Unchecked
+        implicitWidth: 14
+        implicitHeight: 14
         x: control.text ? (control.mirrored ? control.width - width - control.rightPadding : control.leftPadding)
                         : control.leftPadding + (control.availableWidth - width) / 2
         y: control.topPadding + (control.availableHeight - height) / 2
-        radius: Theme.radiusXs + 1
-        color: control.checkState !== Qt.Unchecked ? (control.hovered ? Theme.accentHover : Theme.accent)
-                                                   : (control.hovered ? Theme.surfaceHover : Theme.surfaceSunken)
-        border.width: control.checkState !== Qt.Unchecked ? 0 : 1
-        border.color: control.hovered ? Theme.textMuted : Theme.borderStrong
-        opacity: control.enabled ? 1 : 0.45
-        Behavior on color { ColorAnimation { duration: Theme.durationFast } }
+        radius: 3
+        color: on ? (control.down ? Theme.accentPressed : Theme.accent) : Theme.base
+        border.width: on ? 0 : Theme.borderWidth
+        border.color: control.hovered ? Theme.alpha(Theme.text, 0.36) : Theme.controlBorder
+        opacity: control.enabled ? 1 : 0.5
 
         Icon {
             anchors.centerIn: parent
             visible: control.checkState === Qt.Checked
             name: "check"
             size: 12
-            color: Theme.textOnAccent
+            color: Theme.accentText
         }
         Rectangle {
             anchors.centerIn: parent
@@ -42,9 +43,9 @@ T.CheckBox {
             width: 8
             height: 2
             radius: 1
-            color: Theme.textOnAccent
+            color: Theme.accentText
         }
-        FocusRing { shown: control.visualFocus; radius: Theme.radiusXs + 4 }
+        FocusRing { shown: control.visualFocus; radius: 5 }
     }
 
     contentItem: Text {

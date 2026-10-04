@@ -6,6 +6,7 @@
 #include <mybench/devicehub.h>
 #include <mybench/instrumentregistry.h>
 
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -59,6 +60,27 @@ private slots:
         registerLog(*InstrumentRegistry::instance());   // titles for the file headers
         DeviceHub::instance()->select(u"sim:0"_s);
         QVERIFY(DeviceHub::instance()->isConnected());
+    }
+
+    // Round-2 UI: one Format choice (Tab / CSV / ELVISmx text) replaces Format + Layout. Old
+    // settings with layout = ELVISmx restore as the ELVISmx format; choosing Tab/CSV goes back
+    // to the native layout.
+    void fileTypeMergesLayout()
+    {
+        LogController ctl;
+        ctl.initialize();
+        QCOMPARE(ctl.fileType(), LogController::TabFile);
+        QJsonObject old;
+        old.insert(u"fileLayout"_s, u"ElvismxLayout"_s);
+        old.insert(u"fileFormat"_s, u"CommaSeparated"_s);
+        ctl.restoreSettings(old);
+        QCOMPARE(ctl.fileType(), LogController::ElvismxFile);
+        ctl.setFileType(LogController::CsvFile);
+        QCOMPARE(ctl.fileLayout(), LogController::NativeLayout);
+        QCOMPARE(ctl.fileFormat(), LogController::CommaSeparated);
+        ctl.setFileType(LogController::TabFile);
+        QCOMPARE(ctl.fileFormat(), LogController::TabSeparated);
+        QVERIFY(!ctl.saveSettings().contains(u"fileType"_s));
     }
 
     void naming()

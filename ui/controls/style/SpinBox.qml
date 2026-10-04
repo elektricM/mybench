@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// Integer spin box: the text field look with ▲/▼ steppers at the right edge (as SiField).
 T.SpinBox {
     id: control
 
@@ -12,10 +13,11 @@ T.SpinBox {
                              up.implicitIndicatorHeight, down.implicitIndicatorHeight)
 
     padding: 0
-    leftPadding: 8
-    rightPadding: 22
+    leftPadding: Theme.spacingS
+    rightPadding: Theme.spacingS + 14
     hoverEnabled: true
     editable: true
+    font.pixelSize: Theme.fontSizeBody
 
     validator: IntValidator {
         locale: control.locale.name
@@ -27,10 +29,12 @@ T.SpinBox {
         z: 2
         text: control.displayText
         clip: width < implicitWidth
-        font: control.font
+        font.family: control.font.family
+        font.pixelSize: control.font.pixelSize
+        font.features: Theme.tabularFigures
         color: control.enabled ? Theme.text : Theme.textDisabled
-        selectionColor: Theme.alpha(Theme.accent, 0.35)
-        selectedTextColor: Theme.text
+        selectionColor: Theme.selection
+        selectedTextColor: Theme.selectionText
         horizontalAlignment: Qt.AlignLeft
         verticalAlignment: Qt.AlignVCenter
         readOnly: !control.editable
@@ -40,53 +44,50 @@ T.SpinBox {
     }
 
     up.indicator: Item {
-        x: control.width - width - 3
-        y: 3
-        implicitWidth: 16
-        implicitHeight: (Theme.controlHeight - 6) / 2
-        height: (control.height - 6) / 2
+        x: control.width - width - 2
+        y: 2
+        implicitWidth: 14
+        implicitHeight: Math.floor((Theme.controlHeight - 4) / 2)
+        height: Math.floor((control.height - 4) / 2)
         Rectangle {
             anchors.fill: parent
-            radius: Theme.radiusXs
-            color: control.up.pressed ? Theme.surfacePressed : control.up.hovered ? Theme.surfaceHover : "transparent"
+            radius: 3
+            color: control.up.pressed ? Theme.pressedFill : control.up.hovered ? Theme.hoverFill : "transparent"
         }
         Icon {
             anchors.centerIn: parent
-            name: "chevron-down-line"
-            rotation: 180
+            name: "chevron-up"
             size: 10
-            color: control.up.indicator.enabled ? (control.up.hovered ? Theme.text : Theme.textMuted) : Theme.textDisabled
+            color: control.up.indicator.enabled ? (control.up.hovered ? Theme.text : Theme.textSecondary) : Theme.textDisabled
         }
     }
-
     down.indicator: Item {
-        x: control.width - width - 3
+        x: control.width - width - 2
         y: control.height / 2
-        implicitWidth: 16
-        implicitHeight: (Theme.controlHeight - 6) / 2
-        height: (control.height - 6) / 2
+        implicitWidth: 14
+        implicitHeight: Math.floor((Theme.controlHeight - 4) / 2)
+        height: Math.floor((control.height - 4) / 2)
         Rectangle {
             anchors.fill: parent
-            radius: Theme.radiusXs
-            color: control.down.pressed ? Theme.surfacePressed : control.down.hovered ? Theme.surfaceHover : "transparent"
+            radius: 3
+            color: control.down.pressed ? Theme.pressedFill : control.down.hovered ? Theme.hoverFill : "transparent"
         }
         Icon {
             anchors.centerIn: parent
-            name: "chevron-down-line"
+            name: "chevron-down"
             size: 10
-            color: control.down.indicator.enabled ? (control.down.hovered ? Theme.text : Theme.textMuted) : Theme.textDisabled
+            color: control.down.indicator.enabled ? (control.down.hovered ? Theme.text : Theme.textSecondary) : Theme.textDisabled
         }
     }
 
     background: Rectangle {
         implicitWidth: 96
         implicitHeight: Theme.controlHeight
-        radius: Theme.radiusM
-        color: Theme.surfaceSunken
-        border.width: 1
-        border.color: control.activeFocus ? Theme.accent : control.hovered ? Theme.borderStrong : Theme.border
-        opacity: control.enabled ? 1 : 0.55
-        Behavior on border.color { ColorAnimation { duration: Theme.durationFast } }
-        FocusRing { shown: control.visualFocus; radius: Theme.radiusM + 3 }
+        radius: Theme.radiusControl
+        color: Theme.base
+        opacity: control.enabled ? 1 : 0.6
+        border.width: Theme.borderWidth
+        border.color: control.activeFocus ? Theme.accent : Theme.controlBorder
+        FocusRing { shown: control.visualFocus }
     }
 }

@@ -1,12 +1,13 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import MyBench.Plot
 
-// Right-click menu of a plot (app.md 8.3): Autoscale X/Y, autoscale locks, Undo/Reset zoom,
-// Cursors on/off (when the host has cursors), Trace style…, Copy image, Export image…/data….
-// BenchPlot opens it on Plot.contextMenuRequested; the export and style entries are signals.
+// The context menu of a plot (docs/UI.md §6 "Plots"; native outside screenshot/test mode):
+// Autoscale, Reset View, Undo Zoom, the autoscale locks, Show Cursors, Time Window ▸ and Clear
+// (trends), Trace Style…, Copy Image, Copy Data, Export Image…, Export Data…. BenchPlot opens it on
+// Plot.contextMenuRequested; the export, style, window and clear entries are signals.
 //     PlotContextMenu { id: menu; plot: thePlot; onExportDataRequested: ... }
-//     Connections { target: thePlot; function onContextMenuRequested(p) { menu.popup(thePlot, p) } }
 Menu {
     id: root
 
@@ -16,6 +17,9 @@ Menu {
     property bool traceStyleAvailable: false
     property bool exportAvailable: true
     property bool copyDataAvailable: false
+    property var timeWindows: []        // [{ text, seconds }]
+    property int timeWindowIndex: -1
+    property bool clearAvailable: false
     // Zoom and autoscale entries only for interactive plots (not for fixed previews).
     readonly property bool zoomable: plot !== null && plot.interactive
 
@@ -24,8 +28,10 @@ Menu {
     signal exportImageRequested()
     signal exportDataRequested()
     signal copyDataRequested()
+    signal timeWindowActivated(int index)
+    signal clearRequested()
 
-    // Hidden entries take no room.
+    // Hidden entries take no room in the in-window rendering.
     component OptionalItem: MenuItem {
         height: visible ? implicitHeight : 0
     }
@@ -35,83 +41,109 @@ Menu {
 
     OptionalItem {
         visible: root.zoomable
-        text: qsTr("Autoscale X")
-        icon.source: Theme.icon("zoom-x")
-        enabled: root.plot !== null
-        onTriggered: root.plot.autoscaleX()
+        text: qsTr("Autoscale")
+        onTriggered: root.plot.autoscale()
     }
     OptionalItem {
         visible: root.zoomable
-        text: qsTr("Autoscale Y")
-        icon.source: Theme.icon("zoom-y")
-        enabled: root.plot !== null
-        onTriggered: root.plot.autoscaleY()
+        text: qsTr("Reset View")
+        onTriggered: root.plot.resetView()
     }
     OptionalItem {
         visible: root.zoomable
-        readonly property bool locked: root.plot !== null && root.plot.xAutoscaleLock
-        text: locked ? qsTr("Unlock X autoscale") : qsTr("Lock X autoscale")
-        icon.source: Theme.icon(locked ? "unlock" : "lock")
-        onTriggered: root.plot.xAutoscaleLock = !locked
-    }
-    OptionalItem {
-        visible: root.zoomable
-        readonly property bool locked: root.plot !== null && root.plot.yAutoscaleLock
-        text: locked ? qsTr("Unlock Y autoscale") : qsTr("Lock Y autoscale")
-        icon.source: Theme.icon(locked ? "unlock" : "lock")
-        onTriggered: root.plot.yAutoscaleLock = !locked
+        text: qsTr("Undo Zoom")
+        enabled: root.plot !== null && root.plot.canUndoZoom
+        onTriggered: root.plot.undoZoom()
     }
     OptionalSeparator { visible: root.zoomable }
     OptionalItem {
         visible: root.zoomable
-        text: qsTr("Undo zoom")
-        icon.source: Theme.icon("undo")
-        enabled: root.plot !== null && root.plot.canUndoZoom
-        onTriggered: root.plot.undoZoom()
+        text: qsTr("Follow X Data")
+        checkable: true
+        checked: root.plot !== null && root.plot.xAutoscaleLock
+        onTriggered: root.plot.xAutoscaleLock = checked
     }
     OptionalItem {
         visible: root.zoomable
-        text: qsTr("Reset zoom")
-        icon.source: Theme.icon("reset")
-        enabled: root.plot !== null
-        onTriggered: root.plot.resetView()
+        text: qsTr("Follow Y Data")
+        checkable: true
+        checked: root.plot !== null && root.plot.yAutoscaleLock
+        onTriggered: root.plot.yAutoscaleLock = checked
     }
-    OptionalSeparator { visible: root.zoomable && (root.cursorsAvailable || root.traceStyleAvailable) }
     OptionalItem {
         visible: root.cursorsAvailable
-        text: root.cursorsEnabled ? qsTr("Hide cursors") : qsTr("Show cursors")
-        icon.source: Theme.icon("crosshair")
-        onTriggered: root.cursorsToggled(!root.cursorsEnabled)
+        text: qsTr("Show Cursors")
+        checkable: true
+        checked: root.cursorsEnabled
+        onTriggered: root.cursorsToggled(checked)
+    }
+    Menu {
+        id: windowMenu
+        title: qsTr("Time Window")
+        Instantiator {
+            model: root.timeWindows
+            delegate: MenuItem {
+                required property var modelData
+                required property int index
+                text: modelData.text
+                checkable: true
+                checked: index === root.timeWindowIndex
+                onTriggered: root.timeWindowActivated(index)
+            }
+            onObjectAdded: (index, object) => windowMenu.insertItem(index, object as MenuItem)
+            onObjectRemoved: (index, object) => windowMenu.removeItem(object as MenuItem)
+        }
     }
     OptionalItem {
+        id: clearItem
+        visible: root.clearAvailable
+        text: qsTr("Clear")
+        onTriggered: root.clearRequested()
+    }
+    OptionalSeparator { visible: root.zoomable || root.cursorsAvailable || root.clearAvailable }
+    OptionalItem {
         visible: root.traceStyleAvailable
-        text: qsTr("Trace style…")
-        icon.source: Theme.icon("edit")
+        text: qsTr("Trace Style…")
         onTriggered: root.traceStyleRequested()
     }
-    OptionalSeparator { visible: root.zoomable || root.cursorsAvailable || root.traceStyleAvailable }
     MenuItem {
-        text: qsTr("Copy image")
-        icon.source: Theme.icon("copy")
+        text: qsTr("Copy Image")
         enabled: root.plot !== null
         onTriggered: root.plot.copyImage()
     }
     OptionalItem {
         visible: root.copyDataAvailable
-        text: qsTr("Copy data")
-        icon.source: Theme.icon("copy")
+        text: qsTr("Copy Data")
         onTriggered: root.copyDataRequested()
     }
     OptionalItem {
         visible: root.exportAvailable
-        text: qsTr("Export image…")
-        icon.source: Theme.icon("image")
+        text: qsTr("Export Image…")
         onTriggered: root.exportImageRequested()
     }
     OptionalItem {
         visible: root.exportAvailable
-        text: qsTr("Export data…")
-        icon.source: Theme.icon("download")
+        text: qsTr("Export Data…")
         onTriggered: root.exportDataRequested()
     }
+
+    // The Time Window submenu exists only for trend plots (taken out of the menu otherwise; kept
+    // alive by this property).
+    readonly property Menu timeWindowMenu: windowMenu
+    function indexOf(item: QtObject): int {
+        for (let i = 0; i < root.count; ++i) {
+            if (root.itemAt(i) === item || root.menuAt(i) === item)
+                return i
+        }
+        return -1
+    }
+    function syncWindowMenu() {
+        const index = indexOf(windowMenu)
+        if (root.timeWindows.length === 0 && index >= 0)
+            root.takeMenu(index)
+        else if (root.timeWindows.length > 0 && index < 0)
+            root.insertMenu(Math.max(0, indexOf(clearItem)), windowMenu)
+    }
+    onTimeWindowsChanged: syncWindowMenu()
+    Component.onCompleted: syncWindowMenu()
 }

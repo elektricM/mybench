@@ -5,8 +5,9 @@ import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
-// The application event log (errors, device events, notifications), newest first, with the
-// technical details of device errors.
+// The event log popover (status bar message counter, Help ▸ Event Log): errors, device events and
+// notifications, newest first, with the technical details of device errors. Opening it marks
+// everything read.
 Popup {
     id: popup
 
@@ -15,25 +16,27 @@ Popup {
     padding: 0
     onOpened: EventLog.markRead()
 
+    background: PopupFrame {}
+
     contentItem: ColumnLayout {
         spacing: 0
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: Theme.spacingM
-            spacing: Theme.spacingS
-            Icon { name: "list"; color: Theme.textSecondary }
+            Layout.leftMargin: Theme.spacingL
+            Layout.rightMargin: Theme.spacingS
+            Layout.topMargin: Theme.spacingS
+            Layout.bottomMargin: Theme.spacingS
+            spacing: Theme.spacingXs
             Text {
                 Layout.fillWidth: true
-                text: qsTr("Event log")
+                text: qsTr("Event Log")
                 color: Theme.text
-                font.pixelSize: Theme.fontSizeL
+                font.pixelSize: Theme.fontSizeHeading
                 font.weight: Font.DemiBold
             }
-            ActionButton {
+            Button {
+                flat: true
                 text: qsTr("Copy")
-                iconName: "copy"
-                compact: true
-                tone: "ghost"
                 enabled: EventLog.count > 0
                 onClicked: {
                     copyHelper.text = EventLog.toText()
@@ -41,24 +44,22 @@ Popup {
                     copyHelper.copy()
                 }
             }
-            ActionButton {
+            Button {
+                flat: true
                 text: qsTr("Clear")
-                iconName: "trash"
-                compact: true
-                tone: "ghost"
                 enabled: EventLog.count > 0
                 onClicked: EventLog.clear()
             }
-            IconButton {
-                iconName: "close"
-                toolTip: qsTr("Close")
-                onClicked: popup.close()
-            }
         }
-        Divider { Layout.fillWidth: true }
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: Theme.borderWidth
+            color: Theme.separator
+        }
 
         ListView {
             id: list
+            objectName: "eventLogList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
@@ -72,36 +73,36 @@ Popup {
                 required property string source
                 required property string message
                 required property string details
-                width: list.width
-                implicitHeight: row.implicitHeight + 12
+                width: ListView.view.width
+                implicitHeight: row.implicitHeight + Theme.spacingS + 2
                 RowLayout {
                     id: row
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: Theme.spacingM
-                    anchors.rightMargin: Theme.spacingM
+                    anchors.leftMargin: Theme.spacingL
+                    anchors.rightMargin: Theme.spacingL
                     spacing: Theme.spacingS
-                    Text {
-                        Layout.alignment: Qt.AlignTop
-                        text: entry.timeText
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSizeS
-                        font.family: Theme.monoFamily
-                    }
                     Icon {
                         Layout.alignment: Qt.AlignTop
                         name: entry.level === EventLog.Error ? "error" : entry.level === EventLog.Warning ? "warning" : "info"
-                        size: 13
-                        color: entry.level === EventLog.Error ? Theme.danger : entry.level === EventLog.Warning ? Theme.warning : Theme.textMuted
+                        size: Theme.iconSize - 2
+                        color: entry.level === EventLog.Error ? Theme.negative
+                             : entry.level === EventLog.Warning ? Theme.caution : Theme.textTertiary
                     }
                     Text {
                         Layout.alignment: Qt.AlignTop
-                        Layout.preferredWidth: 56
+                        text: entry.timeText
+                        color: Theme.textTertiary
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.features: Theme.tabularFigures
+                    }
+                    Text {
+                        Layout.alignment: Qt.AlignTop
+                        Layout.preferredWidth: 72
                         text: entry.source
                         color: Theme.textSecondary
-                        font.pixelSize: Theme.fontSizeS
-                        font.weight: Font.DemiBold
+                        font.pixelSize: Theme.fontSizeSmall
                         elide: Text.ElideRight
                     }
                     Column {
@@ -111,28 +112,31 @@ Popup {
                             width: parent.width
                             text: entry.message
                             color: Theme.text
-                            font.pixelSize: Theme.fontSizeM
+                            font.pixelSize: Theme.fontSizeSmall
                             wrapMode: Text.WordWrap
                         }
-                        // Technical details (error code name + backend text, app.md 9.3).
+                        // Technical details (error code name and the backend's message).
                         Text {
                             visible: entry.details.length > 0
                             width: parent.width
                             text: entry.details
-                            color: Theme.textMuted
-                            font.pixelSize: Theme.fontSizeS
+                            color: Theme.textTertiary
+                            font.pixelSize: Theme.fontSizeCaption
                             font.family: Theme.monoFamily
                             wrapMode: Text.WrapAnywhere
                         }
                     }
                 }
             }
-            EmptyState {
+            Text {
                 anchors.centerIn: parent
+                width: parent.width - 2 * Theme.spacingXl
                 visible: EventLog.count === 0
-                iconName: "success"
-                title: qsTr("Nothing to report")
-                text: qsTr("Device events, errors and notifications appear here.")
+                horizontalAlignment: Text.AlignHCenter
+                text: qsTr("No messages. Device events, errors and notifications appear here.")
+                color: Theme.textTertiary
+                font.pixelSize: Theme.fontSizeBody
+                wrapMode: Text.WordWrap
             }
         }
     }

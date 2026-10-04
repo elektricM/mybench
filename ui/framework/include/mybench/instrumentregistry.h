@@ -14,6 +14,7 @@
 //             .module = QStringLiteral("MyBench.Instruments.Scope"),
 //             .icon = QStringLiteral("instrument-scope"),
 //             .order = 20,
+//             .group = QStringLiteral("measure"),
 //             .createController = [] { return new ScopeController; },
 //         });
 //     }
@@ -47,6 +48,18 @@ namespace mybench {
 
 class InstrumentController;
 
+// A secondary view of an instrument, shown in a pane of its own (docs/UI.md §13.7), e.g. the
+// Waveform Editor of the generator: {"gen/editor", "Waveform Editor", "wave-arbitrary",
+// "GenEditorPanel"}. Its panel is <module>/<panelType>.qml and shares the instrument's controller.
+struct ViewDescriptor {
+    QString id;          // pane id "<instrument>/<view>", e.g. "gen/editor"
+    QString title;       // "Waveform Editor"
+    QString icon;        // MyBench.Controls icon name
+    QString panelType;   // QML type in the instrument's module, "GenEditorPanel"
+
+    QUrl panelUrl(const QString& module) const;   // qrc:/qt/qml/<module path>/<panelType>.qml
+};
+
 struct InstrumentDescriptor {
     QString id;            // "scope": lower case; help page, settings key, --instrument argument
     QString title;         // "Oscilloscope"
@@ -57,11 +70,16 @@ struct InstrumentDescriptor {
     QString tileType;      // QML type of the dashboard tile; default "<Name>Tile"
     QString icon;          // MyBench.Controls icon name (Theme.icon()) or a URL; default "instrument-<id>"
     QString helpId;        // docs/help/<helpId>.md; default: id
-    int order = 100;       // position in the nav rail / on Home (ascending)
+    int order = 100;       // position in the sidebar / on Overview (ascending)
+    QString group;         // sidebar group: "measure" | "generate" | "digital" | "apps"; default "apps"
+    QList<ViewDescriptor> views;   // secondary views (panes of their own), e.g. "gen/editor"
     std::function<InstrumentController*()> createController;   // required
 
     QUrl panelUrl() const;   // qrc:/qt/qml/MyBench/Instruments/Scope/ScopePanel.qml
     QUrl tileUrl() const;
+    // Panel of a secondary view ("gen/editor"); empty for an unknown view id.
+    QUrl viewUrl(const QString& viewId) const;
+    const ViewDescriptor* view(const QString& viewId) const;
 };
 
 class InstrumentRegistry : public QAbstractListModel
@@ -91,6 +109,9 @@ public:
         PausedRole,
         HasErrorRole,
         StateRole,
+        GroupRole,      // "measure" | "generate" | "digital" | "apps"
+        ViewsRole,      // [{ id, title, icon, panelType, panelUrl }]
+        KeyValueRole,   // InstrumentController::keyValue ("" until the controller exists)
     };
     Q_ENUM(Role)
 
@@ -110,8 +131,12 @@ public:
     Q_INVOKABLE void createAll();
 
     Q_INVOKABLE bool contains(const QString& id) const { return descriptor(id) != nullptr; }
-    // Descriptor as a map (id, title, shortTitle, description, icon, panelUrl, tileUrl, helpId).
+    // Descriptor as a map (instrumentId, title, shortTitle, description, icon, module, panelUrl,
+    // tileUrl, helpId, order, group, views: [{ id, title, icon, panelType, panelUrl }]).
     Q_INVOKABLE QVariantMap info(const QString& id) const;
+    // The secondary view "<instrument>/<view>" as { id, title, icon, panelType, panelUrl,
+    // instrumentId }; {} for an unknown view.
+    Q_INVOKABLE QVariantMap viewInfo(const QString& viewId) const;
     Q_INVOKABLE int indexOf(const QString& id) const;
 
     // Stops every running instrument (and returns idle ones that hold outputs to their safe

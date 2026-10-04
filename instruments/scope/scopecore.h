@@ -101,6 +101,7 @@ struct Measurements {
     double rms = kNaN;          // V, DC included (after coupling)
     double frequency = kNaN;    // Hz, FFT single tone; NaN when the tone ≤ 0.2 × V/div
     double peakToPeak = kNaN;   // V, max − min
+    double peak = kNaN;         // V, max |v| over the record
     // MYBENCH extensions
     double mean = kNaN;
     double minimum = kNaN;

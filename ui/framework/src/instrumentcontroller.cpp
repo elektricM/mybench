@@ -28,6 +28,7 @@ constexpr int kSaveDelayMs = 400;
 constexpr int kMaxErrorHistory = 50;
 constexpr auto kPredecessorTimeout = std::chrono::seconds(5);
 constexpr auto kJoinTimeout = std::chrono::seconds(3);
+constexpr int kKeyValueIntervalMs = 250;   // keyValueChanged at most 4 times per second
 
 bool g_restoreSavedSettings = true;
 
@@ -52,6 +53,11 @@ struct InstrumentController::Private {
     std::vector<std::shared_ptr<detail::RunState>> retired;  // stopped runs not joined yet
     quint64 generation = 0;
     QList<QMetaProperty> persistent;
+    // keyValue: `keyValue` is what QML sees, `pendingKeyValue` the latest setKeyValue().
+    QString keyValue;
+    QString pendingKeyValue;
+    QTimer keyValueTimer;           // single shot: delivers the pending value
+    QElapsedTimer keyValueClock;    // since the last delivery
 };
 
 InstrumentController::InstrumentController(const QString& instrumentId, QObject* parent)
@@ -60,6 +66,9 @@ InstrumentController::InstrumentController(const QString& instrumentId, QObject*
     m_saveTimer.setSingleShot(true);
     m_saveTimer.setInterval(kSaveDelayMs);
     connect(&m_saveTimer, &QTimer::timeout, this, &InstrumentController::saveToStore);
+
+    d->keyValueTimer.setSingleShot(true);
+    connect(&d->keyValueTimer, &QTimer::timeout, this, &InstrumentController::deliverKeyValue);
 
     m_throughputTimer.setInterval(1000);
     connect(&m_throughputTimer, &QTimer::timeout, this, &InstrumentController::updateThroughput);
@@ -704,6 +713,34 @@ void InstrumentController::setSummary(const QString& summary)
         return;
     m_summary = summary;
     emit summaryChanged();
+}
+
+QString InstrumentController::keyValue() const
+{
+    return d->keyValue;
+}
+
+void InstrumentController::setKeyValue(const QString& text)
+{
+    d->pendingKeyValue = text;
+    if (d->keyValueTimer.isActive())
+        return;   // delivered when the interval ends (the latest value wins)
+    if (text == d->keyValue)
+        return;
+    const qint64 elapsed = d->keyValueClock.isValid() ? d->keyValueClock.elapsed() : kKeyValueIntervalMs;
+    if (elapsed >= kKeyValueIntervalMs)
+        deliverKeyValue();   // first change after a quiet interval: at once
+    else
+        d->keyValueTimer.start(int(kKeyValueIntervalMs - elapsed));
+}
+
+void InstrumentController::deliverKeyValue()
+{
+    if (d->pendingKeyValue == d->keyValue)
+        return;
+    d->keyValue = d->pendingKeyValue;
+    d->keyValueClock.start();
+    emit keyValueChanged();
 }
 
 void InstrumentController::incrementAcquisitionCount()

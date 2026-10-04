@@ -1,9 +1,10 @@
 import QtQuick
-import QtQuick.Controls.impl
-import QtQuick.Effects
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// Menus are native (Popup.Native: the platform's menus on macOS, Windows and KDE) except in
+// screenshot/test mode (Theme.inlinePopups), where this in-window rendering is used. Use only
+// MenuItem, MenuSeparator, Menu and Action inside, so the native path can show every entry.
 T.Menu {
     id: control
 
@@ -12,21 +13,16 @@ T.Menu {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
+    popupType: Theme.inlinePopups ? T.Popup.Item : T.Popup.Native
     margins: 0
-    padding: 4
-    overlap: 4
+    padding: Theme.spacingXs
+    overlap: Theme.spacingXs
     font.pixelSize: Theme.fontSizeBody
 
     delegate: MenuItem {}
 
     enter: Transition {
-        ParallelAnimation {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationFast }
-            NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: Theme.durationNormal; easing.type: Easing.OutCubic }
-        }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; to: 0; duration: Theme.durationFast }
+        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationFast }
     }
 
     contentItem: ListView {
@@ -38,22 +34,10 @@ T.Menu {
         T.ScrollIndicator.vertical: ScrollIndicator {}
     }
 
-    background: Rectangle {
+    background: PopupFrame {
         implicitWidth: 200
-        implicitHeight: 32
-        radius: Theme.radiusL
-        color: Theme.surfaceRaised
-        border.width: 1
-        border.color: Theme.dark ? "#2C303A" : Theme.border
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowColor: Theme.shadow
-            shadowBlur: 0.8
-            shadowVerticalOffset: 6
-            shadowOpacity: Theme.dark ? 0.9 : 0.45
-            blurMax: 32
-        }
+        implicitHeight: Theme.controlHeight
+        shadow: control.popupType === T.Popup.Item
     }
 
     T.Overlay.modal: Rectangle { color: Theme.overlay }

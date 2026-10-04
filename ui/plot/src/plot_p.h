@@ -75,7 +75,8 @@ struct PlotPrivate {
 
     // ---- style ----
     Plot::ColorScheme scheme = Plot::Dark;
-    std::optional<QColor> background, plotAreaColor, grid, minorGrid, frame, text, title, accent;
+    std::optional<QColor> background, plotAreaColor, grid, minorGrid, frame, text, title, accent, panel;
+    QList<QColor> series;
     Plot::Graticule graticule = Plot::Grid;
     PlotElement::LineStyle gridStyle = PlotElement::Solid;
     bool frameVisible = true;
@@ -103,6 +104,7 @@ struct PlotPrivate {
     QColor textColor() const;
     QColor titleColor() const;
     QColor accentColor() const;
+    QColor panelColor() const;
     QColor palette(int index) const;
     QColor traceColor(const PlotTrace *trace) const;
 

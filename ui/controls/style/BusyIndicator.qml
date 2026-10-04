@@ -3,6 +3,7 @@ import QtQuick.Shapes
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// A small spinning arc in secondary text color.
 T.BusyIndicator {
     id: control
 
@@ -11,11 +12,11 @@ T.BusyIndicator {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-    padding: 2
+    padding: 0
 
     contentItem: Item {
-        implicitWidth: 20
-        implicitHeight: 20
+        implicitWidth: Theme.iconSize
+        implicitHeight: Theme.iconSize
         visible: control.running
         Shape {
             anchors.fill: parent
@@ -28,15 +29,15 @@ T.BusyIndicator {
                 loops: Animation.Infinite
             }
             ShapePath {
-                strokeColor: Theme.accent
+                strokeColor: Theme.textSecondary
                 strokeWidth: 2
                 fillColor: "transparent"
                 capStyle: ShapePath.RoundCap
                 PathAngleArc {
                     centerX: control.contentItem.width / 2
                     centerY: control.contentItem.height / 2
-                    radiusX: control.contentItem.width / 2 - 2
-                    radiusY: control.contentItem.height / 2 - 2
+                    radiusX: control.contentItem.width / 2 - 1.5
+                    radiusY: control.contentItem.height / 2 - 1.5
                     startAngle: 0
                     sweepAngle: 270
                 }

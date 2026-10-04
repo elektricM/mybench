@@ -11,10 +11,8 @@ set_tests_properties(framework PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen
 
 # Launcher (Home favorites, user tools, pinned files, recent exports) and AppInfo About fields.
 qt_add_executable(tst_launcher tst_launcher.cpp)
+# (WorkspaceState is tested by app/tests/tst_workspace.qml.)
 target_link_libraries(tst_launcher PRIVATE mybench_framework mybench_frameworkplugin Qt6::Test Qt6::Quick)
-target_compile_definitions(tst_launcher PRIVATE
-    MYBENCH_APP_QML_DIR="${PROJECT_SOURCE_DIR}/app"
-    MYBENCH_QML_IMPORT_DIR="${CMAKE_BINARY_DIR}/qml")
 if(NOT MSVC)
     target_compile_options(tst_launcher PRIVATE -Wall -Wextra)
 endif()

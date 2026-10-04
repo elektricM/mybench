@@ -304,6 +304,7 @@ Measurements measure(const std::vector<double>& x, double sampleRate, double vol
     m.minimum = mn;
     m.maximum = mx;
     m.peakToPeak = mx - mn;
+    m.peak = std::max(std::abs(mx), std::abs(mn));
     m.acRms = std::sqrt(std::max(0.0, sum2 / n - m.mean * m.mean));
     if (m.rms > 0)
         m.crestFactor = std::max(std::abs(mx), std::abs(mn)) / m.rms;
@@ -511,13 +512,13 @@ bool needsBothChannels(MathFunction f)
 QString mathName(MathFunction f)
 {
     switch (f) {
-    case MathFunction::Sum: return u"CH 0 + CH 1"_s;
-    case MathFunction::Difference: return u"CH 0 − CH 1"_s;
-    case MathFunction::Product: return u"CH 0 × CH 1"_s;
-    case MathFunction::InvertA: return u"−CH 0"_s;
-    case MathFunction::InvertB: return u"−CH 1"_s;
-    case MathFunction::FftA: return u"FFT CH 0"_s;
-    case MathFunction::FftB: return u"FFT CH 1"_s;
+    case MathFunction::Sum: return u"CH0 + CH1"_s;
+    case MathFunction::Difference: return u"CH0 − CH1"_s;
+    case MathFunction::Product: return u"CH0 × CH1"_s;
+    case MathFunction::InvertA: return u"−CH0"_s;
+    case MathFunction::InvertB: return u"−CH1"_s;
+    case MathFunction::FftA: return u"FFT CH0"_s;
+    case MathFunction::FftB: return u"FFT CH1"_s;
     }
     return {};
 }

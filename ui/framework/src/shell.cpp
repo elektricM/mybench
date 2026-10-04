@@ -13,6 +13,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontDatabase>
+#include <QFontInfo>
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlEngine>
@@ -57,7 +59,8 @@ void startRequested(const QString& list, const QString& fallback, bool once = fa
     else if (!fallback.isEmpty())
         ids = {fallback};
     for (const QString& id : std::as_const(ids)) {
-        if (InstrumentController* controller = registry->controller(id.trimmed()))
+        // A view's pane id ("gen/editor") runs its instrument.
+        if (InstrumentController* controller = registry->controller(id.trimmed().section(u'/', 0, 0)))
             once ? controller->runOnce() : controller->run();
     }
 }
@@ -96,25 +99,29 @@ void whenDeviceReady(const QString& requested, std::function<void()> start)
 
 const char* const kShellHelp =
     "MYBENCH options:\n"
-    "  --panel <id>             open and focus this instrument (repeatable; alias --instrument)\n"
+    "  --panel <id>             show this instrument or view (gen/editor); repeatable, the last one is\n"
+    "                           shown (alias --instrument)\n"
     "  --split <id>             show <id> in a second pane beside the panel\n"
     "  --run <ids|all>          start these instruments after launch (--run alone: the panel)\n"
     "  --single=<ids|all>       one Single acquisition of these instruments after launch\n"
     "  --device <id>            use this device (sim:0, usb:036CD1C6); --simulated = --device sim:0\n"
     "                           (--simulated and --screenshot do not open USB devices unless --device usb:...)\n"
     "  --open <file.mybench>    open a session (also a positional file argument)\n"
-    "  --page home              show Home\n"
-    "  --dashboard              pin the dashboard column\n"
-    "  --show-help              open the help drawer\n"
+    "  --page overview          show Overview (alias: --page home)\n"
+    "  --sidebar full|compact|hidden    sidebar form for this run\n"
+    "  --inspector shown|hidden         inspector for this run\n"
+    "  --show-help              show the help page of the inspector\n"
     "  --palette, --log         open the command palette / the event log\n"
-    "  --preferences            open the Preferences dialog\n"
+    "  --preferences, --about, --device-info, --simulator-settings\n"
+    "                           open that window (offscreen: shown inside the main window)\n"
+    "  --dark-displays          plots and readouts stay dark in the light theme\n"
     "  --system-palette <w,b,t,a>  play a platform palette (window, base, text, accent colors) for the\n"
     "                           system-follow theme, e.g. \"#31363b,#1b1e20,#fcfcfc,#3daee9\" (KDE Breeze dark)\n"
     "  --print-dialog           open the Print / export options of the focused panel\n"
-    "  --tile                   dev executables: show the dashboard tiles instead of the panel\n"
+    "  --tile                   dev executables: show the Overview tile instead of the panel\n"
     "  --fresh                  temporary empty settings (implied by --screenshot unless --keep-settings)\n"
     "  --no-animations          disable animations\n"
-    "  --unified-titlebar       macOS: content under a transparent title bar (experimental)\n"
+    "  --no-unified-titlebar    macOS: keep the system title bar above the toolbar\n"
     "  --version                print the version\n";
 
 }  // namespace
@@ -143,11 +150,16 @@ int runShell(int argc, char* argv[], const ShellConfig& config)
     app.defaultSize = config.defaultSize;
     app.setup = [config](QQmlEngine& engine, const LaunchOptions& options, QVariantMap&) {
         QCoreApplication::setApplicationVersion(QStringLiteral(MYBENCH_VERSION));
-        // One pixel size on every platform (points map to different pixel sizes per DPI and
-        // platform plugin); the family stays the platform UI font.
-        QFont font = QGuiApplication::font();
-        font.setPixelSize(13);
-        QGuiApplication::setFont(font);
+        // The platform UI font at its default size (docs/UI.md §3). Only offscreen rendering
+        // (screenshots, tests) forces 13 px and a family that exists, so the images are
+        // reproducible.
+        if (QGuiApplication::platformName() == u"offscreen"_s || QGuiApplication::platformName() == u"minimal"_s) {
+            QFont font = QGuiApplication::font();
+            font.setPixelSize(13);
+            if (!QFontDatabase::hasFamily(font.family()))
+                font.setFamily(QFontInfo(font).family());
+            QGuiApplication::setFont(font);
+        }
         const QIcon icon(u":/qt/qml/MyBench/Controls/icons/app-icon-color.svg"_s);
         if (!icon.isNull())
             QGuiApplication::setWindowIcon(icon);

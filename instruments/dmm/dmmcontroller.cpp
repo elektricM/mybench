@@ -50,6 +50,13 @@ DmmController::DmmController() : InstrumentController(u"dmm"_s)
     refreshRanges();
     connect(DeviceHub::instance(), &DeviceHub::currentChanged, this, &DmmController::refreshRanges);
     connect(this, &InstrumentController::stateChanged, this, &DmmController::updateTone);
+    // Key value (sidebar, Overview): the displayed reading, "1.2346 V DC", "+Over", "" when none.
+    connect(this, &DmmController::readingChanged, this, [this] {
+        const QString kind = m_function == DcVoltage || m_function == DcCurrent ? u" DC"_s
+                             : m_function == AcVoltage || m_function == AcCurrent ? u" AC"_s : QString();
+        setKeyValue(!m_display.valid ? QString()
+                    : m_display.unit.isEmpty() ? m_display.text : m_display.text + u' ' + m_display.unit + kind);
+    });
 }
 
 DmmController::~DmmController()
@@ -569,6 +576,7 @@ void registerDmm(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Dmm"_s,
         .icon = u"instrument-dmm"_s,
         .order = 10,
+        .group = QStringLiteral("measure"),
         .createController = [] { return new DmmController; },
     });
 }

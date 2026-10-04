@@ -2,11 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import QtTest
 import MyBench.Framework
-import ".."
+import MyBench.App
 
-// SessionGuard (app.md 11.2): Open / Open recent / Quit ask to save a modified named session
-// first; the window title shows the session name and a modified marker (app.md 2.1).
-// ShellKeys: Space runs/stops the focused instrument unless a control uses Space itself (6.2).
+// SessionGuard: Open / Open Recent / Quit ask to save a modified named session first; the titles
+// show the session name and "— Edited" while it is modified (docs/UI.md §7).
+// ShellKeys: Space runs/stops the focused instrument unless a control uses Space itself.
 Item {
     id: host
     width: 400
@@ -71,8 +71,9 @@ Item {
             SessionManager.newSession()
             compare(guard.windowTitle, AppInfo.name + " — " + SessionManager.currentName)
             namedModifiedSession()
-            verify(guard.windowTitle.endsWith(" •"))
+            verify(guard.windowTitle.endsWith(" — Edited"))
             verify(guard.windowTitle.indexOf(SessionManager.currentName) > 0)
+            compare(guard.documentTitle, SessionManager.currentName + " — Edited")
         }
 
         function test_spaceNotStolenFromButtons() {

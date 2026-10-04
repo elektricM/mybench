@@ -2,8 +2,9 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import MyBench.Framework
 
-// Stack of toasts (the Notifications model), newest at the bottom. Anchor it to a corner of
-// the window content; it only takes the space of its toasts.
+// Stack of toasts (the Notifications model), newest at the bottom (docs/UI.md §10: global
+// transient events only). Anchor it to the bottom-right of the window content; it only takes the
+// space of its toasts.
 //     ToastArea { anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: 16 }
 ListView {
     id: list
@@ -38,16 +39,15 @@ ListView {
     add: Transition {
         ParallelAnimation {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationNormal }
-            NumberAnimation { property: "x"; from: 40; to: 0; duration: Theme.durationSlow; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "x"; from: 24; to: 0; duration: Theme.durationNormal; easing.type: Theme.easing }
         }
     }
     remove: Transition {
         ParallelAnimation {
-            NumberAnimation { property: "opacity"; to: 0; duration: Theme.durationNormal }
-            NumberAnimation { property: "x"; to: 60; duration: Theme.durationNormal; easing.type: Easing.InCubic }
+            NumberAnimation { property: "opacity"; to: 0; duration: Theme.durationFast }
         }
     }
     displaced: Transition {
-        NumberAnimation { properties: "y"; duration: Theme.durationNormal; easing.type: Easing.OutCubic }
+        NumberAnimation { properties: "y"; duration: Theme.durationNormal; easing.type: Theme.easing }
     }
 }

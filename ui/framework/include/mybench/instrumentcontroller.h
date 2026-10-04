@@ -111,6 +111,10 @@ class InstrumentController : public QObject, public QQmlParserStatus
     // One-line acquisition summary for the status bar ("AI 200 kS/s × 2", "DMM 5 readings/s");
     // empty: the shell composes one from sampleRate/throughput/resources.
     Q_PROPERTY(QString summary READ summary NOTIFY summaryChanged)
+    // The instrument's key value for sidebar rows, tooltips and Overview tiles ("1.234 V",
+    // "1.00 kHz · 2.0 Vpp", "In 0x5A · Out 0x0F"); "" when there is nothing meaningful to show.
+    // Set with setKeyValue(); keyValueChanged is coalesced to at most 4 Hz (docs/UI.md §13.7).
+    Q_PROPERTY(QString keyValue READ keyValue NOTIFY keyValueChanged)
     // The last run was stopped because the device was unplugged (reconnect banner + Resume).
     Q_PROPERTY(bool interruptedByDisconnect READ interruptedByDisconnect NOTIFY stateChanged)
 
@@ -170,6 +174,7 @@ public:
     int acquisitionCount() const { return m_acquisitionCount; }
     bool hasData() const { return m_hasData; }
     QString summary() const { return m_summary; }
+    QString keyValue() const;
     bool interruptedByDisconnect() const { return m_interruptedByDisconnect; }
 
     QString errorText() const { return m_errorText; }
@@ -263,6 +268,7 @@ signals:
     void acquisitionCountChanged();
     void hasDataChanged();
     void summaryChanged();
+    void keyValueChanged();
     void errorChanged();
     void resourcesChanged();
     void settingsChanged();   // any setting changed (after initialize())
@@ -330,6 +336,10 @@ protected:
     void setSampleRate(double samplesPerSecond);
     void setHasData(bool hasData);
     void setSummary(const QString& summary);
+    // Key value (see keyValue): call it from the publish path with a short, unit-bearing text
+    // formatted with Units ("1.234 V"), "" when nothing meaningful. Cheap to call at any rate:
+    // the first change is delivered at once, later ones at most every 250 ms, the last always.
+    void setKeyValue(const QString& text);
     void incrementAcquisitionCount();
     // Error (logged, toast, sets errorText). Does not stop a run: throw from the worker for that.
     void reportError(const QString& message);
@@ -362,6 +372,7 @@ private:
     void updateThroughput();
     void saveToStore();
     void updateCanRun();
+    void deliverKeyValue();
 
     QString m_id;
     State m_state = Idle;

@@ -71,6 +71,19 @@ LogController::LogController() : InstrumentController(u"log"_s)
     m_ai1.setMaximumCount(kChartSamples);
     m_dmm.setMaximumCount(kChartSamples / 10);
     updateResources();
+    // Key value (sidebar, Overview) while recording: "● 00:12:30 · 7 500 rows".
+    auto updateKeyValue = [this] {
+        const qint64 s = qint64(m_recordSeconds);
+        QString rows = QString::number(qint64(m_recordRows));
+        for (qsizetype i = rows.size() - 3; i > 0; i -= 3)
+            rows.insert(i, QChar(0x202F));   // narrow no-break space between thousands
+        setKeyValue(!isRunning() || !m_recording ? QString()
+                    : tr("● %1:%2:%3 · %4 rows").arg(s / 3600, 2, 10, QChar(u'0')).arg(s / 60 % 60, 2, 10, QChar(u'0'))
+                          .arg(s % 60, 2, 10, QChar(u'0')).arg(rows));
+    };
+    connect(this, &LogController::recordProgressChanged, this, updateKeyValue);
+    connect(this, &LogController::recordingChanged, this, updateKeyValue);
+    connect(this, &InstrumentController::stateChanged, this, updateKeyValue);
 }
 
 LogController::~LogController()
@@ -236,6 +249,23 @@ void LogController::setFileLayout(FileLayout layout)
         return;
     m_fileLayout = layout;
     emit fileSettingsChanged();
+}
+
+LogController::FileType LogController::fileType() const
+{
+    if (m_fileLayout == ElvismxLayout)
+        return ElvismxFile;
+    return m_fileFormat == CommaSeparated ? CsvFile : TabFile;
+}
+
+void LogController::setFileType(FileType type)
+{
+    if (type == ElvismxFile) {
+        setFileLayout(ElvismxLayout);
+        return;
+    }
+    setFileFormat(type == CsvFile ? CommaSeparated : TabSeparated);
+    setFileLayout(NativeLayout);
 }
 
 void LogController::setAppendToExisting(bool append)
@@ -835,6 +865,7 @@ void registerLog(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Log"_s,
         .icon = u"qrc:/qt/qml/MyBench/Instruments/Log/assets/instrument-log.svg"_s,
         .order = 80,
+        .group = QStringLiteral("apps"),
         .createController = [] { return new LogController; },
     });
 }

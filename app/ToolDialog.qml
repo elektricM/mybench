@@ -6,8 +6,8 @@ import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
-// Add or edit a user tool of the Home "Tools" card (app.md 18.1): a name and a program, document,
-// folder or web address, plus optional arguments for programs.
+// Add or edit a user tool (the Tools menu, edited in Preferences ▸ Tools): a name and a program,
+// document, folder or web address, plus optional arguments for programs.
 //     ToolDialog { id: toolDialog }   toolDialog.add()   toolDialog.edit(index)
 Dialog {
     id: dialog
@@ -38,7 +38,7 @@ Dialog {
     anchors.centerIn: Overlay.overlay
     width: 480
     modal: true
-    title: index < 0 ? qsTr("Add tool") : qsTr("Edit tool")
+    title: index < 0 ? qsTr("Add Tool") : qsTr("Edit Tool")
     standardButtons: Dialog.Ok | Dialog.Cancel
 
     Component.onCompleted: standardButton(Dialog.Ok).text = Qt.binding(() => dialog.index < 0 ? qsTr("Add") : qsTr("Save"))
@@ -67,9 +67,9 @@ Dialog {
 
         Text {
             Layout.fillWidth: true
-            text: qsTr("A tool is a shortcut on Home: a program to start, a document or folder to open, or a web page.")
+            text: qsTr("A tool is an entry of the Tools menu: a program to start, a document or folder to open, or a web page.")
             color: Theme.textSecondary
-            font.pixelSize: Theme.fontSizeM
+            font.pixelSize: Theme.fontSizeSmall
             wrapMode: Text.WordWrap
         }
         Field {
@@ -84,9 +84,8 @@ Dialog {
                     selectByMouse: true
                     onAccepted: dialog.accept()
                 }
-                ActionButton {
+                Button {
                     text: qsTr("Browse…")
-                    iconName: "folder-open"
                     onClicked: browse.open()
                 }
             }
@@ -98,8 +97,8 @@ Dialog {
                     : dialog.kind === "folder" ? qsTr("Folder: opens in the file manager.")
                     : dialog.kind === "file" ? qsTr("Document: opens with its default application.")
                     : qsTr("Not found on this computer.")
-                color: dialog.kind === "missing" ? Theme.warning : Theme.textMuted
-                font.pixelSize: Theme.fontSizeS
+                color: dialog.kind === "missing" ? Theme.caution : Theme.textTertiary
+                font.pixelSize: Theme.fontSizeSmall
             }
         }
         Field {

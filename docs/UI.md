@@ -4,6 +4,12 @@ MYBENCH is **one desktop application** for the NI myDAQ. It keeps every ELVISmx 
 `docs/instruments/*.md`), but not ELVISmx's look, naming or ordering. It presents the instruments in
 one calm, dense, professional window that behaves like a native Qt application.
 
+> **Round 2 (2026-10-04, Martin):** the instrument panels follow a PicoScope 7–style layout: knobs are
+> back for primary parameters (Knob + typeable value + − / +), primary controls always visible,
+> segmented and picture buttons instead of dropdowns, channel cards and a tool palette with floating
+> panels on the right of the display, measurement cards with statistics. Dark is the default theme.
+> Where this conflicts with §1, §6 or the "no knobs" wording below, this note wins.
+
 This document is the **contract** for every UI change. It supersedes UI v1 (2026-09) and
 `docs/ui-proposal.md`. Migration progress: `docs/audit.md`, section "UI v2". If code and this
 document disagree, this document wins; change it first if it is wrong.
@@ -595,6 +601,25 @@ InstrumentPanel {
 | `MeasurementTable` | `columns: [{title, color}]`, `rows: [{id, title, values: [string]}]`, `available: [{id, title}]`, `signal addRequested(string id)`, `signal removeRequested(string id)`, `summaryText` |
 | `TrendView` | a BenchPlot with `windows: [{text, seconds}]`, `windowIndex`, `signal windowActivated(int index)`, `signal clearRequested()`, `plot` (alias). The time-window selector sits in the plot toolbar |
 | `OverviewTile` (A2) | `title`, `iconName`, `status`, `keyValue`, `preview` (Component), `pinned`, `signal clicked()`, `signal runToggled()` |
+
+### 13.8b Instrument controls, round 2 (`ui/controls`; PicoScope 7–style panels)
+
+| Component | API |
+|---|---|
+| `Knob` | flat face, tick ring, value arc, pointer. Stepped `values`, `labels`, `currentIndex`, `defaultIndex` → `indexMoved(int)`; continuous `from`, `to`, `value`, `stepSize`, `logarithmic`, `defaultValue` → `moved(real)`; `size` (48 primary, 34 secondary), `accentColor` (channel color), `clockwiseIncreases` (true), `bipolarArc`, `resetToDefault()` (double-click). Drag (Shift = fine), rotary drag on the ring, wheel (WheelGuard rule), arrow/Page/Home/End keys |
+| `KnobField` | knob + label + typeable value between − / + + optional caption: `label`, `unit`, `caption`, `accentColor`, `knobSize`, `compact` (no knob, for narrow panes), `formatter`, stepped `values`/`currentIndex` → `indexActivated(int)`, continuous `from`/`to`/`value`/`stepSize`/`logarithmic` → `valueModified(real)`. SI typing ("2m", "500u", "1.5k"); stepped snaps to the nearest value |
+| `ChannelCard` | `title`, `subtitle`, `color`, `checked` → `toggled(bool)`, `checkable`, `facts: [string]`, `compact`, `headerExtras`, body = default content; unchecked collapses to the header |
+| `ToolPalette` | `model: [{id, text, icon}]`, `currentId`, `activated(string id)`, `columns` (4) |
+| `ToolPanel` | floating panel: `title`, content, `closeRequested()` (Esc, ×), width 280 |
+| `PictureButton` | checkable pictogram + label: `text`, `glyph` (SVG path on 32×18) or `iconName` |
+| `MeasurementCard` | `title`, `color`, `value`, `stats {min, max, mean, stdDev}`, `removable` → `removeRequested()` |
+| `RunButton` | big Run/Stop with state line: `running`, `stateText`, `busy`, emits `toggled()` |
+
+Panel pattern (round 2): `inspector: []` (the shell hides the empty dock); top bar = `RunButton`,
+Single and the primary `KnobField`s (via `InstrumentPanel.headerContent` + `showRunControls: false`);
+display left and largest; right column of `ChannelCard`s with knobs, then a `ToolPalette` whose tools
+open a `ToolPanel` over the display; `MeasurementCard`s at the bottom; narrow panes switch the right
+column to `compact`. Short choices are segmented or picture buttons; dropdowns only for long lists.
 
 ### 13.9 Offscreen rule
 

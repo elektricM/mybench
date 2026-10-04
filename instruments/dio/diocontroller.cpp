@@ -72,6 +72,20 @@ DioController::DioController() : InstrumentController(u"dio"_s)
     });
     // Shell hooks: Stop while idle, panel close and session reset release driven lines.
     connect(this, &DioController::drivenMaskChanged, this, [this] { setHoldsOutputs(m_drivenMask != 0); });
+    // Key value (sidebar, Overview): "In 0x5A · Out 0x0F" while running or driving lines.
+    auto updateKeyValue = [this] {
+        const auto hex = [](int value) { return u"0x"_s + QString::number(value, 16).toUpper().rightJustified(2, u'0'); };
+        QStringList parts;
+        if (isRunning() && inputWidth() > 0 && hasReading())
+            parts << tr("In %1").arg(hex(inputValue()));
+        if ((isRunning() || holdsOutputs()) && outputWidth() > 0 && hasWritten())
+            parts << tr("Out %1").arg(hex(writtenValue()));
+        setKeyValue(parts.join(u" · "_s));
+    };
+    connect(this, &DioController::lineStatesChanged, this, updateKeyValue);
+    connect(this, &DioController::writtenChanged, this, updateKeyValue);
+    connect(this, &InstrumentController::stateChanged, this, updateKeyValue);
+    connect(this, &InstrumentController::holdsOutputsChanged, this, updateKeyValue);
     // A device reset or unplugging turns every line into an input: the "still driven" state ends.
     DeviceHub* hub = DeviceHub::instance();
     connect(hub, &DeviceHub::connectionChanged, this, [this, hub] {
@@ -758,6 +772,7 @@ void registerDio(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Dio"_s,
         .icon = u"instrument-dio"_s,
         .order = 60,
+        .group = QStringLiteral("digital"),
         .createController = [] { return new DioController; },
     });
 }

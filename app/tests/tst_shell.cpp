@@ -1,5 +1,6 @@
-// QuickTest harness for the shell QML (WorkspaceState, CommandPalette, ...): registers three
-// fake instruments ("aa", "bb", "cc") whose controllers count the shell hooks they receive.
+// QuickTest harness for the shell QML (WorkspaceState, Sidebar, AppActions, CommandPalette, ...):
+// registers three fake instruments whose controllers count the shell hooks they receive:
+// "aa" and "bb" in the Measure group, "cc" in Generate with a secondary view "cc/editor".
 #include <mybench/framework.h>
 
 #include <QQmlEngine>
@@ -28,6 +29,8 @@ public:
     }
     ~FakeInstrument() override { shutdown(); }
     int closedCount() const { return m_closed; }
+    // The sidebar / Overview key value (InstrumentController::setKeyValue is protected).
+    Q_INVOKABLE void setKey(const QString& text) { setKeyValue(text); }
     int safeStateCount() const { return m_safe; }
     double level() const { return m_level; }
     void setLevel(double level)
@@ -81,9 +84,13 @@ public slots:
         InstrumentRegistry* registry = InstrumentRegistry::instance();
         int order = 1;
         for (const QString& id : {u"aa"_s, u"bb"_s, u"cc"_s}) {
-            registry->registerInstrument({.id = id, .title = id.toUpper() + u" Instrument"_s, .shortTitle = id.toUpper(),
-                                          .module = u"Test.Fake"_s, .order = order++,
-                                          .createController = [id] { return new FakeInstrument(id); }});
+            InstrumentDescriptor descriptor{.id = id, .title = id.toUpper() + u" Instrument"_s, .shortTitle = id.toUpper(),
+                                            .module = u"Test.Fake"_s, .icon = u"activity"_s, .order = order++,
+                                            .group = id == u"cc"_s ? u"generate"_s : u"measure"_s,
+                                            .createController = [id] { return new FakeInstrument(id); }};
+            if (id == u"cc"_s)
+                descriptor.views = {{.id = u"cc/editor"_s, .title = u"CC Editor"_s, .icon = u"edit"_s, .panelType = u"CcEditorPanel"_s}};
+            registry->registerInstrument(descriptor);
         }
         registry->createAll();
     }

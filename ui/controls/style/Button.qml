@@ -3,23 +3,35 @@ import QtQuick.Controls.impl
 import QtQuick.Templates as T
 import MyBench.Controls
 
-// Standard push button: outlined; `highlighted` = primary (accent, filled); `flat` = ghost.
+// Push button (docs/UI.md §4): flat fill from the palette's button color and a hairline border;
+// `highlighted` = the one primary action (accent fill); `flat` = no fill until hovered.
+// Height Theme.controlHeight (set implicitHeight to Theme.controlHeightL for the Run button and
+// dialog buttons).
 T.Button {
     id: control
+
+    readonly property bool iconOnly: display === T.AbstractButton.IconOnly || (text.length === 0 && icon.source.toString().length > 0)
+    // A disabled primary button looks like any disabled button.
+    readonly property bool primary: highlighted && enabled
+    readonly property color foreground: !enabled ? Theme.textDisabled
+                                      : highlighted ? Theme.accentText
+                                      : checked ? Theme.accent
+                                      : Theme.text
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
                             implicitContentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-    padding: 6
-    horizontalPadding: 12
-    spacing: 6
+    padding: 0
+    horizontalPadding: iconOnly ? 0 : Theme.spacingM
+    spacing: Theme.spacingXs + 2
     hoverEnabled: true
-    font.weight: highlighted ? Font.DemiBold : Font.Medium
+    focusPolicy: Qt.StrongFocus
+    font.pixelSize: Theme.fontSizeBody
     icon.width: Theme.iconSize
     icon.height: Theme.iconSize
-    icon.color: !enabled ? Theme.textDisabled : highlighted ? Theme.textOnAccent : Theme.text
+    icon.color: foreground
 
     contentItem: IconLabel {
         spacing: control.spacing
@@ -28,23 +40,28 @@ T.Button {
         icon: control.icon
         text: control.text
         font: control.font
-        color: !control.enabled ? Theme.textDisabled : control.highlighted ? Theme.textOnAccent : Theme.text
+        color: control.foreground
     }
 
     background: Rectangle {
-        implicitWidth: 72
+        implicitWidth: control.iconOnly ? Theme.controlHeight : 64
         implicitHeight: Theme.controlHeight
-        radius: Theme.radiusM
-        visible: !control.flat || control.down || control.hovered || control.checked
-        color: control.highlighted ? (control.down ? Theme.accentPressed : control.hovered ? Theme.accentHover : Theme.accent)
-             : control.down ? Theme.surfacePressed
-             : control.checked ? Theme.accentMuted
-             : control.hovered ? Theme.surfaceHover
-             : control.flat ? "transparent" : Theme.surfaceRaised
-        border.width: control.highlighted || control.flat ? 0 : 1
-        border.color: control.checked ? Theme.accent : Theme.borderStrong
-        opacity: control.enabled ? 1 : 0.6
-        Behavior on color { ColorAnimation { duration: Theme.durationFast } }
-        FocusRing { shown: control.visualFocus; radius: Theme.radiusM + 3 }
+        radius: Theme.radiusControl
+        color: control.primary ? (control.down ? Theme.accentPressed : control.hovered ? Theme.accentHover : Theme.accent)
+             : control.flat ? "transparent" : Theme.controlFill
+        border.width: control.primary || control.flat ? 0 : Theme.borderWidth
+        border.color: Theme.controlBorder
+        opacity: control.enabled ? 1 : 0.55
+
+        // Hover and press states: an overlay of the text color (none on the primary button).
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            visible: !control.primary
+            color: control.down ? Theme.pressedFill
+                 : control.checked ? Theme.selectionInactive
+                 : control.hovered ? Theme.hoverFill : "transparent"
+        }
+        FocusRing { shown: control.visualFocus }
     }
 }

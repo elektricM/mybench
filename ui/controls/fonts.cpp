@@ -1,6 +1,7 @@
 #include "fonts.h"
 
 #include <QFontDatabase>
+#include <QFontInfo>
 #include <QGuiApplication>
 
 using namespace Qt::StringLiterals;
@@ -14,6 +15,15 @@ QFont Fonts::ui() const
     // The application font is the platform UI font on every platform plugin (the offscreen
     // plugin's theme would report a generic "Sans Serif" through QFontDatabase::systemFont()).
     return QGuiApplication::font();
+}
+
+int Fonts::uiPixelSize() const
+{
+    // The platform size in pixels: a point size is resolved by the font engine (72 dpi logical on
+    // macOS, the screen's logical dpi elsewhere). Never below 10 px.
+    const QFont font = QGuiApplication::font();
+    const int pixels = font.pixelSize() > 0 ? font.pixelSize() : QFontInfo(font).pixelSize();
+    return pixels > 0 ? qMax(10, pixels) : 13;
 }
 
 QFont Fonts::mono() const

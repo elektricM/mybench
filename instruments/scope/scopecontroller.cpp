@@ -1,8 +1,11 @@
 #include "scopecontroller.h"
 
+#include "scopelogwriter.h"
+
 #include <mybench/dataexport.h>
 #include <mybench/devicehub.h>
 #include <mybench/notifications.h>
+#include <mybench/units.h>
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -16,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <span>
+#include <utility>
 
 using namespace Qt::StringLiterals;
 
@@ -59,12 +63,12 @@ struct ScopeController::Published {
 ScopeController::ScopeController() : InstrumentController(u"scope"_s)
 {
     setRequiredResources(ResourceArbiter::AnalogInput);
+    initTraceStyle(m_refAStyle, plot::TraceStyle::Dash, 1.2);
+    initTraceStyle(m_refBStyle, plot::TraceStyle::Dot, 1.2);
     for (QObject* object : std::initializer_list<QObject*>{&m_channel0, &m_channel1, &m_math, &m_cursor1, &m_cursor2,
-                                                           m_channel0.style(), m_channel1.style(), m_math.style(), &m_refAStyle,
-                                                           &m_refBStyle})
+                                                           m_channel0.style(), m_channel1.style(), m_math.style(),
+                                                           m_cursor1.style(), m_cursor2.style(), &m_refAStyle, &m_refBStyle})
         watch(object);
-    m_refAStyle.setDefaults(ScopeTraceStyle::Dash, 1.2);
-    m_refBStyle.setDefaults(ScopeTraceStyle::Dot, 1.2);
     // Settings that change the acquisition plan (rate, record length, roll availability).
     for (auto signal : {&ScopeController::timePerDivChanged, &ScopeController::samplingModeChanged,
                         &ScopeController::rollModeChanged, &ScopeController::triggerTypeChanged})
@@ -80,8 +84,6 @@ ScopeController::ScopeController() : InstrumentController(u"scope"_s)
     connect(this, &ScopeController::timePerDivChanged, this, &ScopeController::clampCursors);
     connect(this, &ScopeController::averagingChanged, this, &ScopeController::bumpPersistenceEpoch);
     connect(this, &ScopeController::fftSourceChanged, this, &ScopeController::fftShownChanged);
-    connect(&m_math, &ScopeMath::enabledChanged, this, &ScopeController::fftShownChanged);
-    connect(&m_math, &ScopeMath::operationChanged, this, &ScopeController::fftShownChanged);
     for (auto signal : {&ScopeController::timePerDivChanged, &ScopeController::samplingModeChanged,
                         &ScopeController::rollModeChanged, &ScopeController::triggerTypeChanged,
                         &ScopeController::triggerSourceChanged, &ScopeController::triggerSlopeChanged,
@@ -235,7 +237,7 @@ void ScopeController::setAveraging(int records)
 void ScopeController::setFftSource(FftSource source)
 {
     if (assign(m_fftSource, source)) {
-        if (source == FftOff && !(m_math.enabled() && m_math.fft()))
+        if (source == FftOff)
             m_fftTrace.clear();
         emit fftSourceChanged();
     }
@@ -311,12 +313,6 @@ void ScopeController::bumpPersistenceEpoch()
     emit persistenceEpochChanged();
 }
 
-void ScopeController::setBackground(Background background)
-{
-    if (assign(m_background, background))
-        emit backgroundChanged();
-}
-
 void ScopeController::resetCursors()
 {
     m_cursor1.setPosition(0.25 * screenTime());
@@ -330,19 +326,10 @@ void ScopeController::clampCursors()
             c->setPosition(c == &m_cursor1 ? 0.25 * screenTime() : 0.75 * screenTime());
 }
 
-void ScopeController::resetGraphProperties()
+void ScopeController::setMeasurementShown(int measurement, bool on)
 {
-    for (ScopeChannel* channel : {&m_channel0, &m_channel1}) {
-        channel->style()->reset();
-        channel->setMeasurementMask(ScopeChannel::kElvisMeasurements);
-    }
-    m_math.style()->reset();
-    m_refAStyle.reset();
-    m_refBStyle.reset();
-    m_cursor1.resetStyle();
-    m_cursor2.resetStyle();
-    setBackground(ThemeBackground);
-    setShowDeltaTime(true);
+    m_channel0.setShown(measurement, on);
+    m_channel1.setShown(measurement, on);
 }
 
 void ScopeController::fixTriggerSource()
@@ -763,6 +750,15 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
         const scope::Acquirer::StopFn stop = [&ctx] { return ctx.stopRequested(); };
         bool autoscaleNow = autoscaleFirst;
         bool waiting = false;
+        // Pane-header state text: "" (Running), "Triggered", "Waiting for trigger", "Timeout — free
+        // running", "Autoscaling…". Posted only when it changes.
+        QString status;
+        auto setStatus = [&](const QString& text) {
+            if (text != status) {
+                status = text;
+                ctx.setStatus(text);
+            }
+        };
         bool cleared = false;
         scope::RecordAverager averager;
         QElapsedTimer sinceTrigger;   // time without a triggered record (run start, settings change)
@@ -806,13 +802,9 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
             } else {
                 m_xyTrace.clear();
             }
-            // FFT pane: the scope's own FFT source, or the math channel's FFT function.
-            const int fftSource = s.fftSource >= 0 ? s.fftSource
-                                  : s.mathEnabled && scope::isFft(s.mathFunction)
-                                      ? (s.mathFunction == scope::MathFunction::FftA ? 0 : 1)
-                                      : -1;
-            if (fftSource >= 0 && record.enabled(fftSource)) {
-                const scope::FftResult fft = scope::fftAnalyse(record.data[fftSource], fs);
+            // FFT view of the chosen channel.
+            if (s.fftSource >= 0 && record.enabled(s.fftSource)) {
+                const scope::FftResult fft = scope::fftAnalyse(record.data[s.fftSource], fs);
                 p->fftBinWidth = fft.binWidth;
                 p->fftPeakFrequency = fft.peakFrequency;
                 p->fftPeakLevel = fft.peakLevel;
@@ -855,9 +847,9 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
                 autoscaleNow = false;
                 acquirer.reset();   // one AI task at a time
                 roller.stop();
-                ctx.setStatus(tr("Autoscaling…"));
+                setStatus(tr("Autoscaling…"));
                 const auto result = scope::runAutoscale(ctx.device(), s, stop);
-                ctx.setStatus({});
+                setStatus({});
                 if (!result)
                     break;   // stopped
                 live->clear();
@@ -891,6 +883,7 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
                         ctx.post([this] { setWaitingForTrigger(false); });
                     }
                 }
+                setStatus({});   // roll mode is untriggered
                 if (!ctx.sleepMs(40))
                     break;
                 const int64_t moved = roller.poll();
@@ -928,10 +921,15 @@ InstrumentController::WorkerFunction ScopeController::createWorker()
             const bool nowWaiting = result.timedOut && timeoutPassed;   // no flicker before the timeout
             if (nowWaiting != waiting) {
                 waiting = nowWaiting;
-                ctx.setStatus(waiting ? tr("Waiting for trigger") : QString());
                 ctx.post([this, waiting] { setWaitingForTrigger(waiting); });
             }
             const bool displayed = result.record.has_value();
+            if (s.triggerType != scope::TriggerType::Edge)
+                setStatus({});
+            else if (nowWaiting)
+                setStatus(s.noTrigger == scope::NoTrigger::Auto ? tr("Timeout — free running") : tr("Waiting for trigger"));
+            else if (displayed && result.record->triggered)
+                setStatus(tr("Triggered"));
             if (displayed) {
                 const double shift = result.record->triggerShift / std::max(1.0, result.record->sampleRate);
                 publish(std::move(*result.record), shift);
@@ -970,6 +968,11 @@ void ScopeController::applyRecord(const std::shared_ptr<const Published>& p)
     m_math.setResults(p->mathRms, p->mathPeakToPeak, p->fftPeakFrequency, p->fftPeakLevel);
     m_fftBinWidth = p->fftBinWidth;
     emit recordChanged();
+    // Key value (sidebar, Overview): "1.00 kHz · 2.00 Vpp" of the first channel with results.
+    const ScopeChannel* shown = channel(0)->hasResults() ? channel(0) : channel(1)->hasResults() ? channel(1) : nullptr;
+    setKeyValue(!shown ? QString()
+                : (std::isfinite(shown->frequency()) ? Units::format(shown->frequency(), u"Hz"_s, 3, false) + u" · "_s : QString())
+                      + Units::format(shown->peakToPeak(), u"Vpp"_s, 3, false));
 }
 
 void ScopeController::onFinished()
@@ -1008,7 +1011,9 @@ DataTable ScopeController::exportTable() const
     } else {
         table.addMetadata(tr("Trigger"), rolling() ? tr("Immediate (roll mode)") : tr("Immediate"));
     }
-    table.addMetadata(tr("Record length"), m_samplingMode == HighResolution ? tr("high resolution") : tr("standard (2500 points)"));
+    table.addMetadata(tr("Record length"), m_samplingMode == HighResolution ? tr("long") : tr("normal"));
+    table.addMetadata(tr("C1/C2 linked plot"), u"%1 / %2"_s.arg(m_cursor1.channel() == 2 ? tr("Math") : u"CH %1"_s.arg(m_cursor1.channel()),
+                                                               m_cursor2.channel() == 2 ? tr("Math") : u"CH %1"_s.arg(m_cursor2.channel())));
     if (m_cursorsOn) {
         auto cursorText = [this](const ScopeCursor& c) {
             return u"%1 s, linked to %2, %3"_s.arg(QString::number(c.position(), 'g', 6),
@@ -1035,78 +1040,24 @@ DataTable ScopeController::exportTable() const
     for (size_t i = 0; i < n; ++i)
         time[i] = (double(i) + m_record.triggerShift) / fs;   // the trigger crossing sits at its position
     table.addColumn(tr("Time"), u"s"_s, std::move(time));
-    for (int ch = 0; ch < 2; ++ch)
-        if (m_record.enabled(ch))
+    QVariantList logged;
+    for (int ch = 0; ch < 2; ++ch) {
+        if (m_record.enabled(ch)) {
             table.addColumn(channel(ch)->name(), u"V"_s, m_record.data[ch]);
+            logged.append(ch);
+        }
+    }
+    // The ELVISmx-style text log (scope::LogWriter, "*.txt"): absolute time stamps per channel.
+    table.extra.insert(QString::fromLatin1(scope::kLogStart), m_recordTime.isValid() ? m_recordTime : QDateTime::currentDateTime());
+    table.extra.insert(QString::fromLatin1(scope::kLogInterval), 1.0 / fs);
+    table.extra.insert(QString::fromLatin1(scope::kLogShift), m_record.triggerShift / fs);
+    table.extra.insert(QString::fromLatin1(scope::kLogChannels), logged);
+    table.extra.insert(QString::fromLatin1(scope::kLogSkew), QVariantList{m_record.skew[0], m_record.skew[1]});
     if (m_math.enabled() && !m_math.fft() && !m_mathRecord.empty()) {
         table.addMetadata(tr("Math"), m_math.functionName());
         table.addColumn(tr("Math"), m_math.unit(), m_mathRecord);
     }
     return table;
-}
-
-bool ScopeController::exportElvisText(const QUrl& file)
-{
-    const QString path = DataExport::localPath(file);
-    if (!hasRecord() || !(m_record.sampleRate > 0)) {
-        Notifications::instance()->notify(Notifications::Info, tr("Nothing to log yet"), tr("Run the instrument first."));
-        return false;
-    }
-    QFile out(path);
-    if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        Notifications::instance()->notify(Notifications::Error, tr("Log not saved"), out.errorString());
-        return false;
-    }
-    // Layout of the ELVISmx Log TXT file (LabVIEW waveform export): a header block with t0 and
-    // delta t per channel, then time/value column pairs with absolute timestamps, %E values.
-    const double dt = 1.0 / m_record.sampleRate;
-    const double shift = m_record.triggerShift * dt;   // sub-sample trigger alignment
-    const QDateTime t0 = m_recordTime.isValid() ? m_recordTime : QDateTime::currentDateTime();
-    auto stamp = [&](double offset) {
-        const qint64 us = qint64(std::llround(offset * 1e6));
-        const QDateTime t = t0.addMSecs(us / 1000);
-        const int micro = int((t0.time().msec() * 1000 + us) % 1000000);
-        return t.toString(u"MM/dd/yyyy hh:mm:ss"_s) + u'.' + QString::number(micro).rightJustified(6, u'0')
-               + t.toString(u" AP"_s);
-    };
-    auto number = [](double v) { return QString::asprintf("%.6E", v); };
-    QList<int> channels;
-    for (int ch = 0; ch < 2; ++ch)
-        if (m_record.enabled(ch))
-            channels.append(ch);
-    QStringList rows[4];
-    rows[0] << u"waveform"_s;
-    rows[1] << u"t0"_s;
-    rows[2] << u"delta t"_s;
-    rows[3].clear();
-    QStringList header;
-    for (int i = 0; i < channels.size(); ++i) {
-        const int ch = channels[i];
-        rows[0] << u"Ch%1"_s.arg(ch) << QString();
-        rows[1] << stamp(m_record.skew[ch] + shift) << QString();
-        rows[2] << number(dt) << QString();
-        header << u"time[%1]"_s.arg(i) << u"Ch%1"_s.arg(ch);
-    }
-    QTextStream stream(&out);
-    for (int r = 0; r < 3; ++r)
-        stream << rows[r].join(u'\t') << '\n';
-    stream << '\n' << header.join(u'\t') << '\n';
-    const size_t n = size_t(recordLength());
-    for (size_t i = 0; i < n; ++i) {
-        QStringList cells;
-        for (int ch : channels) {
-            cells << stamp(double(i) * dt + m_record.skew[ch] + shift);
-            cells << (i < m_record.data[ch].size() ? number(m_record.data[ch][i]) : QString());
-        }
-        stream << cells.join(u'\t') << '\n';
-    }
-    stream.flush();
-    if (out.error() != QFile::NoError) {
-        Notifications::instance()->notify(Notifications::Error, tr("Log not saved"), out.errorString());
-        return false;
-    }
-    Notifications::instance()->notify(Notifications::Success, tr("Log saved"), path);
-    return true;
 }
 
 // --- Persistence of the sub-objects ------------------------------------------------------------
@@ -1118,19 +1069,36 @@ void ScopeController::saveExtraSettings(QJsonObject& settings) const
     settings.insert(u"mathTrace"_s, m_math.save());
     settings.insert(u"cursor1"_s, m_cursor1.save());
     settings.insert(u"cursor2"_s, m_cursor2.save());
-    settings.insert(u"refAStyle"_s, saveProperties(&m_refAStyle));
-    settings.insert(u"refBStyle"_s, saveProperties(&m_refBStyle));
+    settings.insert(u"refAStyle"_s, QJsonObject::fromVariantMap(m_refAStyle.toJson()));
+    settings.insert(u"refBStyle"_s, QJsonObject::fromVariantMap(m_refBStyle.toJson()));
 }
 
 void ScopeController::restoreExtraSettings(const QJsonObject& settings)
 {
     m_channel0.restore(settings.value(u"channel0"_s).toObject());
     m_channel1.restore(settings.value(u"channel1"_s).toObject());
-    m_math.restore(settings.value(u"mathTrace"_s).toObject());
+    // The measurement strip shows one set of measurements for every channel: older sessions could
+    // choose them per channel, their union is kept.
+    const int measurements = m_channel0.measurementMask() | m_channel1.measurementMask();
+    m_channel0.setMeasurementMask(measurements);
+    m_channel1.setMeasurementMask(measurements);
+    const QJsonObject math = settings.value(u"mathTrace"_s).toObject();
+    m_math.restore(math);
+    // Older versions had the spectrum as a math function ("FFT of CH n"): it is the FFT section now.
+    const QString operation = math.value(u"operation"_s).toString();
+    if (operation == u"FftA"_s || operation == u"FftB"_s) {
+        if (math.value(u"enabled"_s).toBool()) {
+            setFftSource(operation == u"FftA"_s ? FftChannel0 : FftChannel1);
+            m_math.setEnabled(false);
+        }
+        m_math.setOperation(ScopeMath::Sum);
+    }
     m_cursor1.restore(settings.value(u"cursor1"_s).toObject());
     m_cursor2.restore(settings.value(u"cursor2"_s).toObject());
-    restoreProperties(&m_refAStyle, settings.value(u"refAStyle"_s).toObject());
-    restoreProperties(&m_refBStyle, settings.value(u"refBStyle"_s).toObject());
+    if (settings.contains(u"refAStyle"_s))
+        m_refAStyle.fromJson(traceStyleJson(settings.value(u"refAStyle"_s).toObject()));
+    if (settings.contains(u"refBStyle"_s))
+        m_refBStyle.fromJson(traceStyleJson(settings.value(u"refBStyle"_s).toObject()));
     if (m_cursorsOn && (std::isnan(m_cursor1.position()) || std::isnan(m_cursor2.position())))
         resetCursors();
     fixTriggerSource();
@@ -1140,6 +1108,9 @@ void ScopeController::restoreExtraSettings(const QJsonObject& settings)
 
 void registerScope(InstrumentRegistry& registry)
 {
+    static bool writerRegistered = false;
+    if (!std::exchange(writerRegistered, true))
+        DataExport::instance()->registerWriter(std::make_unique<scope::LogWriter>(), u"scope"_s);
     registry.registerInstrument({
         .id = u"scope"_s,
         .title = QObject::tr("Oscilloscope"),
@@ -1148,6 +1119,7 @@ void registerScope(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Scope"_s,
         .icon = u"instrument-scope"_s,
         .order = 20,
+        .group = QStringLiteral("measure"),
         .createController = [] { return new ScopeController; },
     });
 }

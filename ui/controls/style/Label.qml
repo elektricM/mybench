@@ -6,6 +6,6 @@ T.Label {
     id: control
 
     color: enabled ? Theme.text : Theme.textDisabled
-    linkColor: Theme.accent
+    linkColor: Theme.link
     font.pixelSize: Theme.fontSizeBody
 }

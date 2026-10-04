@@ -8,6 +8,7 @@
 #include <mydaq/sim_device.h>
 
 #include <QFile>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -59,6 +60,19 @@ private slots:
         QVERIFY(!m_dmm->hasReading());
         QCOMPARE(m_dmm->readingText(), u"---"_s);
         QCOMPARE(m_dmm->fullScaleFraction(), -1.0);
+    }
+
+    // Round-2 UI: the "Signed overload" option is gone. Old saved settings that still carry it
+    // are ignored on restore, and it is no longer saved.
+    void signedOverloadIgnoredOnRestore()
+    {
+        QJsonObject old;
+        old.insert(u"signedOverload"_s, true);
+        old.insert(u"autoRange"_s, true);
+        m_dmm->restoreSettings(old);
+        QVERIFY(m_dmm->autoRange());                 // the rest of the object is applied
+        QVERIFY(!m_dmm->signedOverload());           // the removed option is not
+        QVERIFY(!m_dmm->saveSettings().contains(u"signedOverload"_s));
     }
 
     void specifyRange60V()

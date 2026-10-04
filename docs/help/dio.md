@@ -22,24 +22,34 @@ lines 4-7. A timeline records the state of every line, like a simple logic analy
 3. Flip the switches on the output cards (or press `0` … `7`): the lines change at once.
 4. Wire DIO 0-3 to DIO 4-7 and the input LEDs and the `Inputs` value follow the switches.
 
+## The pane
+
+At the top: **Run**, **Single** and the **Radix** buttons (**Hex | Bin | Dec**: the Inputs and
+Outputs values, the pattern number and the cursor values). **Release Outputs** appears there while
+stopped outputs still drive their lines. The display is on the left; the **Lines**, **Reader** and
+**Writer** cards and the tools (**Labels**, **Timeline**) are in the column on the right.
+
 ## The display
 
 - **Inputs / Outputs** – the read lines and the written lines as one number each. The lowest line of
-  a group is bit 0 ("right-justified": lines 4-7 all high give `x F`). Click the small prefix letter
-  to choose Decimal (`d`), Hex (`x`), Octal (`o`), Binary (`b`) or SI notation (`p`).
-- **Line cards** – `DIO 7` … `DIO 0`, most significant on the left. Each card shows an LED (lit =
+  a group is bit 0 ("right-justified": lines 4-7 all high give `x F`). Octal and SI notation are in
+  the radix menu of the pattern number field.
+- **Line tiles** – `DIO 7` … `DIO 0`, most significant on the left. Each tile shows an LED (lit =
   high; for outputs the level written), the direction (`IN`, `OUT`, `–` unused), the HI/LO switch of
-  output lines, your label and, if another instrument uses the line, its name. A warning mark
+  output lines (the Manual pattern's only editor besides the pattern number), your label and, if another instrument uses the line, its name. A warning mark
   appears if an output reads back a different level (short circuit or overload).
-- **Timeline** – every line over the last 5, 10, 30 or 60 s (inputs cyan, outputs amber). Buttons:
+- **Timeline** – every line over the last 5, 10, 30 or 60 s (outputs in the accent color). Buttons
+  in its top-right corner:
   window, cursors (two cursors with the time, Δt and the level of all lines at each, also as a number
   in Decimal, Hex, Octal, Binary or SI notation: click the radix letter in the cursor box), pause (freezes
   the view while recording continues) and clear. The last 10 minutes are kept.
 
-## Line Directions
+## Lines
 
-Set each line to **In**, **Out** or **–** (unused), and give it a label (e.g. `LED`, `CLK`). A line
-is read or driven, never both. Unused lines are left as high-impedance inputs.
+Set each line to **In**, **Out** or **–** (unused). **Read** and **Write** set a whole group at once
+(`0-3`, `4-7`, `0-7`, `None`; none is selected for any other set). The **Labels** tool names the
+lines (e.g. `LED`, `CLK`). A line is read or driven, never both. Unused lines are left as
+high-impedance inputs.
 
 ### Lines shared with other instruments
 
@@ -47,17 +57,15 @@ Lines declared by another instrument (Counter/Timer inputs, pulse output on DIO 
 carry that instrument's name. While that instrument runs, pressing Run here pauses it (and the other
 way round); set the line to `–` to leave it to the other instrument.
 
-## Digital Reader
+## Reader
 
-- **Lines to Read** – `0 - 3`, `4 - 7`, `0 - 7` or `None` (shows `Custom` for any other set). If the
-  group overlaps written lines, those lines move to reading and a message says so.
-- **Sample interval** – how often the lines are read and added to the timeline (10 ms – 1 s,
-  default 100 ms).
+- **Sample interval** (knob) – how often the lines are read and added to the timeline (10 ms – 1 s,
+  default 100 ms). If a Read group overlaps written lines, those lines move to reading and a message
+  says so.
 
-## Digital Writer
+## Writer
 
-- **Lines to Write** – `0 - 3`, `4 - 7`, `0 - 7` or `None` (or `Custom`).
-- **Pattern**:
+- **Pattern** (picture buttons):
   - **Manual** – set each line with its switch, or type a **Pattern Number** (in the chosen radix,
     `−`/`+` step by one).
   - **Ramp (0-15)** / **Ramp (0-255)** – counts 0, 1, 2 … up to the largest value, then again.
@@ -67,14 +75,15 @@ way round); set the line to `–` to leave it to the other instrument.
 - **Action** (Manual): **Toggle** inverts every line; **Rotate** moves the pattern one line in the
   **Direction** (the bit leaving comes back on the other side); **Shift** moves it one line and
   fills with 0.
-- **Step interval** – how long each value of a pattern is held (10 ms – 10 s, default 100 ms).
-- **Release** – after Stop the outputs keep driving their last value; Release makes them inputs
-  again. Closing the panel, starting a new session or a device reset also returns them to inputs.
+- **Step interval** (knob, patterns only) – how long each value of a pattern is held (10 ms – 10 s,
+  default 100 ms).
+- **Release Outputs** (pane header) – after Stop the outputs keep driving their last value; Release
+  makes them inputs again. Closing the panel, starting a new session or a device reset also returns them to inputs.
 - **Pattern Number** – type a value in the chosen radix; a value above the maximum is not accepted
   (the previous one stays). The − / + buttons and the arrow keys step by one.
 - **Numeric Value** – `x 0` before the first reading; no leading zeros in any radix.
 
-## Run bar
+## Run controls
 
 - **Run** – read continuously and drive the outputs until **Stop**. Settings, patterns and even the
   line directions can be changed while running (a pattern then restarts from its first value).

@@ -1,8 +1,9 @@
 import QtQuick
 import QtQuick.Controls.impl as Impl
 
-// A monochrome icon from assets/icons, tinted with `color` (the artwork's alpha is kept).
-//     Icon { name: "play"; color: Theme.run }
+// The one standalone icon wrapper: a monochrome icon of assets/icons (24 grid, 1.75 stroke)
+// tinted with `color`. Controls use their public `icon.source` / `icon.color` instead.
+//     Icon { name: "play"; color: Theme.textSecondary }
 Item {
     id: root
 
@@ -19,6 +20,5 @@ Item {
         sourceSize: Qt.size(root.size, root.size)
         fillMode: Image.PreserveAspectFit
         color: root.color
-        Behavior on color { ColorAnimation { duration: Theme.durationFast } }
     }
 }

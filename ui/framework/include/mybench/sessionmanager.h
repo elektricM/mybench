@@ -46,7 +46,9 @@ class SessionManager : public QObject
     // Layout of the shell (opaque to the framework). Persisted in QSettings when set.
     Q_PROPERTY(QVariantMap workspace READ workspace WRITE setWorkspace NOTIFY workspaceChanged)
     // View state of the panels ("view" in the session): collapsed inspector sections
-    // ("collapsed/<instrument>/<section title>": true)... Persisted like the layout.
+    // ("section/<paneId>/<sectionId>": true), measurement strips ("measurements/<paneId>")...
+    // Persisted like the layout. The v1 keys "collapsed/<instrument>/<translated title>" are
+    // pruned once (QSettings at startup, a session file without "viewVersion" 2 on load).
     Q_PROPERTY(QVariantMap viewState READ viewState NOTIFY viewStateChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QString fileExtension READ fileExtension CONSTANT)   // "mybench"
@@ -88,6 +90,11 @@ public:
     QString lastError() const { return m_lastError; }
     QString fileExtension() const { return QStringLiteral("mybench"); }
     QStringList nameFilters() const;
+
+    // Version of the view-state keys written by this build (2: "section/<paneId>/<sectionId>").
+    static constexpr int kViewStateVersion = 2;
+    // Removes the v1 view-state keys ("collapsed/..."); returns how many were removed.
+    static int pruneLegacyViewKeys(QVariantMap& viewState);
 
 signals:
     void currentFileChanged();

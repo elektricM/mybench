@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// A hairline-bordered area (lists and previews inside dialogs; never a card in a pane).
 T.Frame {
     id: control
 
@@ -10,12 +11,12 @@ T.Frame {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              contentHeight + topPadding + bottomPadding)
 
-    padding: 12
+    padding: Theme.spacingM
 
     background: Rectangle {
-        radius: Theme.radiusL
+        radius: Theme.radiusControl
         color: "transparent"
-        border.width: 1
-        border.color: Theme.border
+        border.width: Theme.borderWidth
+        border.color: Theme.separator
     }
 }

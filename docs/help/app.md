@@ -10,7 +10,7 @@ used the NI ELVISmx instruments, you will find the same instruments, settings an
 
 ## The instruments
 
-| Rail | Instrument | What it does | myDAQ terminals |
+| Short name | Instrument | What it does | myDAQ terminals |
 |---|---|---|---|
 | DMM | Multimeter | DC/AC voltage and current, resistance, diode, continuity | banana jacks `HI`, `COM`, `HI (A)` |
 | Scope | Oscilloscope | one or two waveforms, trigger, measurements, cursors | `AI 0±`, `AI 1±` or AUDIO IN |
@@ -21,60 +21,44 @@ used the NI ELVISmx instruments, you will find the same instruments, settings an
 
 ## The window
 
-- **Navigation rail** (left): Home and one button per instrument. A click opens the instrument or
-  brings its tab to the front (it never closes anything; close the tab for that). A dot shows that an instrument is
-  running (green), paused (amber) or stopped by an error (red).
-- **Top bar**: the **device** in use, chips showing which instrument uses which part of the myDAQ
-  (`AI: Scope`, `AO: Generator` ...), **Stop all**, the **session** menu and the help button.
-- **Workspace**: instruments open as tabs. Use the split button (or `Ctrl+\`) to show two side by
-  side, for example the Generator next to the Scope. `Ctrl`+click an instrument in the rail to
-  open it in the other pane. Drag a tab to reorder it, or drop it on the left or right half of the
-  workspace to show it there. Middle-click a tab, or use its **x** or `Ctrl+W`, to close it. Closing a tab stops that instrument and puts its outputs in a safe
-  state (digital lines back to inputs, analog outputs to 0 V).
-- **Resource chips**: right-click one to stop or show that instrument.
-- **Dashboard column** (right, optional, `Ctrl+Shift+D`): small live tiles, always visible next
-  to the panel you work in. It starts with the DMM and DIO tiles; **+** adds another instrument, the
-  **×** of a tile removes it, and the small grip at the top of a tile drags it to another place. The
-  choice is kept with the layout and in sessions.
-- **Help drawer**: `F1` shows the help of the instrument you are using; while it is open it follows
-  the panel you work in. Drag its left edge to make it wider or narrower.
-- **Status bar**: device state, sample rate and data rate, and a counter of unread warnings and
-  errors (click it to see the event log). Error banners and messages have **Details**, which opens
-  the event log with the error code and the device's own message.
+- **Sidebar** (left): **Overview** and every instrument, grouped as Measure, Generate, Digital and
+  Apps. Click an instrument to show it; showing another one never stops the first. A green dot
+  marks a running instrument, amber a paused one, red one stopped by an error, and a running
+  instrument shows its key value under its name (`100 Hz · 1.00 Vpp`). The sidebar button of the
+  toolbar (`Ctrl+Alt+S`, on macOS `Ctrl+Cmd+S`) hides it, `Ctrl+0` shows Overview. In a narrow
+  window the sidebar becomes a row of icons, in a very narrow one a drawer.
+- **Toolbar** (top): the session name, how many instruments run and **Stop All**, the **device**
+  (click for the Device menu) and **Search** (`Ctrl+K`): every command of the menus by name.
+- **Workspace**: one instrument, or two side by side (**Show Beside** in the context menu of a
+  sidebar row, the View menu, or `Ctrl+\`), for example the Generator next to the Scope. The pane you
+  work in has a blue line under its header; the **×** of a pane closes the split, never the
+  instrument. In a window too narrow for two panes the split waits until there is room again.
+- **Inspector** (right): the settings of the instrument you work in, or its help page (**Help**,
+  `F1`). Instruments that keep their controls next to their display need no inspector: the column
+  then disappears and comes back only when you open the help. Drag its left edge to resize it.
+- **Status bar**: which instrument uses which part of the myDAQ (`AI: Oscilloscope`), the sample
+  rate and a counter of unread warnings and errors (click it for the event log). Error banners
+  have **Details**, which opens the event log with the error code and the device's own message.
 
-Each instrument panel has a **display** (graphs and readouts), an **inspector** with its settings
-grouped in cards (the familiar ELVISmx group names), and a **run bar**:
-- **Run** - measure or generate continuously (ELVISmx "Run Continuously"); press again to **Stop**.
-- **Single** - one acquisition or one pass (ELVISmx "Run Once").
-- Status: running, waiting for trigger, paused, or the error that stopped it. A setting that cannot
-  work (for example a stop frequency below the start frequency) is reported in amber and nothing
-  starts.
-- **Release outputs** appears when an instrument is stopped but still drives an output (for
+Each instrument pane has a **header** and a **display**:
+- **Run** - measure or generate continuously (ELVISmx "Run Continuously"); press again to **Stop**
+  (`Space`).
+- **Single** - one acquisition or one pass (ELVISmx "Run Once", `Shift+Space`).
+- The state next to the name: running, waiting for trigger, paused, or the error that stopped it.
+  A setting that cannot work (for example a stop frequency below the start frequency) is reported
+  in amber and nothing starts.
+- **Release Outputs** appears when an instrument is stopped but still drives an output (for
   example digital lines left high after Single): it returns them to their safe state. **Stop** and
-  **Stop all** do the same.
-- Inspector cards remember whether you collapsed them.
+  **Stop All** do the same.
+- **⋯**: Export Data, Export Image, Print, Trace Style, Show Measurements, Reset Settings and Help.
 
-## Home
+## Overview
 
-Home is the starting page (the house button of the rail). It replaces the ELVISmx Instrument
-Launcher:
-- **Favorites**: hover an instrument tile and click its **star** to keep that instrument in the
-  Favorites strip at the top of Home; click a favorite to open it, or its play button to run it
-  without leaving Home. Click the star again to remove it.
-- **Instruments**: every instrument as a live tile; click to open, or use the run button on hover.
-- **Tools**: your own shortcuts to other programs, documents, folders or web pages (a circuit
-  simulator, a lab sheet, a course page). **Add tool** asks for a name and the program, file or web
-  address (**Browse** picks a file); programs can get arguments. The **...** menu of a tool edits,
-  moves or removes it. **Find more online** opens the MYBENCH web site.
-- **Files**: files you **pin** (for example the lab instructions or a datasheet) and the last ten
-  files you exported (data, images, PDF reports). Click a file to open it with its usual program;
-  the folder button shows it in its folder.
-- **Resources**: this page (**Getting started**), the help of each instrument, links to the NI
-  myDAQ user guide and specifications on ni.com, and the **About** box (version, Qt version,
-  whether USB support is built in, license and credits).
-- **Recent sessions**: the last ten `.mybench` files; click one to open it.
-
-Favorites, tools and files are kept on this computer (they are not part of a session).
+Overview (top of the sidebar) is the starting page and replaces the ELVISmx Instrument Launcher:
+- **Device**: the myDAQ in use and its state, or how to connect one (or **Use Simulated Device**).
+- **Instruments**: every instrument as a live tile; click to show it, or **Run**/**Stop** from the
+  tile. The context menu of a tile has **Show Beside** and **Pin to Top**.
+- **Recent Sessions**: the last saved `.mybench` files; click one to open it.
 
 ## Device
 
@@ -83,7 +67,7 @@ Favorites, tools and files are kept on this computer (they are not part of a ses
 - While the simulator is used, every display shows a **SIMULATED** badge.
 - Unplugging the myDAQ stops the running instruments with a message; plug it back in and press
   **Resume**. MYBENCH never switches to the simulator on its own while you work.
-- **Home > Device card** shows the serial number and offers **Rescan**, **Reset device** (all outputs
+- **Overview > Device** shows the serial number and offers **Rescan**, **Reset device** (all outputs
   to 0 V, digital lines to inputs) and **Device info**. With the simulator, **Simulator settings…**
   sets its test signals, noise, RC corner and DMM values.
 - Options that the connected device cannot do yet are greyed out, with a tooltip saying so.
@@ -140,9 +124,9 @@ or to the top of the graph); changes show immediately, Cancel undoes them.
 
 ## Appearance
 
-**Preferences** (`Ctrl+,`) has the appearance: **System** (the default: follows the light or dark
-setting and the accent color of your desktop), **Light** or **Dark**. Instrument displays keep
-their own display colors in every mode.
+**Preferences** (`Ctrl+,`) has the appearance: **Dark** (the default), **Light** or **System**
+(follows the light or dark setting and the accent color of your desktop). **Always use dark
+displays** keeps graphs dark in the light appearance.
 
 ## Keyboard shortcuts
 

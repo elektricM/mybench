@@ -1,11 +1,14 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls
 import MyBench.Framework
 
-// Big numeric display: label, value with SI prefix, unit, optional % of full-scale bar graph,
-// overload ("OL") and hold states.
-//     Readout { label: qsTr("DC Voltage"); value: ctl.reading; unit: "V"; digits: 4
-//               overload: ctl.overload; showBar: true; barValue: ctl.fractionOfRange }
+// A measured value (docs/UI.md §11 "Values", §13.8): a sentence-case label, the number with tabular
+// figures and a fixed number of significant digits, the unit, an optional caption and %FS bar.
+// "OL" when over range, a "Hold" note, dimmed while stale (after Stop). The tooltip shows the full
+// precision; the context menu copies the value.
+//     Readout { size: "xl"; label: qsTr("DC voltage"); value: ctl.reading; unit: "V"; digits: 5 }
+//     Readout { size: "m"; swatchColor: Theme.signalCh0; label: "RMS"; valueText: "0.707 V" }
 Item {
     id: root
 
@@ -13,13 +16,17 @@ Item {
     property string unit
     property int digits: 4
     property string label
-    property string valueText          // overrides the formatted value
+    property string valueText          // overrides the formatted value ("12.3 mV": the last word is the unit)
     property string caption            // under the value, e.g. "Range 20 V · Auto"
     property bool overload: false
     property bool hold: false
-    property bool stale: false         // dim the value (e.g. idle, last reading)
-    property color color: Theme.text
-    property int fontSize: Theme.fontSizeDisplay
+    property bool stale: false         // dimmed: last value of a stopped instrument
+    property string size: "l"          // "s" | "m" | "l" | "xl"
+    property color swatchColor: "transparent"   // channel swatch before the label
+    property color color: Theme.text   // value color (text; never a channel color)
+    property int fontSize: size === "xl" ? Theme.fontSizeReadoutXL
+                         : size === "l" ? Theme.fontSizeReadoutL
+                         : size === "m" ? Theme.fontSizeReadoutM : Theme.fontSizeHeading
     property int alignment: Qt.AlignHCenter
     property bool showBar: false
     property real barValue: 0          // -1..1 (fraction of full scale; negative fills left of 0)
@@ -33,96 +40,131 @@ Item {
     readonly property int split: formatted.lastIndexOf(" ")
     readonly property string numberPart: overload ? "OL" : split > 0 ? formatted.slice(0, split) : formatted
     readonly property string unitPart: overload ? unit : split > 0 ? formatted.slice(split + 1) : ""
+    readonly property string fullText: overload ? qsTr("Over range")
+                                     : valueText.length > 0 || !isFinite(value) ? formatted
+                                     : Units.format(value, unit, 10, true)
+    readonly property bool large: fontSize >= Theme.fontSizeReadoutL
+    readonly property bool hasSwatch: swatchColor.a > 0
 
-    implicitWidth: Math.max(column.implicitWidth, 160)
+    implicitWidth: Math.max(column.implicitWidth, 64)
     implicitHeight: column.implicitHeight
+    Accessible.role: Accessible.StaticText
+    Accessible.name: (label.length > 0 ? label + ": " : "") + fullText
+
+    function copyValue() {
+        clipboard.text = root.overload ? "OL" : root.valueText.length > 0 || !isFinite(root.value)
+                                       ? root.formatted : String(root.value)
+        clipboard.selectAll()
+        clipboard.copy()
+    }
+    TextEdit {
+        id: clipboard
+        visible: false
+    }
 
     Column {
         id: column
         width: root.width
-        spacing: 4
+        spacing: root.large ? Theme.spacingXs : 2
 
         Row {
             visible: root.label.length > 0 || root.hold
-            spacing: Theme.spacingS
+            spacing: Theme.spacingXs + 2
             anchors.horizontalCenter: root.alignment === Qt.AlignHCenter ? parent.horizontalCenter : undefined
-            Text {
-                text: root.label.toUpperCase()
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeS
-                font.weight: Font.DemiBold
-                font.letterSpacing: 1.0
-            }
-            Badge {
-                visible: root.hold
+            anchors.right: root.alignment === Qt.AlignRight ? parent.right : undefined
+            Rectangle {
+                visible: root.hasSwatch
                 anchors.verticalCenter: parent.verticalCenter
+                width: 8
+                height: 8
+                radius: 2
+                color: root.swatchColor
+            }
+            Text {
+                text: root.label
+                color: Theme.textSecondary
+                font.pixelSize: root.large ? Theme.fontSizeBody : Theme.fontSizeSmall
+            }
+            Text {
+                visible: root.hold
                 text: qsTr("Hold")
-                color: Theme.warning
+                color: Theme.caution
+                font.pixelSize: root.large ? Theme.fontSizeBody : Theme.fontSizeSmall
+                font.weight: Font.Medium
             }
         }
 
         Row {
-            spacing: Math.round(root.fontSize * 0.14)
+            id: valueRow
+            spacing: Math.round(root.fontSize * (root.large ? 0.18 : 0.25))
             anchors.horizontalCenter: root.alignment === Qt.AlignHCenter ? parent.horizontalCenter : undefined
+            anchors.right: root.alignment === Qt.AlignRight ? parent.right : undefined
+            opacity: root.stale ? 0.45 : 1
+            Behavior on opacity { NumberAnimation { duration: Theme.durationNormal } }
             Text {
                 id: number
                 text: root.numberPart
-                color: root.overload ? Theme.danger : root.color
-                opacity: root.stale ? 0.55 : 1
+                color: root.overload ? Theme.negative : root.color
                 font.pixelSize: root.fontSize
-                font.weight: Font.Light
+                font.weight: root.size === "xl" || root.fontSize >= Theme.fontSizeReadoutXL ? Font.Light : Font.Normal
                 font.features: Theme.tabularFigures
-                Behavior on opacity { NumberAnimation { duration: Theme.durationNormal } }
             }
             Text {
                 visible: root.unitPart.length > 0
                 anchors.baseline: number.baseline
                 text: root.unitPart
-                color: root.overload ? Theme.alpha(Theme.danger, 0.8) : Theme.textSecondary
-                font.pixelSize: Math.round(root.fontSize * 0.42)
-                font.weight: Font.Normal
+                color: root.overload ? Theme.negative : Theme.textSecondary
+                font.pixelSize: root.large ? Math.max(Theme.fontSizeSmall, Math.round(root.fontSize * (root.fontSize >= Theme.fontSizeReadoutXL ? 0.4 : 0.5))) : root.fontSize
             }
         }
 
         Text {
             visible: root.caption.length > 0
             anchors.horizontalCenter: root.alignment === Qt.AlignHCenter ? parent.horizontalCenter : undefined
+            anchors.right: root.alignment === Qt.AlignRight ? parent.right : undefined
             text: root.caption
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontSizeM
+            color: Theme.textTertiary
+            font.pixelSize: root.large ? Theme.fontSizeSmall : Theme.fontSizeCaption
             font.features: Theme.tabularFigures
         }
 
-        // Bar graph (% of full scale), 40 segments.
+        // Fraction of full scale: a thin bar with quarter ticks.
         Item {
             visible: root.showBar
             width: parent.width
-            height: 22
+            height: 16
 
-            Row {
-                id: segments
+            Item {
+                id: track
                 anchors.left: parent.left
                 anchors.right: barCaption.left
                 anchors.rightMargin: Theme.spacingS
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
-                readonly property int n: 40
-                readonly property real segmentWidth: (width - (n - 1) * spacing) / n
+                height: 4
                 readonly property real fill: Math.max(-1, Math.min(1, root.barValue))
+                readonly property real zero: root.barBipolar ? width / 2 : 0
+                readonly property real end: root.barBipolar ? zero + fill * width / 2 : Math.abs(fill) * width
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 2
+                    color: Theme.alpha(Theme.text, 0.12)
+                }
+                Rectangle {
+                    x: Math.min(track.zero, track.end)
+                    width: Math.abs(track.end - track.zero)
+                    height: parent.height
+                    radius: 2
+                    color: root.overload ? Theme.negative : Theme.accent
+                }
                 Repeater {
-                    model: segments.n
+                    model: 5
                     delegate: Rectangle {
                         required property int index
-                        readonly property real center: root.barBipolar ? (index + 0.5) / segments.n * 2 - 1 : (index + 0.5) / segments.n
-                        readonly property bool lit: root.barBipolar
-                            ? (segments.fill >= 0 ? center >= 0 && center <= segments.fill : center <= 0 && center >= segments.fill)
-                            : center <= Math.abs(segments.fill)
-                        width: segments.segmentWidth
-                        height: index % 5 === 0 ? 12 : 8
-                        y: (12 - height) / 2
-                        radius: 1
-                        color: lit ? (root.overload ? Theme.danger : root.color === Theme.text ? Theme.accent : root.color)
-                                   : (Theme.dark ? "#1E2128" : "#E3E6EB")
+                        x: Math.round(index * (track.width - 1) / 4)
+                        y: track.height + 2
+                        width: 1
+                        height: 3
+                        color: Theme.textTertiary
                     }
                 }
             }
@@ -131,9 +173,21 @@ Item {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.barLabel
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
+                color: Theme.textTertiary
+                font.pixelSize: Theme.fontSizeCaption
             }
+        }
+    }
+
+    HoverHandler { id: hover }
+    ToolTip.visible: hover.hovered && !root.overload && root.fullText !== root.formatted
+    ToolTip.delay: Theme.toolTipDelay
+    ToolTip.text: root.fullText
+
+    ContextMenu.menu: Menu {
+        MenuItem {
+            text: qsTr("Copy Value")
+            onTriggered: root.copyValue()
         }
     }
 }

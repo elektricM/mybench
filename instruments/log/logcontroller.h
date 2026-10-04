@@ -52,6 +52,10 @@ class LogController : public InstrumentController
     // (log.md 8.2): `Time`/`myDAQ1/ai0` header row, absolute date-time + E-notation cells,
     // TAB, CR LF, `.txt`; AI channels only. appendToExisting adds to the named file (ELVISmx does).
     Q_PROPERTY(FileLayout fileLayout READ fileLayout WRITE setFileLayout NOTIFY fileSettingsChanged)
+    // The single "Format" choice of the UI (Tab / CSV / ELVISmx text), derived from fileLayout and
+    // fileFormat (which stay the stored settings, so old sessions with layout=ELVISmx restore as
+    // the ELVISmx format).
+    Q_PROPERTY(FileType fileType READ fileType WRITE setFileType NOTIFY fileSettingsChanged STORED false)
     Q_PROPERTY(bool appendToExisting READ appendToExisting WRITE setAppendToExisting NOTIFY fileSettingsChanged)
     Q_PROPERTY(bool timestampColumn READ timestampColumn WRITE setTimestampColumn NOTIFY fileSettingsChanged)
     Q_PROPERTY(bool recordOnRun READ recordOnRun WRITE setRecordOnRun NOTIFY fileSettingsChanged)
@@ -88,6 +92,8 @@ public:
     Q_ENUM(FileFormat)
     enum FileLayout { NativeLayout, ElvismxLayout };
     Q_ENUM(FileLayout)
+    enum FileType { TabFile, CsvFile, ElvismxFile };
+    Q_ENUM(FileType)
 
     LogController();
     ~LogController() override;
@@ -122,6 +128,8 @@ public:
     void setFileFormat(FileFormat format);
     FileLayout fileLayout() const { return m_fileLayout; }
     void setFileLayout(FileLayout layout);
+    FileType fileType() const;
+    void setFileType(FileType type);
     bool appendToExisting() const { return m_appendToExisting; }
     void setAppendToExisting(bool append);
     bool timestampColumn() const { return m_timestampColumn; }

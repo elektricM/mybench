@@ -1,0 +1,96 @@
+// Data Logger panel layout (offscreen, round-2 layout): chart left, control column right, value
+// cards at the bottom, at wide, split and narrow sizes; the Log File tool's single Format choice
+// shows a restored ELVISmx layout.
+#include "logcontroller.h"
+
+#include <mybench/devicehub.h>
+#include <mybench/offscreen.h>
+
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QStandardPaths>
+#include <QTest>
+
+#include <memory>
+
+using namespace Qt::StringLiterals;
+using mybench::instruments::LogController;
+
+class TestLogQml : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void initTestCase()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        mybench::InstrumentController::setRestoreSavedSettings(false);
+    }
+
+    void layoutAtSizes_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("1440") << QSize(1440, 900);
+        QTest::newRow("split") << QSize(640, 700);
+        QTest::newRow("narrow") << QSize(420, 620);
+    }
+
+    void layoutAtSizes()
+    {
+        QFETCH(QSize, size);
+        LogController log;
+        log.initialize();
+        log.setFileLayout(LogController::ElvismxLayout);     // as restored from an old session
+        QQmlEngine engine;
+        engine.addImportPath(QStringLiteral(MYBENCH_QML_DIR));
+        mybench::OffscreenWindow offscreen(size);
+        if (!offscreen.isValid())
+            QSKIP("no graphics device");
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport MyBench.Instruments.Log\nLogPanel { }\n", QUrl());
+        std::unique_ptr<QObject> root(component.beginCreate(engine.rootContext()));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        root->setProperty("controller", QVariant::fromValue(&log));
+        component.completeCreate();
+        auto* item = qobject_cast<QQuickItem*>(root.get());
+        QVERIFY(item);
+        offscreen.setRootItem(item);
+        offscreen.renderFrame();
+        offscreen.renderFrame();
+
+        const auto rectOf = [](QQuickItem* i) {
+            return QRectF(i->mapToScene(QPointF(0, 0)), QSizeF(i->width(), i->height()));
+        };
+        const auto describe = [](const QRectF& r) {
+            return u"%1,%2 %3x%4"_s.arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height());
+        };
+        const QRectF pane(-0.5, -0.5, item->width() + 1, item->height() + 1);
+        auto* plot = root->findChild<QQuickItem*>(u"logPlot"_s);
+        auto* controls = root->findChild<QQuickItem*>(u"logControls"_s);
+        auto* cards = root->findChild<QQuickItem*>(u"logCards"_s);
+        QVERIFY(plot && controls && cards && root->findChild<QQuickItem*>(u"logRunButton"_s));
+        const QRectF p = rectOf(plot), c = rectOf(controls);
+        QVERIFY2(p.width() > 0 && p.height() > 0 && c.width() > 0, qPrintable(describe(p)));
+        QVERIFY2(pane.contains(p) && pane.contains(c), qPrintable(describe(p) + u" / "_s + describe(c)));
+        QVERIFY2(p.right() <= c.left() + 0.5, qPrintable(describe(p) + u" vs "_s + describe(c)));
+        QVERIFY(c.width() < p.width() || size.width() < 500);   // the display stays the larger part
+
+        // Log File tool: one Format choice; the restored ELVISmx layout shows as "ELVISmx".
+        auto* fileType = root->findChild<QQuickItem*>(u"logFileType"_s);
+        QVERIFY(fileType);
+        QCOMPARE(fileType->property("currentIndex").toInt(), int(LogController::ElvismxFile));
+        root->setProperty("tool", u"file"_s);
+        offscreen.renderFrame();
+        auto* filePanel = root->findChild<QQuickItem*>(u"filePanel"_s);
+        QVERIFY(filePanel && filePanel->isVisible());
+        QVERIFY2(rectOf(filePanel).right() <= c.left() + 0.5, qPrintable(describe(rectOf(filePanel))));
+        // Review aid: MYBENCH_TEST_SHOT_DIR=<dir> saves the frame with the tool panel open.
+        if (const QString dir = qEnvironmentVariable("MYBENCH_TEST_SHOT_DIR"); !dir.isEmpty())
+            offscreen.grab().save(u"%1/%2-%3.png"_s.arg(dir, u"log-tool"_s, QString::fromLatin1(QTest::currentDataTag())));
+        offscreen.setRootItem(nullptr);
+    }
+};
+
+QTEST_MAIN(TestLogQml)
+#include "tst_log_qml.moc"

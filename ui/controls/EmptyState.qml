@@ -1,41 +1,34 @@
 import QtQuick
 import QtQuick.Layouts
 
-// Centered icon + title + explanation (+ optional action children).
-//     EmptyState { iconName: "usb"; title: qsTr("No device"); text: qsTr("Connect a myDAQ.") }
+// Centered empty-state message (a display before the first run, an empty list): a plain icon,
+// a short title, an explanation and optional action children. No decorative icon box.
+//     EmptyState { iconName: "play"; title: qsTr("Press Run or Space to start") }
 ColumnLayout {
     id: root
 
     property string iconName
     property string title
     property string text
+    property color textColor: Theme.textSecondary
     default property alias actions: actionsRow.data
 
-    spacing: Theme.spacingS
+    spacing: Theme.spacingXs
 
-    Rectangle {
+    Icon {
         visible: root.iconName.length > 0
         Layout.alignment: Qt.AlignHCenter
         Layout.bottomMargin: Theme.spacingXs
-        implicitWidth: 44
-        implicitHeight: 44
-        radius: Theme.radiusL
-        color: Theme.surfaceRaised
-        border.width: 1
-        border.color: Theme.border
-        Icon {
-            anchors.centerIn: parent
-            name: root.iconName
-            size: Theme.iconSizeL
-            color: Theme.textSecondary
-        }
+        name: root.iconName
+        size: Theme.iconSizeL
+        color: Theme.textTertiary
     }
     Text {
         Layout.alignment: Qt.AlignHCenter
         text: root.title
-        color: Theme.text
-        font.pixelSize: Theme.fontSizeL
-        font.weight: Font.DemiBold
+        color: root.textColor
+        font.pixelSize: Theme.fontSizeBody
+        font.weight: Font.Medium
     }
     Text {
         visible: root.text.length > 0
@@ -43,8 +36,8 @@ ColumnLayout {
         Layout.maximumWidth: 360
         horizontalAlignment: Text.AlignHCenter
         text: root.text
-        color: Theme.textMuted
-        font.pixelSize: Theme.fontSizeM
+        color: Theme.textTertiary
+        font.pixelSize: Theme.fontSizeSmall
         wrapMode: Text.WordWrap
     }
     Row {

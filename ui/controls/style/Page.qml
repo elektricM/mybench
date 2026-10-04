@@ -15,6 +15,6 @@ T.Page {
                              + (implicitFooterHeight > 0 ? implicitFooterHeight + spacing : 0))
 
     background: Rectangle {
-        color: Theme.surface
+        color: Theme.window
     }
 }

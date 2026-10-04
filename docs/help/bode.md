@@ -19,25 +19,31 @@ The display shows the reminder `Connections: AI 0 - AO 0   AI 1 - Signal`.
 ## Quick start
 
 1. Wire the circuit as above.
-2. Set **Start Frequency** and **Stop Frequency** around the frequencies of interest.
-3. Choose **Steps** (points per decade) and the **Peak Amplitude** of the test signal.
-4. Press **Run** (or Space). Points appear one by one; the run bar shows the progress and an
-   estimate of the remaining time. A sweep always runs once from Start to Stop.
+2. Set the **Start** and **Stop** knobs around the frequencies of interest (turn, use − / +, or
+   click the value and type "100", "20k").
+3. Choose **Steps** (points per decade) and the **Amplitude** knob (peak voltage of the test sine).
+4. Press **Sweep** (or Space). Points appear one by one; the Sweep button shows the progress
+   ("12/50 · ≈ 20 s left"). A sweep always runs once from Start to Stop.
 
 ## Controls
+
+### Instrument bar
+
+**Sweep / Stop** (with the progress under the verb), **Keep as Reference**, and the knobs:
+
+- **Start**, **Stop** – the sweep range, 1 Hz to 20 kHz, on a logarithmic knob. Start must not be
+  above Stop (the Start knob turns red, its caption says so, and Sweep is refused). The captions show
+  how many points the settings give and roughly how long the sweep takes.
+- **Amplitude** – peak voltage of the test sine on AO 0, 0 to 5 V (default 2 V). Use a large
+  amplitude for passive circuits (better signal-to-noise) and a small one for amplifiers with a high
+  gain so their output does not saturate.
 
 ### Measurement Settings
 
 - A note states the fixed wiring: stimulus on AI 0, response on AI 1 (not settings).
-- **Start Frequency**, **Stop Frequency** – the sweep range, 1 Hz to 20 kHz. Start must not be above
-  Stop (the field turns red and Run is refused).
 - **Steps (per decade)** – number of points in each factor-of-ten of frequency (1 to 1000). With 5
   steps from 100 Hz to 10 kHz you get 11 points (100, 158, 251, 398, 631, 1000 Hz, ...). If Stop does
-  not fall exactly on a step, the sweep ends at the last step below it. The card shows how many
-  points the settings give and roughly how long the sweep takes.
-- **Peak Amplitude** – peak voltage of the test sine, 0 to 5 V (default 2 V). Use a large amplitude
-  for passive circuits (better signal-to-noise) and a small one for amplifiers with a high gain so
-  their output does not saturate.
+  not fall exactly on a step, the sweep ends at the last step below it.
 - **Op-Amp Signal Polarity** – *Inverted* flips the sign of the response so an inverting amplifier
   shows about 0° instead of ±180°. It only changes the calculation, not the measurement, so you can
   switch it during or after a sweep.
@@ -51,7 +57,6 @@ The measurement settings are locked while a sweep runs.
 - **Autoscale** – fits both vertical axes to the data after every point. Turning it off jumps to
   the fixed ranges of the original: gain -30 … +5 and phase -360° … +360° (90° grid); zoom with
   the mouse wheel, Shift+wheel or drag from there (double-click returns to the full view).
-- **ELVISmx colors** – yellow traces with ring markers and a red cursor, like the original.
 - **Frequency axis** – logarithmic (default) or linear.
 - **Unwrap phase** – removes the 360° jumps between neighbouring points. Off by default: the phase
   is shown between -180° and +180°.
@@ -65,11 +70,12 @@ The measurement settings are locked while a sweep runs.
 - **Re-measure point at cursor** – measures only that frequency again and replaces the point (handy
   after adjusting a component).
 
-### Readouts
+### Measurement cards
 
-**Frequency (Hz)**, **Phase (deg)**, **Gain**, **Gain (dB)** – the most recent point during a sweep,
-or the point under the cursor. Before the first point they read `0.00` and `-Inf`. Hovering over a
-plot shows the values under the mouse.
+Under the plots: **f−3dB**, **0 dB crossover**, **Gain margin**, **Phase margin**, **Max gain** and
+**Cursor** (frequency · gain · phase of the point under the cursor, or of the most recent point
+during a sweep; "—" before the first point). Hovering over a plot shows the values under the mouse.
+The gain trace uses the AI 0 colour, the phase trace the AI 1 colour.
 
 ### Sweep
 
@@ -91,11 +97,11 @@ plot shows the values under the mouse.
 - **Gain and phase margins** – for loop-gain measurements: phase margin = 180° + phase at the 0 dB
   crossover; gain margin = minus the gain where the phase crosses -180°.
 
-The card lists the values; the readout row shows a summary.
+The card lists the values; the measurement cards show them too.
 
 ### References
 
-**Keep as reference** (card or run bar) stores the current sweep. References are drawn dashed under
+**Keep as Reference** (instrument bar) stores the current sweep. References are drawn dashed under
 the live sweep so you can compare circuits or component values. Up to 8 are kept; each can be
 renamed, hidden, exported or deleted. They are saved with the session.
 
@@ -116,7 +122,7 @@ take longer: a 1 Hz point needs about 5 s of data.
 
 ## Tips
 
-- A point drawn with a red dot was clipped (the response exceeded ±10 V): reduce the Peak Amplitude.
+- A point drawn with a red dot was clipped (the response exceeded ±10 V): reduce the Amplitude.
 - The Bode Analyzer uses AO 0 and the analog inputs, so the Generator, the Oscilloscope and the
   Spectrum Analyzer pause while it runs. If another instrument takes them during a sweep, the Bode
   Analyzer pauses; **Resume** continues with the next point. After the sweep AO 0 returns to 0 V.
@@ -124,8 +130,8 @@ take longer: a 1 Hz point needs about 5 s of data.
 ## Troubleshooting
 
 - **"No stimulus signal on AI 0"**: AO 0 is not connected to AI 0+, AI 0- is not on AGND, or the
-  Peak Amplitude is 0 V.
+  Amplitude is 0 V.
 - **Gain around 0 dB and phase 0° everywhere**: AI 1 is probably connected to the stimulus instead of
   the circuit output.
-- **Noisy results at large attenuation**: increase the Peak Amplitude (if the circuit allows it) or
+- **Noisy results at large attenuation**: increase the Amplitude (if the circuit allows it) or
   the averages per point.

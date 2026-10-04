@@ -5,9 +5,11 @@ import QtQuick.Layouts
 import QtCore
 import MyBench.Framework
 
-// Minimal shell of the dev executables (mybench-<id>): one instrument panel with the device
-// selector, resource chips, help drawer and toasts. `--tile` shows the dashboard tiles instead,
-// `--show-help` opens the help drawer, `--theme light|dark` picks the theme.
+// The window of the dev executables (mybench-<id>): the app's frame reduced to one instrument —
+// a toolbar (instrument, running count, device button, inspector toggle), the pane, the
+// InspectorDock and a status line — so dev screenshots match the app (docs/UI.md §7).
+// `--tile` shows the Overview tile instead, `--show-help` opens Help in the dock, `--theme
+// light|dark` picks the theme. Space runs/stops, Shift+Space is Single, F1 Help, Ctrl+I the dock.
 ApplicationWindow {
     id: window
 
@@ -15,13 +17,13 @@ ApplicationWindow {
     readonly property var info: InstrumentRegistry.info(instrumentId)
     readonly property InstrumentController controller: InstrumentRegistry.controller(instrumentId)
     readonly property bool tileMode: AppInfo.flag("tile")
-    property bool helpOpen: AppInfo.flag("show-help")
-    property bool themeFromCommandLine: AppInfo.theme.length > 0
+    property InstrumentPanel pane: null
+    property bool inspectorShown: true
 
     width: 1280
     height: 800
-    minimumWidth: 880
-    minimumHeight: 540
+    minimumWidth: Theme.minWindowWidth
+    minimumHeight: Theme.minWindowHeight
     visible: true
     title: (info.title ?? instrumentId) + " — " + AppInfo.name
     color: Theme.window
@@ -29,101 +31,103 @@ ApplicationWindow {
     Settings {
         id: prefs
         category: "appearance"
-        property string themeMode: "system"
+        property string themeMode: "dark"
     }
-    ThemeSync { mode: window.themeFromCommandLine ? AppInfo.theme : prefs.themeMode }
+    // Screenshots without --theme are dark (the default), whatever a stored preference says.
+    ThemeSync { mode: AppInfo.theme.length > 0 ? AppInfo.theme : AppInfo.screenshot ? "dark" : prefs.themeMode }
 
-    function toggleTheme() {
-        prefs.themeMode = Theme.dark ? "light" : "dark"
-        themeFromCommandLine = false
+    Component.onCompleted: {
+        if (controller !== null && !tileMode) {
+            PanelRegistry.whenReady(instrumentId, panel => window.pane = panel as InstrumentPanel)
+            panelLoader.setSource(info.panelUrl, { controller: controller })
+        }
+        if (AppInfo.flag("show-help"))
+            dock.showHelp(info.helpId ?? "app")
     }
 
     Connections {
         target: Help
         function onShowRequested(id: string) {
-            helpView.show(id)
-            window.helpOpen = true
+            window.inspectorShown = true
+            dock.showHelp(id)
         }
     }
 
+    // A text field or an open popup keeps Space for itself.
+    readonly property bool spaceAllowed: {
+        const item = activeFocusItem
+        return controller !== null && !(item instanceof TextInput) && !(item instanceof TextEdit)
+    }
     Shortcut {
         sequences: ["Space"]
-        enabled: window.controller !== null
+        enabled: window.spaceAllowed
         onActivated: window.controller.toggle()
     }
     Shortcut {
+        sequences: ["Shift+Space"]
+        enabled: window.spaceAllowed && window.controller.supportsSingle && window.controller.singleEnabled
+        onActivated: window.controller.runOnce()
+    }
+    Shortcut {
         sequences: Theme.macShortcuts ? [StandardKey.HelpContents, "F1"] : [StandardKey.HelpContents]
-        onActivated: window.helpOpen = !window.helpOpen
+        onActivated: dock.showHelp(window.info.helpId ?? "app")
+    }
+    Shortcut {
+        sequences: ["Ctrl+I"]
+        onActivated: window.inspectorShown = !window.inspectorShown
     }
 
     header: Rectangle {
-        implicitHeight: Theme.topBarHeight
-        color: Theme.chrome
+        implicitHeight: Theme.toolbarHeight
+        color: Theme.window
 
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: Theme.spacingL
-            anchors.rightMargin: Theme.spacingM
-            spacing: Theme.spacingM
+            anchors.rightMargin: Theme.spacingS
+            spacing: Theme.spacingS
 
-            Icon {
-                name: "app-logo"
-                size: 22
-                color: Theme.accent
-            }
             Text {
                 text: AppInfo.name
                 color: Theme.text
-                font.pixelSize: Theme.fontSizeL
-                font.weight: Font.Bold
-                font.letterSpacing: 0.4
-            }
-            Text {
-                text: "/"
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeL
-            }
-            Icon {
-                name: window.info.icon ?? ""
-                color: Theme.textSecondary
-            }
-            Text {
-                text: window.info.title ?? window.instrumentId
-                color: Theme.text
-                font.pixelSize: Theme.fontSizeL
+                font.pixelSize: Theme.fontSizeHeading
                 font.weight: Font.DemiBold
             }
-            Badge {
-                text: qsTr("Dev")
-                color: Theme.textSecondary
+            Text {
+                Layout.fillWidth: true
+                text: qsTr("%1 · development build").arg(window.info.title ?? window.instrumentId)
+                color: Theme.textTertiary
+                font.pixelSize: Theme.fontSizeBody
+                elide: Text.ElideRight
             }
-
-            Item { Layout.fillWidth: true }
-
-            ResourceChips {}
-            DeviceSelector {
-                Layout.preferredWidth: 250
+            Button {
+                visible: InstrumentRegistry.anyStoppable
+                flat: true
+                text: InstrumentRegistry.runningCount > 0
+                      ? qsTr("%n running · Stop All", "", InstrumentRegistry.runningCount) : qsTr("Stop All")
+                onClicked: InstrumentRegistry.stopAll()
             }
-            Divider {
-                vertical: true
-                length: 22
+            DeviceButton {
+                Layout.maximumWidth: 280
             }
-            IconButton {
-                iconName: Theme.dark ? "sun" : "moon"
-                toolTip: Theme.dark ? qsTr("Light theme") : qsTr("Dark theme")
-                onClicked: window.toggleTheme()
-            }
-            IconButton {
-                iconName: "help-circle"
-                checked: window.helpOpen
-                toolTip: qsTr("Help")
-                shortcutText: "F1"
-                onClicked: window.helpOpen = !window.helpOpen
+            ToolButton {
+                objectName: "inspectorToggle"
+                visible: !window.tileMode
+                icon.source: Theme.icon("sidebar-right")
+                checkable: true
+                checked: window.inspectorShown
+                onClicked: window.inspectorShown = !window.inspectorShown
+                Accessible.name: window.inspectorShown ? qsTr("Hide Inspector") : qsTr("Show Inspector")
+                ToolTip.visible: hovered
+                ToolTip.delay: Theme.toolTipDelay
+                ToolTip.text: Accessible.name + "   " + Theme.keys("Ctrl+I")
             }
         }
-        Divider {
+        Rectangle {
             anchors.bottom: parent.bottom
             width: parent.width
+            height: 1
+            color: Theme.separator
         }
     }
 
@@ -135,50 +139,82 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-            EmptyState {
+            Text {
                 anchors.centerIn: parent
                 visible: window.controller === null
-                iconName: "warning"
-                title: qsTr("Unknown instrument “%1”").arg(window.instrumentId)
-                text: qsTr("Registered: %1").arg(InstrumentRegistry.ids.join(", "))
+                text: qsTr("Unknown instrument “%1”. Registered: %2").arg(window.instrumentId)
+                      .arg(InstrumentRegistry.ids.join(", "))
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeBody
             }
 
             Loader {
                 id: panelLoader
                 anchors.fill: parent
-                active: window.controller !== null && !window.tileMode
-                Component.onCompleted: {
-                    if (active)
-                        setSource(window.info.panelUrl, { controller: window.controller })
-                }
             }
 
-            // --tile: the dashboard tile at its two sizes (Home and pinned column).
-            Row {
+            // --tile: the Overview tile at its two sizes.
+            Rectangle {
+                anchors.fill: parent
                 visible: window.controller !== null && window.tileMode
-                anchors.centerIn: parent
-                spacing: Theme.spacingXl
-                TileFrame {
-                    width: 320
-                    height: 200
-                    instrumentId: window.instrumentId
-                }
-                TileFrame {
-                    width: 280
-                    height: 156
-                    compact: true
-                    instrumentId: window.instrumentId
+                color: Theme.base
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingXl
+                    TileFrame {
+                        width: 320
+                        height: 200
+                        instrumentId: window.instrumentId
+                    }
+                    TileFrame {
+                        width: 280
+                        height: 156
+                        compact: true
+                        instrumentId: window.instrumentId
+                    }
                 }
             }
         }
 
-        HelpView {
-            id: helpView
-            visible: window.helpOpen
+        InspectorDock {
+            id: dock
+            // Hidden for a panel without inspector unless its help is open (as in the app).
+            visible: window.inspectorShown && !window.tileMode
+                     && (window.pane === null || window.pane.hasInspector || dock.page === "help")
             Layout.fillHeight: true
-            Layout.preferredWidth: 400
-            topic: window.info.helpId ?? "app"
-            onCloseRequested: window.helpOpen = false
+            Layout.preferredWidth: Theme.inspectorWidth
+            panel: window.pane
+            paneShown: window.controller !== null
+        }
+    }
+
+    footer: Rectangle {
+        implicitHeight: Theme.statusBarHeight
+        color: Theme.window
+
+        Rectangle {
+            width: parent.width
+            height: 1
+            color: Theme.separator
+        }
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spacingM
+            anchors.rightMargin: Theme.spacingM
+            anchors.topMargin: 1
+            spacing: Theme.spacingM
+            ResourceChips {
+                textForm: true
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+            }
+            Text {
+                visible: window.controller !== null && window.controller.running && window.controller.throughput > 0
+                text: Units.format(window.controller ? window.controller.throughput : 0, "S/s", 3)
+                color: Theme.textTertiary
+                font.pixelSize: Theme.fontSizeSmall
+                font.features: Theme.tabularFigures
+            }
         }
     }
 

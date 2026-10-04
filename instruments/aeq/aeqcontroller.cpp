@@ -102,6 +102,17 @@ AeqController::AeqController() : InstrumentController(u"aeq"_s)
     resetMeters();
     updateResponse();
     connect(DeviceHub::instance(), &DeviceHub::currentChanged, this, &AeqController::routingChanged);
+    // Key value (sidebar, Overview) while running: "+3 / 0 / −2 dB" (bass / mid / treble) or "Bypass".
+    auto updateKeyValue = [this] {
+        const auto db = [](double v) {
+            return (v > 0 ? u"+"_s : v < 0 ? u"−"_s : QString()) + QString::number(std::abs(v), 'g', 3);
+        };
+        setKeyValue(!isRunning() ? QString()
+                    : bypass() ? tr("Bypass")
+                    : u"%1 / %2 / %3 dB"_s.arg(db(bass()), db(midtone()), db(treble())));
+    };
+    connect(this, &AeqController::eqChanged, this, updateKeyValue);
+    connect(this, &InstrumentController::stateChanged, this, updateKeyValue);
 }
 
 AeqController::~AeqController()
@@ -804,6 +815,7 @@ void registerAeq(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Aeq"_s,
         .icon = u"qrc:/qt/qml/MyBench/Instruments/Aeq/assets/instrument-aeq.svg"_s,
         .order = 90,
+        .group = QStringLiteral("apps"),
         .createController = [] { return new AeqController; },
     });
 }

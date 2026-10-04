@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
-// Underlined tab bar (instrument sub-pages such as "Basic Settings" / "Advanced Settings").
+// Underlined tab bar: the current tab carries a 2 px accent line; a hairline under the bar.
 T.TabBar {
     id: control
 
@@ -10,7 +10,7 @@ T.TabBar {
                             implicitContentWidth + leftPadding + rightPadding)
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
-    spacing: 2
+    spacing: 0
 
     contentItem: ListView {
         model: control.contentModel
@@ -29,22 +29,21 @@ T.TabBar {
             z: 2
             Rectangle {
                 anchors.bottom: parent.bottom
-                x: 8
-                width: parent.width - 16
+                x: Theme.spacingS
+                width: parent.width - 2 * Theme.spacingS
                 height: 2
-                radius: 1
                 color: Theme.accent
             }
         }
     }
 
     background: Item {
-        implicitHeight: 34
+        implicitHeight: Theme.controlHeight + 6
         Rectangle {
             anchors.bottom: parent.bottom
             width: parent.width
-            height: 1
-            color: Theme.divider
+            height: Theme.borderWidth
+            color: Theme.separator
         }
     }
 }

@@ -1,9 +1,10 @@
 import QtQuick
-import QtQuick.Effects
+import QtQuick.Controls
 import QtQuick.Layouts
 import MyBench.Framework
 
-// One notification card (see ToastArea). Level: Notifications.Info/Success/Warning/Error.
+// One transient notification (see ToastArea), on the popup surface: the level as a colored icon,
+// title, message, an optional action, close. Level: Notifications.Info/Success/Warning/Error.
 Item {
     id: root
 
@@ -14,9 +15,9 @@ Item {
     property string actionText
     property int repeat: 1
 
-    readonly property color levelColor: level === Notifications.Success ? Theme.success
-                                      : level === Notifications.Warning ? Theme.warning
-                                      : level === Notifications.Error ? Theme.danger : Theme.accent
+    readonly property color levelColor: level === Notifications.Success ? Theme.positive
+                                      : level === Notifications.Warning ? Theme.caution
+                                      : level === Notifications.Error ? Theme.negative : Theme.accent
     readonly property string levelIcon: level === Notifications.Success ? "success"
                                       : level === Notifications.Warning ? "warning"
                                       : level === Notifications.Error ? "error" : "info"
@@ -25,39 +26,17 @@ Item {
     signal actionRequested()
 
     implicitWidth: 360
-    implicitHeight: content.implicitHeight + 24
+    implicitHeight: content.implicitHeight + 2 * Theme.spacingM
+    Accessible.role: Accessible.AlertMessage
+    Accessible.name: title
 
     HoverHandler {
         id: hover
         onHoveredChanged: Notifications.hold(root.toastId, hovered)
     }
 
-    Rectangle {
-        id: card
+    PopupFrame {
         anchors.fill: parent
-        radius: Theme.radiusL
-        color: Theme.surfaceRaised
-        border.width: 1
-        border.color: Theme.dark ? "#2C303A" : Theme.border
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowColor: Theme.shadow
-            shadowBlur: 0.9
-            shadowVerticalOffset: 6
-            shadowOpacity: Theme.dark ? 0.9 : 0.5
-            blurMax: 32
-        }
-    }
-
-    // level accent on the left edge
-    Rectangle {
-        x: 0
-        y: 10
-        width: 3
-        height: parent.height - 20
-        radius: 1.5
-        color: root.levelColor
     }
 
     RowLayout {
@@ -65,72 +44,62 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.leftMargin: 16
-        anchors.rightMargin: 8
-        anchors.topMargin: 12
-        spacing: Theme.spacingM
+        anchors.leftMargin: Theme.spacingM
+        anchors.rightMargin: Theme.spacingXs
+        anchors.topMargin: Theme.spacingM
+        spacing: Theme.spacingS + 2
 
         Icon {
             Layout.alignment: Qt.AlignTop
-            Layout.topMargin: 1
             name: root.levelIcon
             color: root.levelColor
-            size: 18
         }
-
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 3
-            RowLayout {
+            spacing: 2
+            Text {
                 Layout.fillWidth: true
-                spacing: Theme.spacingS
-                Text {
-                    Layout.fillWidth: true
-                    text: root.title
-                    color: Theme.text
-                    font.pixelSize: Theme.fontSizeBody
-                    font.weight: Font.DemiBold
-                    wrapMode: Text.WordWrap
-                    maximumLineCount: 2
-                    elide: Text.ElideRight
-                }
-                Badge {
-                    visible: root.repeat > 1
-                    text: "×" + root.repeat
-                    caps: false
-                    color: Theme.textSecondary
-                }
+                text: root.repeat > 1 ? qsTr("%1 (%2×)").arg(root.title).arg(root.repeat) : root.title
+                color: Theme.text
+                font.pixelSize: Theme.fontSizeBody
+                font.weight: Font.Medium
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
             }
             Text {
                 visible: root.message.length > 0
                 Layout.fillWidth: true
                 text: root.message
                 color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeM
+                font.pixelSize: Theme.fontSizeSmall
                 wrapMode: Text.WordWrap
                 maximumLineCount: 4
                 elide: Text.ElideRight
-                lineHeight: 1.1
             }
-            ActionButton {
+            Button {
                 visible: root.actionText.length > 0
-                Layout.topMargin: 6
+                Layout.topMargin: Theme.spacingXs
+                Layout.leftMargin: -Theme.spacingS
+                flat: true
+                implicitHeight: Theme.controlHeightS
                 text: root.actionText
-                tone: "subtle"
-                color: root.levelColor === Theme.danger ? Theme.accent : root.levelColor
-                compact: true
                 onClicked: root.actionRequested()
             }
         }
-
-        IconButton {
+        ToolButton {
             Layout.alignment: Qt.AlignTop
-            Layout.topMargin: -4
-            iconName: "close"
-            iconSize: Theme.iconSizeS
-            size: 24
+            Layout.topMargin: -Theme.spacingXs
+            implicitWidth: Theme.controlHeightS
+            implicitHeight: Theme.controlHeightS
+            icon.source: Theme.icon("close")
+            icon.width: Theme.iconSizeS
+            icon.height: Theme.iconSizeS
             opacity: hover.hovered ? 1 : 0.6
-            toolTip: qsTr("Dismiss")
+            ToolTip.visible: hovered
+            ToolTip.delay: Theme.toolTipDelay
+            ToolTip.text: qsTr("Dismiss")
+            Accessible.name: qsTr("Dismiss")
             onClicked: root.dismissRequested()
         }
     }

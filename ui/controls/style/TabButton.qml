@@ -3,6 +3,7 @@ import QtQuick.Controls.impl
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// A tab: secondary text, primary text when current or hovered (the TabBar draws the underline).
 T.TabButton {
     id: control
 
@@ -11,14 +12,15 @@ T.TabButton {
     implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              implicitContentHeight + topPadding + bottomPadding)
 
-    padding: 6
-    horizontalPadding: 12
-    spacing: 6
+    padding: 0
+    horizontalPadding: Theme.spacingM
+    spacing: Theme.spacingXs + 2
     hoverEnabled: true
-    font.weight: checked ? Font.DemiBold : Font.Medium
+    font.pixelSize: Theme.fontSizeBody
+    font.weight: checked ? Font.Medium : Font.Normal
     icon.width: Theme.iconSize
     icon.height: Theme.iconSize
-    icon.color: checked ? Theme.text : Theme.textSecondary
+    icon.color: !enabled ? Theme.textDisabled : checked || hovered ? Theme.text : Theme.textSecondary
 
     contentItem: IconLabel {
         spacing: control.spacing
@@ -30,11 +32,8 @@ T.TabButton {
         color: !control.enabled ? Theme.textDisabled : control.checked || control.hovered ? Theme.text : Theme.textSecondary
     }
 
-    background: Rectangle {
-        implicitHeight: 34
-        radius: Theme.radiusS
-        color: control.down ? Theme.surfacePressed : control.hovered && !control.checked ? Theme.surfaceHover : "transparent"
-        anchors.margins: 3
-        FocusRing { shown: control.visualFocus; radius: Theme.radiusS + 3 }
+    background: Item {
+        implicitHeight: Theme.controlHeight + 6
+        FocusRing { shown: control.visualFocus; anchors.margins: 2; radius: Theme.radiusControl }
     }
 }

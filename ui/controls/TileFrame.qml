@@ -5,11 +5,10 @@ import QtQuick.Layouts
 import QtQuick.Templates as T
 import MyBench.Framework
 
-// Dashboard card around an instrument's <Name>Tile.qml: icon, title, run state, a favorite star
-// (Launcher.favorites; shown on hover and while starred), a quick Run/Stop button and Open. The
-// tile content is loaded with `controller` as initial property.
+// v1 compatibility (A2 replaces it with OverviewTile): a bordered tile around an instrument's
+// <Name>Tile.qml — icon, title, state, and on hover favorite, Run/Stop and Open. The tile content
+// is loaded with `controller` as initial property. `closable` adds a remove button.
 //     TileFrame { instrumentId: "dmm"; onOpenRequested: shell.open("dmm") }
-// `closable` adds an × (closeRequested: the dashboard column unpins the tile).
 T.Control {
     id: root
 
@@ -25,10 +24,10 @@ T.Control {
                                         : controller.paused ? qsTr("Paused")
                                         : controller.running ? qsTr("Running")
                                         : controller.hasError ? qsTr("Error") : ""
-    readonly property color stateColor: !controller ? Theme.textMuted
-                                       : controller.paused ? Theme.warning
-                                       : controller.running ? Theme.success
-                                       : controller.hasError ? Theme.danger : Theme.textMuted
+    readonly property string status: !controller ? "neutral"
+                                    : controller.paused ? "paused"
+                                    : controller.running ? "running"
+                                    : controller.hasError ? "error" : "stopped"
 
     signal openRequested()
     signal closeRequested()
@@ -44,31 +43,25 @@ T.Control {
     Component.onCompleted: tileLoader.reload()
 
     background: Rectangle {
-        radius: Theme.radiusXl
-        color: Theme.surfaceRaised
-        border.width: 1
-        border.color: root.hovered ? Theme.borderStrong : Theme.border
-        Behavior on border.color { ColorAnimation { duration: Theme.durationFast } }
-
-        // running glow along the top edge
-        Rectangle {
-            visible: root.controller !== null && root.controller.running
-            x: Theme.radiusXl
-            width: parent.width - 2 * Theme.radiusXl
-            height: 1
-            gradient: Gradient {
-                orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: "transparent" }
-                GradientStop { position: 0.5; color: Theme.alpha(Theme.success, 0.9) }
-                GradientStop { position: 1; color: "transparent" }
-            }
+        radius: Theme.radiusPopup
+        color: Theme.base
+        border.width: Theme.borderWidth
+        border.color: root.hovered ? Theme.controlBorder : Theme.separator
+        TapHandler {
+            onTapped: root.openRequested()
         }
-
-        MouseArea {
-            anchors.fill: parent
+        HoverHandler {
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.openRequested()
         }
+    }
+
+    component TileTool: ToolButton {
+        implicitWidth: Theme.controlHeightS
+        implicitHeight: Theme.controlHeightS
+        icon.width: Theme.iconSizeS
+        icon.height: Theme.iconSizeS
+        ToolTip.visible: hovered
+        ToolTip.delay: Theme.toolTipDelay
     }
 
     contentItem: ColumnLayout {
@@ -78,79 +71,51 @@ T.Control {
             Layout.fillWidth: true
             spacing: Theme.spacingS
 
-            Rectangle {
-                implicitWidth: 28
-                implicitHeight: 28
-                radius: Theme.radiusM
-                color: Theme.surfaceSunken
-                border.width: 1
-                border.color: Theme.border
-                Icon {
-                    anchors.centerIn: parent
-                    name: root.info.icon ?? ""
-                    color: root.controller && root.controller.running ? Theme.success : Theme.text
-                    size: Theme.iconSize
-                }
+            Icon {
+                name: root.info.icon ?? ""
+                color: Theme.textSecondary
             }
             Text {
                 Layout.fillWidth: true
                 text: root.info.title ?? root.instrumentId
                 color: Theme.text
-                font.pixelSize: Theme.fontSizeL
+                font.pixelSize: Theme.fontSizeHeading
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
             }
-            Row {
+            StatusIndicator {
                 visible: root.stateLabel.length > 0
-                spacing: 6
-                StatusDot {
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: root.stateColor
-                    pulse: root.controller !== null && root.controller.state === InstrumentController.Running
-                    size: 7
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: root.stateLabel
-                    color: root.stateColor
-                    font.pixelSize: Theme.fontSizeS
-                    font.weight: Font.DemiBold
-                }
+                status: root.status
+                text: root.stateLabel
             }
-            IconButton {
+            TileTool {
                 visible: root.showFavorite && (root.favorite || root.tools)
-                size: 26
-                iconSize: Theme.iconSizeS
-                iconName: root.favorite ? "star-filled" : "star"
-                iconColor: root.favorite ? Theme.warning : Theme.textMuted
-                toolTip: root.favorite ? qsTr("Remove from favorites") : qsTr("Add to favorites")
-                Accessible.name: toolTip
+                icon.source: Theme.icon(root.favorite ? "pin" : "pin-off")
+                checkable: false
+                ToolTip.text: root.favorite ? qsTr("Unpin") : qsTr("Pin to Top")
+                Accessible.name: ToolTip.text
                 onClicked: Launcher.toggleFavorite(root.instrumentId)
             }
-            IconButton {
+            TileTool {
                 visible: root.tools
-                size: 26
-                iconSize: Theme.iconSizeS
-                iconName: root.controller && root.controller.running ? "stop-filled" : "play"
-                iconColor: root.controller && root.controller.running ? Theme.stop : Theme.run
+                icon.source: Theme.icon(root.controller && root.controller.running ? "stop" : "play")
                 enabled: root.controller !== null && (root.controller.running || root.controller.canRun)
-                toolTip: root.controller && root.controller.running ? qsTr("Stop") : qsTr("Run")
+                ToolTip.text: root.controller && root.controller.running ? qsTr("Stop") : qsTr("Run")
+                Accessible.name: ToolTip.text
                 onClicked: root.controller.toggle()
             }
-            IconButton {
+            TileTool {
                 visible: root.tools && !root.closable
-                size: 26
-                iconSize: Theme.iconSizeS
-                iconName: "chevron-right"
-                toolTip: qsTr("Open %1").arg(root.info.title ?? "")
+                icon.source: Theme.icon("chevron-right")
+                ToolTip.text: qsTr("Open %1").arg(root.info.title ?? "")
+                Accessible.name: ToolTip.text
                 onClicked: root.openRequested()
             }
-            IconButton {
+            TileTool {
                 visible: root.closable && root.tools
-                size: 26
-                iconSize: Theme.iconSizeS
-                iconName: "close"
-                toolTip: qsTr("Remove %1 from the dashboard").arg(root.info.title ?? "")
+                icon.source: Theme.icon("close")
+                ToolTip.text: qsTr("Remove %1").arg(root.info.title ?? "")
+                Accessible.name: ToolTip.text
                 onClicked: root.closeRequested()
             }
         }
@@ -168,9 +133,9 @@ T.Control {
             Text {
                 anchors.centerIn: parent
                 visible: tileLoader.status === Loader.Error
-                text: qsTr("No tile")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeM
+                text: qsTr("No preview")
+                color: Theme.textTertiary
+                font.pixelSize: Theme.fontSizeSmall
             }
         }
     }

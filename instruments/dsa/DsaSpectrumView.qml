@@ -12,6 +12,9 @@ Item {
     id: root
 
     required property DsaController controller
+    // The panel shows the measurements as cards and the time record on request.
+    property bool showReadouts: true
+    property bool showTime: true
     readonly property bool narrow: width < 720
     readonly property real leftMargin: Math.max(spectrumPlot.implicitLeftMargin, timePlot.implicitLeftMargin,
                                                 root.controller.waterfallVisible ? waterfallPlot.implicitLeftMargin : 0)
@@ -38,6 +41,7 @@ Item {
 
         // --- Measurements -------------------------------------------------------------------
         Flow {
+            visible: root.showReadouts
             Layout.fillWidth: true
             spacing: root.narrow ? Theme.spacingM : Theme.spacingXl
             DsaReadout {
@@ -240,6 +244,7 @@ Item {
             Layout.fillWidth: true
             spacing: Theme.spacingM
             SegmentedControl {
+                visible: root.showReadouts
                 compact: true
                 Layout.preferredWidth: 300
                 model: [qsTr("Power Spectrum"), qsTr("Power Spectral Density")]
@@ -271,8 +276,6 @@ Item {
             xLabelsVisible: false
             leftMargin: root.leftMargin
             rightMargin: 16
-            gridColor: Theme.alpha(Theme.text, 0.08)
-            minorGridColor: "transparent"
             yAxis {
                 min: -root.controller.waterfallHistory
                 max: 0
@@ -299,6 +302,7 @@ Item {
         // --- Time record ------------------------------------------------------------------------
         BenchPlot {
             id: timePlot
+            visible: root.showTime
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.preferredHeight: 1.25
@@ -338,7 +342,7 @@ Item {
 
         // --- Cursor readouts ------------------------------------------------------------------------
         Flow {
-            visible: root.cursors
+            visible: root.cursors && root.showReadouts
             Layout.fillWidth: true
             spacing: Theme.spacingXl
             component CursorText: Text {

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// On/off switch (section headers, forms): a 28×16 track, accent when on, a white knob.
 T.Switch {
     id: control
 
@@ -11,35 +12,33 @@ T.Switch {
                              implicitContentHeight + topPadding + bottomPadding,
                              implicitIndicatorHeight + topPadding + bottomPadding)
 
-    padding: 2
-    spacing: 8
+    padding: 0
+    spacing: Theme.spacingS
     hoverEnabled: true
+    font.pixelSize: Theme.fontSizeBody
 
     indicator: Rectangle {
-        implicitWidth: 30
-        implicitHeight: 18
+        implicitWidth: 28
+        implicitHeight: 16
         x: control.text ? (control.mirrored ? control.width - width - control.rightPadding : control.leftPadding)
                         : control.leftPadding + (control.availableWidth - width) / 2
         y: control.topPadding + (control.availableHeight - height) / 2
         radius: height / 2
-        color: control.checked ? Theme.accent : (control.hovered ? Theme.surfacePressed : Theme.surfaceHover)
-        border.width: control.checked ? 0 : 1
-        border.color: Theme.borderStrong
-        opacity: control.enabled ? 1 : 0.45
-        Behavior on color { ColorAnimation { duration: Theme.durationNormal } }
+        color: control.checked ? (control.down ? Theme.accentPressed : Theme.accent)
+                               : Theme.alpha(Theme.text, control.down ? 0.26 : control.hovered ? 0.2 : 0.15)
+        opacity: control.enabled ? 1 : 0.5
+        Behavior on color { ColorAnimation { duration: Theme.durationFast } }
 
         Rectangle {
             x: Math.max(2, Math.min(parent.width - width - 2, control.visualPosition * parent.width - width / 2))
             y: 2
-            width: 14
-            height: 14
-            radius: 7
-            color: control.checked ? "#FFFFFF" : (Theme.dark ? "#C9CDD6" : "#FFFFFF")
-            border.width: control.checked || Theme.dark ? 0 : 1
-            border.color: Theme.borderStrong
+            width: 12
+            height: 12
+            radius: 6
+            color: "#FFFFFF"
             Behavior on x {
-                enabled: !control.down
-                NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
+                enabled: !control.down && Theme.animations
+                NumberAnimation { duration: Theme.durationFast; easing.type: Theme.easing }
             }
         }
         FocusRing { shown: control.visualFocus; radius: height / 2 + 3 }

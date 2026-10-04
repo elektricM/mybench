@@ -8,6 +8,9 @@
 //     AppInfo.licenseText()   the repository LICENSE (or the pending-license notice), compiled in
 //     AppInfo.screenshot      true when rendering offscreen (--screenshot): no animations needed,
 //                             no dialogs, deterministic layout
+//     AppInfo.offscreen       true when nothing is shown on a real screen: --screenshot, or the
+//                             offscreen/minimal platform (tests, CI). Popups and menus then stay
+//                             Popup.Item and confirmations stay in the window (docs/UI.md §13.9)
 //     AppInfo.theme           "dark" | "light" | "" (--theme)
 //     AppInfo.instrument      --instrument/--panel <id> (or a positional instrument id)
 //     AppInfo.panels          every --panel <id> (repeatable)
@@ -16,8 +19,10 @@
 //
 // Options understood by the shells (see shell.h / --help): --panel <id> (repeatable, alias
 // --instrument), --split <id>, --run <ids|all>, --device <id>, --open <file.mybench>,
-// --page home, and the flags --simulated, --tile, --dashboard, --show-help, --palette, --log,
-// --fresh, --keep-settings, --no-animations, --unified-titlebar.
+// --page overview|home, --sidebar full|compact|hidden, --inspector shown|hidden, and the flags
+// --simulated, --tile, --show-help, --palette, --log, --preferences, --about, --device-info,
+// --simulator-settings, --dark-displays, --fresh, --keep-settings, --no-animations,
+// --no-unified-titlebar.
 #pragma once
 
 #include <QHash>
@@ -46,6 +51,7 @@ class AppInfo : public QObject
     Q_PROPERTY(QString qtVersion READ qtVersion CONSTANT)
     Q_PROPERTY(bool usbBackend READ usbBackend CONSTANT)
     Q_PROPERTY(bool screenshot READ screenshot CONSTANT)
+    Q_PROPERTY(bool offscreen READ offscreen CONSTANT)
     Q_PROPERTY(QString theme READ theme CONSTANT)
     Q_PROPERTY(QString instrument READ instrument CONSTANT)
     Q_PROPERTY(QStringList panels READ panels CONSTANT)
@@ -64,6 +70,7 @@ public:
     bool usbBackend() const;
     Q_INVOKABLE QString licenseText() const;
     bool screenshot() const { return m_screenshot; }
+    bool offscreen() const;
     QString theme() const { return m_theme; }
     QString instrument() const
     {

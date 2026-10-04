@@ -1,8 +1,9 @@
 import QtQuick
-import QtQuick.Effects
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// In-window dialog (native MessageDialog/FileDialog/ColorDialog are preferred where they fit):
+// the popup surface, a title in the title size, the content, and a right-aligned button row.
 T.Dialog {
     id: control
 
@@ -15,33 +16,16 @@ T.Dialog {
                              + (implicitHeaderHeight > 0 ? implicitHeaderHeight + spacing : 0)
                              + (implicitFooterHeight > 0 ? implicitFooterHeight + spacing : 0))
 
-    padding: 20
-    topPadding: 8
+    padding: Theme.spacingL + 4
+    topPadding: Theme.spacingS
+    bottomPadding: Theme.spacingS
 
     enter: Transition {
-        ParallelAnimation {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationFast }
-            NumberAnimation { property: "scale"; from: 0.96; to: 1; duration: Theme.durationNormal; easing.type: Easing.OutCubic }
-        }
-    }
-    exit: Transition {
-        NumberAnimation { property: "opacity"; to: 0; duration: Theme.durationFast }
+        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationFast }
     }
 
-    background: Rectangle {
-        radius: Theme.radiusXl
-        color: Theme.surfaceRaised
-        border.width: 1
-        border.color: Theme.dark ? "#2C303A" : Theme.border
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            shadowEnabled: true
-            shadowColor: Theme.shadow
-            shadowBlur: 1.0
-            shadowVerticalOffset: 12
-            shadowOpacity: Theme.dark ? 0.95 : 0.5
-            blurMax: 48
-        }
+    background: PopupFrame {
+        shadow: control.popupType === T.Popup.Item
     }
 
     header: Text {
@@ -49,12 +33,12 @@ T.Dialog {
         visible: control.title.length > 0
         elide: Text.ElideRight
         color: Theme.text
-        font.pixelSize: Theme.fontSizeXl
+        font.pixelSize: Theme.fontSizeTitle - 2
         font.weight: Font.DemiBold
-        leftPadding: 20
-        rightPadding: 20
-        topPadding: 18
-        bottomPadding: 4
+        leftPadding: control.leftPadding
+        rightPadding: control.rightPadding
+        topPadding: Theme.spacingL + 2
+        bottomPadding: Theme.spacingXs
     }
 
     footer: DialogButtonBox {

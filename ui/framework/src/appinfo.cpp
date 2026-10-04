@@ -1,6 +1,7 @@
 #include "mybench/appinfo.h"
 
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QFile>
 #include <QJSEngine>
 
@@ -9,6 +10,14 @@ using namespace Qt::StringLiterals;
 namespace mybench {
 
 AppInfo::AppInfo(QObject* parent) : QObject(parent) {}
+
+bool AppInfo::offscreen() const
+{
+    if (m_screenshot)
+        return true;
+    const QString platform = QGuiApplication::platformName();
+    return platform == QLatin1String("offscreen") || platform == QLatin1String("minimal");
+}
 
 AppInfo* AppInfo::instance()
 {
@@ -71,7 +80,8 @@ QString AppInfo::platform() const
 
 QStringList AppInfo::valueOptions()
 {
-    return {u"instrument"_s, u"panel"_s, u"split"_s, u"run"_s, u"open"_s, u"page"_s, u"device"_s, u"system-palette"_s};
+    return {u"instrument"_s, u"panel"_s, u"split"_s, u"run"_s, u"open"_s, u"page"_s, u"device"_s, u"system-palette"_s,
+            u"sidebar"_s, u"inspector"_s};
 }
 
 QStringList AppInfo::panels() const

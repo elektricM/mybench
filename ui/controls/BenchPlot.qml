@@ -4,49 +4,41 @@ import QtQuick.Dialogs
 import MyBench.Framework
 import MyBench.Plot
 
-// MyBench.Plot's Plot with the shell theme: dark/light color scheme from Theme and the display
-// surface as background, so it blends into a DisplayArea. Use it instead of Plot in panels and
-// tiles; every Plot property, element and method is available (see ui/plot/README.md).
-//     BenchPlot { anchors.fill: parent; PlotTrace { buffer: controller.ch0; color: Theme.ch0 } }
+// MyBench.Plot's Plot in the theme (docs/UI.md §2 "Display tokens", §6 "Plots"): every color role
+// (display surface, grid, frame, axis text, titles, series colors, in-plot panels) and the font
+// (caption) come from Theme, so plots follow light/dark and "Always Use Dark Displays". Use it
+// instead of Plot in panels and tiles; every Plot property, element and method is available.
+//     BenchPlot { anchors.fill: parent; PlotTrace { buffer: controller.ch0; color: Theme.signalCh0 } }
 //     BenchPlot { bare: true; ... }     // tiles: transparent, no frame/labels/interaction
 //
-// Plot tools (app.md 8.3), for interactive non-bare plots: a PlotToolbar at the top right of the
-// plot area while the pointer is over the plot (`tools`), and a PlotContextMenu on right click
-// (`contextMenu`). Export image/data go to ShellActions with `instrumentId` (by default the id of
-// the enclosing InstrumentPanel, so the panel's own export runs), else to the plot's PNG/CSV
-// export. "Trace style…" opens a TraceStyleDialog for `traceStyles` (by default the enclosing
-// panel's), "Cursors" appears when `cursorsAvailable` (toggles `cursorsEnabled`), "Copy data" when
-// `copyDataAvailable` (→ copyDataRequested()); `exportDataHandled: true` leaves Export data… to the
-// host (exportDataRequested() only).
-//     BenchPlot {
-//         cursorsAvailable: true
-//         cursorsEnabled: controller.cursorsOn
-//         onCursorsToggled: on => controller.cursorsOn = on
-//         traceStyles: [{ name: "CH 0", style: controller.ch0Style, color: Theme.ch0 }]
-//     }
+// Interactive plots get a PlotToolbar at the top right of the plot area while the pointer is over
+// the plot (`tools`; `toolbarItems` adds items at its left, e.g. a time-window selector) and a
+// context menu on right click (`contextMenu`). Export routes to ShellActions with `instrumentId`
+// (default: the enclosing InstrumentPanel's), else to the plot's own PNG/CSV export. "Trace
+// Style…" opens a TraceStyleDialog for `traceStyles` (default: the panel's), "Show Cursors" appears
+// with `cursorsAvailable`, "Copy Data" with `copyDataAvailable`, "Time Window ▸" with `timeWindows`,
+// "Clear" with `clearAvailable`.
 Plot {
     id: plot
 
-    // Minimal look for tiles and previews: transparent, no frame, no labels, no interaction,
-    // no margins (set it, then only add traces).
+    // Minimal look for tiles and previews: transparent, no frame, no labels, no interaction.
     property bool bare: false
-    // Overlay toolbar (hover) and right-click menu.
     property bool tools: !bare
-    // Toolbar shown without hover (screenshots, documentation; `--show-plot-tools` on the command line).
+    // Toolbar shown without hover (screenshots, documentation; `--show-plot-tools`).
     property bool toolsAlwaysVisible: AppInfo.flag("show-plot-tools")
     property bool contextMenu: true
-    // Export routing: ShellActions.export{Data,Image}Requested(id). "" = the enclosing panel's id.
+    property list<Item> toolbarItems
     property string instrumentId: ""
-    // true: Export data… only emits exportDataRequested() (the host writes its own data).
     property bool exportDataHandled: false
-    // "Copy data" entry of the context menu (the host handles copyDataRequested()).
     property bool copyDataAvailable: false
-    // Cursors on/off entry of the context menu.
     property bool cursorsAvailable: false
     property bool cursorsEnabled: false
-    // [{ name, style: TraceStyle, color }] for "Trace style…"; [] = the enclosing panel's list.
     property var traceStyles: []
     property bool traceStyleAvailable: effectiveTraceStyles.length > 0
+    // Trend plots (TrendView): [{ text, seconds }], the current index, and Clear.
+    property var timeWindows: []
+    property int timeWindowIndex: -1
+    property bool clearAvailable: false
 
     readonly property InstrumentPanel panel: internal.panel
     readonly property string effectiveInstrumentId: instrumentId.length > 0 ? instrumentId
@@ -59,10 +51,22 @@ Plot {
     signal exportImageRequested()
     signal exportDataRequested()
     signal copyDataRequested()
+    signal timeWindowActivated(int index)
+    signal clearRequested()
 
-    colorScheme: Theme.dark ? Plot.Dark : Plot.Light
+    colorScheme: Theme.displayDark ? Plot.Dark : Plot.Light
     backgroundColor: bare ? "transparent" : Theme.display
-    plotAreaColor: bare ? "transparent" : undefined
+    plotAreaColor: bare ? "transparent" : Theme.display
+    gridColor: Theme.plotGridMajor
+    minorGridColor: Theme.plotGridMinor
+    frameColor: Theme.plotFrame
+    textColor: Theme.displayTextSecondary
+    titleColor: Theme.displayText
+    accentColor: Theme.accent
+    panelColor: Theme.displayDark ? Theme.mix(Theme.display, "#FFFFFF", 0.07) : Theme.base
+    seriesColors: Theme.seriesColors
+    font.family: Theme.fontFamily
+    font.pixelSize: Theme.fontSizeCaption
     frameVisible: !bare
     interactive: !bare
     xLabelsVisible: !bare
@@ -153,14 +157,15 @@ Plot {
 
     Loader {
         id: toolbarLoader
-        active: plot.tools && plot.interactive && (internal.toolsWanted || plot.toolsAlwaysVisible)
-        x: plot.plotArea.x + plot.plotArea.width - width - 6
-        y: plot.plotArea.y + 6
+        active: plot.tools && plot.interactive && (internal.toolsWanted || plot.toolsAlwaysVisible || plot.toolbarItems.length > 0)
+        x: plot.plotArea.x + plot.plotArea.width - width - Theme.spacingXs
+        y: plot.plotArea.y + Theme.spacingXs
         z: 100
-        visible: plot.plotArea.width >= width + 60 && plot.plotArea.height >= height + 40
+        visible: plot.plotArea.width >= width + 40 && plot.plotArea.height >= height + 40
         sourceComponent: PlotToolbar {
             plot: plot
             shown: hover.hovered || plot.toolsAlwaysVisible
+            extras: plot.toolbarItems
         }
     }
 
@@ -172,6 +177,10 @@ Plot {
             cursorsAvailable: plot.cursorsAvailable
             cursorsEnabled: plot.cursorsEnabled
             traceStyleAvailable: plot.traceStyleAvailable
+            copyDataAvailable: plot.copyDataAvailable
+            timeWindows: plot.timeWindows
+            timeWindowIndex: plot.timeWindowIndex
+            clearAvailable: plot.clearAvailable
             onCursorsToggled: on => {
                 plot.cursorsEnabled = on
                 plot.cursorsToggled(on)
@@ -179,8 +188,9 @@ Plot {
             onTraceStyleRequested: plot.openTraceStyles()
             onExportImageRequested: plot.exportImage()
             onExportDataRequested: plot.exportData()
-            copyDataAvailable: plot.copyDataAvailable
             onCopyDataRequested: plot.copyDataRequested()
+            onTimeWindowActivated: index => plot.timeWindowActivated(index)
+            onClearRequested: plot.clearRequested()
         }
     }
 
@@ -198,7 +208,7 @@ Plot {
         property bool csv: false
         active: false
         sourceComponent: FileDialog {
-            title: fileLoader.csv ? qsTr("Export plot data") : qsTr("Export plot image")
+            title: fileLoader.csv ? qsTr("Export Plot Data") : qsTr("Export Plot Image")
             fileMode: FileDialog.SaveFile
             nameFilters: fileLoader.csv ? [qsTr("CSV (*.csv)")] : [qsTr("PNG image (*.png)")]
             defaultSuffix: fileLoader.csv ? "csv" : "png"

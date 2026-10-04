@@ -27,15 +27,16 @@ Dialog {
     property var snapshot: []
 
     readonly property var widths: [0, 1, 1.5, 2, 3, 4, 5]
-    readonly property var swatches: ["#4ADE80", "#22D3EE", "#FBBF24", "#A78BFA", "#F472B6", "#FF4D4D", "#4D7CFF",
-                                     "#FFFFFF", "#9AA0A6", "#000000"]
+    // The signal palette of the current display scheme, then neutral display text colors.
+    readonly property var swatches: [Theme.signalCh0, Theme.signalCh1, Theme.signalAo0, Theme.signalAo1, Theme.signalMath,
+                                     Theme.signalRef, Theme.displayText, Theme.displayTextSecondary].map(c => c.toString())
 
     function openFor(index: int) {
         currentIndex = Math.max(0, Math.min(index, entries.length - 1))
         open()
     }
 
-    title: qsTr("Trace style")
+    title: qsTr("Trace Style")
     parent: Overlay.overlay
     anchors.centerIn: parent
     width: 460
@@ -60,10 +61,10 @@ Dialog {
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
         background: Rectangle {
-            radius: 5
+            radius: 4
             color: swatch.fill
             border.width: swatch.selected ? 2 : 1
-            border.color: swatch.selected ? Theme.text : (swatch.hovered ? Theme.textSecondary : Theme.borderStrong)
+            border.color: swatch.selected ? Theme.accent : (swatch.hovered ? Theme.controlBorder : Theme.separator)
             FocusRing { shown: swatch.visualFocus; radius: 7 }
         }
         contentItem: Item {}
@@ -148,16 +149,18 @@ Dialog {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 64
-            radius: Theme.radiusM
+            radius: Theme.radiusControl
             color: Theme.display
-            border.width: 1
-            border.color: Theme.displayBorder
+            border.width: Theme.borderWidth
+            border.color: Theme.plotFrame
+            // A plain Plot (BenchPlot uses this dialog), themed like a bare BenchPlot.
             Plot {
                 anchors.fill: parent
-                anchors.margins: 6
-                colorScheme: Theme.dark ? Plot.Dark : Plot.Light
+                anchors.margins: Theme.spacingS
+                colorScheme: Theme.displayDark ? Plot.Dark : Plot.Light
                 backgroundColor: "transparent"
                 plotAreaColor: "transparent"
+                seriesColors: Theme.seriesColors
                 frameVisible: false
                 interactive: false
                 xLabelsVisible: false
@@ -259,26 +262,28 @@ Dialog {
 
     footer: RowLayout {
         spacing: Theme.spacingS
-        ActionButton {
-            Layout.leftMargin: Theme.spacingL
+        Button {
+            Layout.leftMargin: Theme.spacingL + 4
             Layout.bottomMargin: Theme.spacingL
-            text: qsTr("Reset to default")
-            tone: "ghost"
-            iconName: "reset"
+            implicitHeight: Theme.controlHeightL
+            text: qsTr("Reset to Default")
+            flat: true
             enabled: dialog.current !== null && !dialog.current.isDefault
             onClicked: dialog.current.reset()
         }
         Item { Layout.fillWidth: true }
-        ActionButton {
+        Button {
             Layout.bottomMargin: Theme.spacingL
+            implicitHeight: Theme.controlHeightL
             text: qsTr("Cancel")
             onClicked: dialog.reject()
         }
-        ActionButton {
+        Button {
             Layout.bottomMargin: Theme.spacingL
-            Layout.rightMargin: Theme.spacingL
+            Layout.rightMargin: Theme.spacingL + 4
+            implicitHeight: Theme.controlHeightL
             text: qsTr("OK")
-            tone: "accent"
+            highlighted: true
             onClicked: dialog.accept()
         }
     }

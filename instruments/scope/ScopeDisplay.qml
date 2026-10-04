@@ -5,9 +5,12 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Display area of the Oscilloscope: the 10 × 10 division scope graph (YT) or the XY graph, the
-// optional FFT pane of the math channel, the draggable markers (channel zero levels, trigger level
-// and horizontal position), the cursors, and the measurement rows under the graph.
+// The Oscilloscope's display: the 10 × 10 division graph (YT) or the XY graph, the read-only scale
+// legend of the shown traces under it, and the spectrum view of the FFT section below when it is
+// on. Direct manipulation (scope.md design notes): drag a channel's zero marker (left edge) for its
+// position, the trigger level marker (right edge) and the horizontal position marker (top edge);
+// the wheel over the graph steps Time/div, Shift + wheel the Scale of the nearest channel. Plot
+// tools, cursors toggle and the context menu come from BenchPlot.
 Item {
     id: root
 
@@ -18,23 +21,28 @@ Item {
     readonly property bool xyMode: controller.displayMode === ScopeController.XY
     readonly property bool edge: controller.triggerType === ScopeController.Edge && !controller.rolling
     readonly property bool fftShown: controller.fftShown
-    readonly property bool mathShown: math.enabled && !math.fft
+    readonly property int fftChannel: controller.fftSource === ScopeController.FftChannel1 ? 1 : 0
+    // The trigger uses the chosen channel while it is enabled, else the other one (controller rule).
     readonly property int triggerChannel: {
         const wanted = controller.triggerSource === ScopeController.Chan1Source ? 1 : 0
-        const c = wanted === 0 ? ch0 : ch1
-        return c.enabled ? wanted : 1 - wanted
+        return (wanted === 0 ? ch0 : ch1).enabled ? wanted : 1 - wanted
     }
-    readonly property bool customBackground: controller.background !== ScopeController.ThemeBackground
-    readonly property bool whiteBackground: controller.background === ScopeController.White
     readonly property alias ytPlot: ytPlot
+    readonly property alias xyPlot: xyPlot
     readonly property alias fftPlot: fftPlot
-    // A QML property only signals when its value changes: binding the axis to this (not to
-    // controller.fftMaxFrequency, which is notified on every frame) keeps the user's zoom.
+    readonly property BenchPlot timePlot: xyMode ? xyPlot : ytPlot
+
+    // Bound to this (not to controller.fftMaxFrequency, notified with every record) so the spectrum
+    // keeps the user's zoom until the rate really changes.
     readonly property real fftNyquist: Math.max(1, controller.fftMaxFrequency)
-    // A display setting changed: drop the afterglow of the old setting (the plot clears its ghosts
-    // while persistence is 0, then the value returns).
+    // The kept trace is drawn faded while Normal mode waits for a trigger.
+    readonly property bool dimmed: controller.running && controller.waitingForTrigger
+                                   && controller.noTriggerMode === ScopeController.KeepLastTrace
+    // Persistence: any scale, position, timebase or trigger change drops the afterglow of the old
+    // setting (the traces clear their ghosts while persistence is 0 for a moment).
     property bool persistenceHold: false
     readonly property int persistenceEpoch: controller.persistenceEpoch
+    readonly property int persistence: persistenceHold ? 0 : controller.persistence
     onPersistenceEpochChanged: {
         if (controller.persistence > 0) {
             persistenceHold = true
@@ -46,510 +54,452 @@ Item {
         interval: 60
         onTriggered: root.persistenceHold = false
     }
-    readonly property bool dimmed: controller.running && controller.waitingForTrigger
-                                   && controller.noTriggerMode === ScopeController.KeepLastTrace
 
-    // PlotMarker shape of a ScopeTraceStyle.PointStyle (the marker has fewer shapes).
-    function markerShape(pointStyle: int): int {
-        switch (pointStyle) {
-        case ScopeTraceStyle.FilledCircle: return PlotMarker.Circle
-        case ScopeTraceStyle.Square:
-        case ScopeTraceStyle.FilledSquare: return PlotMarker.Square
-        case ScopeTraceStyle.Diamond:
-        case ScopeTraceStyle.FilledDiamond: return PlotMarker.Diamond
-        default: return PlotMarker.Ring
-        }
+    readonly property string idleText: !controller.running && !controller.hasRecord ? qsTr("Press Run or Space to start") : ""
+
+    // Trace colors: the trace style's color when the user picked one, else the signal palette.
+    function styleColor(style: TraceStyle, fallback: color): color {
+        return style && style.lineColor.valid ? style.lineColor : fallback
     }
-    function channelColor(index: int): color {
-        const style = index === 0 ? ch0.style : index === 1 ? ch1.style : math.style
-        if (style.lineColor.length > 0)
-            return style.lineColor
-        return index === 0 ? Theme.ch0 : index === 1 ? Theme.ch1 : Theme.math
+    function traceColor(index: int): color {
+        return index === 0 ? styleColor(ch0.style, Theme.signalCh0)
+             : index === 1 ? styleColor(ch1.style, Theme.signalCh1)
+                           : styleColor(math.style, Theme.signalMath)
+    }
+    function faded(c: color): color {
+        return root.dimmed ? Theme.alpha(c, 0.4) : c
     }
     function traceFor(index: int): PlotTrace {
         return index === 0 ? trace0 : index === 1 ? trace1 : mathTrace
     }
+    function markerShape(pointStyle: int): int {
+        switch (pointStyle) {
+        case TraceStyle.FilledCircle: return PlotMarker.Circle
+        case TraceStyle.Square:
+        case TraceStyle.FilledSquare: return PlotMarker.Square
+        case TraceStyle.Diamond:
+        case TraceStyle.FilledDiamond: return PlotMarker.Diamond
+        default: return PlotMarker.Ring
+        }
+    }
+
+    // One legend entry: swatch, name and the read-only scale.
+    component LegendEntry: Row {
+        id: entry
+        property color swatch
+        property string name
+        property string detail
+        spacing: Theme.spacingXs + 2
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: 8
+            height: 8
+            radius: 2
+            color: entry.swatch
+        }
+        Text {
+            text: entry.name
+            color: Theme.displayText
+            font.pixelSize: Theme.fontSizeCaption
+            font.weight: Font.Medium
+        }
+        Text {
+            text: entry.detail
+            color: Theme.displayTextSecondary
+            font.pixelSize: Theme.fontSizeCaption
+            font.features: Theme.tabularFigures
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: Theme.spacingS
-
-        // The FFT settings live in the inspector (FFT section); only the persistence note stays here.
-        Text {
-            visible: !root.xyMode && root.controller.persistence > 0
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignRight
-            text: qsTr("persistence %1").arg(Units.format(root.controller.persistence / 1000, "s", 2))
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontSizeS
-        }
+        spacing: 0
 
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.verticalStretchFactor: 3
 
-            ColumnLayout {
+            // ---- YT graph -----------------------------------------------------------------------
+            BenchPlot {
+                id: ytPlot
+                objectName: "ytPlot"
                 anchors.fill: parent
-                spacing: Theme.spacingS
+                visible: !root.xyMode
+                hoverReadout: true
+                graticule: Plot.Scope
+                leftMargin: root.fftShown ? fftPlot.plotArea.x : -1
+                rightMargin: root.fftShown ? fftPlot.width - fftPlot.plotArea.x - fftPlot.plotArea.width : -1
+                placeholderText: root.idleText
+                cursorsAvailable: true
+                cursorsEnabled: root.controller.cursorsOn
+                onCursorsToggled: on => root.controller.cursorsOn = on
+                xAxis {
+                    min: 0
+                    max: root.controller.screenTime
+                    divisions: 10
+                    unit: "s"
+                    unitInLabels: true
+                    labelsVisible: false
+                    lowerLimit: 0
+                    upperLimit: root.controller.screenTime
+                }
+                yAxis { min: -5; max: 5; divisions: 10; labelsVisible: false; interactive: false }
 
-                // ---- YT graph -------------------------------------------------------------------
-                BenchPlot {
-                    id: ytPlot
-                    hoverReadout: true
-                    visible: !root.xyMode
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.verticalStretchFactor: 3
-                    graticule: Plot.Scope
-                    colorScheme: root.customBackground ? (root.whiteBackground ? Plot.Light : Plot.Dark)
-                                                      : (Theme.dark ? Plot.Dark : Plot.Light)
-                    backgroundColor: root.customBackground ? (root.whiteBackground ? "#ffffff" : "#000000") : Theme.display
-                    placeholderText: root.controller.running ? (root.controller.waitingForTrigger ? qsTr("Waiting for trigger…") : "")
-                                                             : qsTr("Press Run to acquire")
-                    xAxis {
-                        min: 0
-                        max: root.controller.screenTime
-                        divisions: 10
-                        unit: "s"
-                        unitInLabels: true
-                        labelsVisible: false
-                        lowerLimit: 0
-                        upperLimit: root.controller.screenTime
-                    }
-                    yAxis { min: -5; max: 5; divisions: 10; labelsVisible: false; interactive: false }
-
-                    // Wheel = Time/Div, Shift + wheel = Volts/Div of the channel nearest the pointer
-                    // (direction: wheel up zooms in).
-                    WheelHandler {
-                        id: wheelTime
-                        acceptedModifiers: Qt.NoModifier
-                        onWheel: event => {
-                            wheelTime.step(event.angleDelta.y, steps => root.controller.stepTimeDiv(steps))
-                        }
-                        property real accumulated: 0
-                        function step(delta: real, apply: var) {
-                            accumulated += delta
-                            const steps = Math.trunc(accumulated / 120)
-                            if (steps !== 0) {
-                                accumulated -= steps * 120
-                                apply(-steps)
-                            }
-                        }
-                    }
-                    WheelHandler {
-                        id: wheelVolts
-                        acceptedModifiers: Qt.ShiftModifier
-                        property real accumulated: 0
-                        onWheel: event => {
-                            // Shift turns the wheel horizontal on some systems.
-                            accumulated += event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x
-                            const steps = Math.trunc(accumulated / 120)
-                            if (steps === 0)
-                                return
+                // Wheel = Time/div, Shift + wheel = Scale of the channel nearest the pointer (wheel
+                // up = smaller value, as a bench scope's knob turned clockwise).
+                WheelHandler {
+                    id: wheelTime
+                    acceptedModifiers: Qt.NoModifier
+                    property real accumulated: 0
+                    onWheel: event => {
+                        accumulated += event.angleDelta.y
+                        const steps = Math.trunc(accumulated / 120)
+                        if (steps !== 0) {
                             accumulated -= steps * 120
-                            const area = ytPlot.plotArea
-                            const divisions = 5 - (wheelVolts.point.position.y - area.y) / area.height * 10
-                            const channel = root.controller.channelNearestTo(divisions)
-                            if (channel >= 0)
-                                root.controller.stepChannelScale(channel, -steps)
-                        }
-                    }
-
-                    ScopeTrace {
-                        id: refATrace
-                        buffer: root.controller.refA
-                        visible: root.controller.refAAvailable && root.controller.refAVisible
-                        name: "REF A"
-                        unit: "V"
-                        traceStyle: root.controller.refAStyle
-                        defaultColor: Theme.ref
-                        yScale: 1 / root.controller.refAScale
-                        yOffset: root.controller.refAPosition
-                    }
-                    ScopeTrace {
-                        id: refBTrace
-                        buffer: root.controller.refB
-                        visible: root.controller.refBAvailable && root.controller.refBVisible
-                        name: "REF B"
-                        unit: "V"
-                        traceStyle: root.controller.refBStyle
-                        defaultColor: Qt.lighter(Theme.ref, 1.35)
-                        yScale: 1 / root.controller.refBScale
-                        yOffset: root.controller.refBPosition
-                    }
-                    ScopeTrace {
-                        id: mathTrace
-                        dimmed: root.dimmed
-                        buffer: root.controller.mathTrace
-                        visible: root.mathShown
-                        name: root.math.functionName
-                        unit: root.math.unit
-                        traceStyle: root.math.style
-                        defaultColor: Theme.math
-                        yScale: 1 / root.math.voltsPerDiv
-                        yOffset: root.math.position
-                        persistence: root.persistenceHold ? 0 : root.controller.persistence
-                    }
-                    ScopeTrace {
-                        id: trace1
-                        dimmed: root.dimmed
-                        buffer: root.controller.ch1
-                        visible: root.ch1.enabled
-                        name: "CH 1"
-                        unit: "V"
-                        traceStyle: root.ch1.style
-                        defaultColor: Theme.ch1
-                        yScale: 1 / root.ch1.voltsPerDiv
-                        yOffset: root.ch1.position
-                        persistence: root.persistenceHold ? 0 : root.controller.persistence
-                    }
-                    ScopeTrace {
-                        id: trace0
-                        dimmed: root.dimmed
-                        buffer: root.controller.ch0
-                        visible: root.ch0.enabled
-                        name: "CH 0"
-                        unit: "V"
-                        traceStyle: root.ch0.style
-                        defaultColor: Theme.ch0
-                        yScale: 1 / root.ch0.voltsPerDiv
-                        yOffset: root.ch0.position
-                        persistence: root.persistenceHold ? 0 : root.controller.persistence
-                    }
-
-                    // Channel zero markers (left edge): drag = Vertical Position.
-                    PlotLine {
-                        visible: root.mathShown
-                        value: root.math.position
-                        handle: PlotLine.Start
-                        label: "M"
-                        color: root.channelColor(2)
-                        lineMode: PlotLine.WhileDragging
-                        onMoved: v => root.math.position = v
-                    }
-                    PlotLine {
-                        visible: root.ch1.enabled
-                        value: root.ch1.position
-                        handle: PlotLine.Start
-                        label: "1"
-                        color: root.channelColor(1)
-                        lineMode: PlotLine.WhileDragging
-                        onMoved: v => root.ch1.position = v
-                    }
-                    PlotLine {
-                        visible: root.ch0.enabled
-                        value: root.ch0.position
-                        handle: PlotLine.Start
-                        label: "0"
-                        color: root.channelColor(0)
-                        lineMode: PlotLine.WhileDragging
-                        onMoved: v => root.ch0.position = v
-                    }
-                    // Trigger level (right edge, volts of the trigger channel) and horizontal
-                    // position (top edge).
-                    PlotLine {
-                        visible: root.edge
-                        trace: root.traceFor(root.triggerChannel)
-                        value: root.controller.triggerLevel
-                        handle: PlotLine.End
-                        label: "T"
-                        color: Theme.danger   // ELVISmx: the trigger level line is red
-                        style: PlotElement.Dash
-                        lineMode: PlotLine.Always
-                        onMoved: v => root.controller.triggerLevel = Math.round(v * 1000) / 1000
-                    }
-                    PlotLine {
-                        visible: root.edge
-                        orientation: PlotElement.Vertical
-                        value: root.controller.horizontalPosition / 100 * root.controller.screenTime
-                        handle: PlotLine.Start
-                        label: "T"
-                        color: root.channelColor(root.triggerChannel)
-                        lineMode: PlotLine.WhileDragging
-                        onMoved: v => root.controller.horizontalPosition = Math.round(v / root.controller.screenTime * 100)
-                    }
-
-                    // Cursors C1 / C2 (Graph Properties > Cursors: style, width, point style).
-                    PlotCursor {
-                        id: cursor1
-                        visible: root.controller.cursorsOn && root.controller.cursor1.cursorStyle !== ScopeCursor.NoCursor
-                        label: "C1"
-                        position: root.controller.cursor1.position
-                        trace: root.traceFor(root.controller.cursor1.channel)
-                        color: root.controller.cursor1.color.length > 0 ? root.controller.cursor1.color : Theme.cursor1
-                        style: root.controller.cursor1.lineStyle
-                        readoutVisible: root.controller.cursor1.showValue
-                        snap: true
-                        onMoved: p => root.controller.cursor1.position = p
-                    }
-                    PlotCursor {
-                        id: cursor2
-                        visible: root.controller.cursorsOn && root.controller.cursor2.cursorStyle !== ScopeCursor.NoCursor
-                        label: "C2"
-                        position: root.controller.cursor2.position
-                        trace: root.traceFor(root.controller.cursor2.channel)
-                        color: root.controller.cursor2.color.length > 0 ? root.controller.cursor2.color : Theme.cursor2
-                        style: root.controller.cursor2.lineStyle
-                        readoutVisible: root.controller.cursor2.showValue
-                        snap: true
-                        onMoved: p => root.controller.cursor2.position = p
-                    }
-                    // Level cursors: two voltage lines of one trace (Cursors Settings > Level cursors).
-                    PlotLine {
-                        visible: root.controller.levelCursorsOn && !root.xyMode
-                        trace: root.traceFor(root.controller.levelCursorChannel)
-                        value: root.controller.levelCursor1
-                        handle: PlotLine.End
-                        label: "H1"
-                        color: Theme.cursor1
-                        style: PlotElement.Dash
-                        lineMode: PlotLine.Always
-                        onMoved: v => root.controller.levelCursor1 = v
-                    }
-                    PlotLine {
-                        visible: root.controller.levelCursorsOn && !root.xyMode
-                        trace: root.traceFor(root.controller.levelCursorChannel)
-                        value: root.controller.levelCursor2
-                        handle: PlotLine.End
-                        label: "H2"
-                        color: Theme.cursor2
-                        style: PlotElement.Dash
-                        lineMode: PlotLine.Always
-                        onMoved: v => root.controller.levelCursor2 = v
-                    }
-                    // Full crosshair: the horizontal line through the cursor's value.
-                    PlotLine {
-                        visible: root.controller.cursorsOn && root.controller.cursor1.cursorStyle === ScopeCursor.FullCrosshair
-                                 && !isNaN(cursor1.value)
-                        trace: cursor1.trace
-                        value: cursor1.value
-                        handle: PlotLine.NoHandle
-                        draggable: false
-                        color: cursor1.color
-                        style: cursor1.style
-                        width: root.controller.cursor1.lineWidth
-                    }
-                    PlotLine {
-                        visible: root.controller.cursorsOn && root.controller.cursor2.cursorStyle === ScopeCursor.FullCrosshair
-                                 && !isNaN(cursor2.value)
-                        trace: cursor2.trace
-                        value: cursor2.value
-                        handle: PlotLine.NoHandle
-                        draggable: false
-                        color: cursor2.color
-                        style: cursor2.style
-                        width: root.controller.cursor2.lineWidth
-                    }
-                    // A wider cursor line is drawn over the (thin) one of the cursor itself.
-                    PlotLine {
-                        visible: cursor1.visible && root.controller.cursor1.lineWidth > 1
-                        orientation: PlotElement.Vertical
-                        value: cursor1.position
-                        handle: PlotLine.NoHandle
-                        draggable: false
-                        color: cursor1.color
-                        style: cursor1.style
-                        width: root.controller.cursor1.lineWidth
-                    }
-                    PlotLine {
-                        visible: cursor2.visible && root.controller.cursor2.lineWidth > 1
-                        orientation: PlotElement.Vertical
-                        value: cursor2.position
-                        handle: PlotLine.NoHandle
-                        draggable: false
-                        color: cursor2.color
-                        style: cursor2.style
-                        width: root.controller.cursor2.lineWidth
-                    }
-                    // Marker at the cursor's point (Small Crosshair, or any Point Style).
-                    PlotMarker {
-                        visible: root.controller.cursorsOn && cursor1.visible && !isNaN(cursor1.value)
-                                 && (root.controller.cursor1.pointStyle !== ScopeTraceStyle.NoPoints
-                                     || root.controller.cursor1.cursorStyle === ScopeCursor.SmallCrosshair)
-                        x: cursor1.position
-                        trace: cursor1.trace
-                        color: cursor1.color
-                        shape: root.markerShape(root.controller.cursor1.pointStyle)
-                        size: 8 + 2 * root.controller.cursor1.lineWidth
-                    }
-                    PlotMarker {
-                        visible: root.controller.cursorsOn && cursor2.visible && !isNaN(cursor2.value)
-                                 && (root.controller.cursor2.pointStyle !== ScopeTraceStyle.NoPoints
-                                     || root.controller.cursor2.cursorStyle === ScopeCursor.SmallCrosshair)
-                        x: cursor2.position
-                        trace: cursor2.trace
-                        color: cursor2.color
-                        shape: root.markerShape(root.controller.cursor2.pointStyle)
-                        size: 8 + 2 * root.controller.cursor2.lineWidth
-                    }
-
-                    // ---- Overlays ---------------------------------------------------------------
-                    Row {
-                        x: ytPlot.plotArea.x + 8
-                        y: ytPlot.plotArea.y + ytPlot.plotArea.height - height - 8
-                        spacing: 6
-                        Repeater {
-                            model: 2
-                            delegate: ChannelChip {
-                                id: chip
-                                required property int index
-                                readonly property ScopeChannel channel: index === 0 ? root.ch0 : root.ch1
-                                compact: true
-                                text: channel.name
-                                color: root.channelColor(index)
-                                checked: channel.enabled
-                                detail: channel.enabled ? channel.scaleLabel + "/div" + (channel.audio ? "  AC" : "") : ""
-                                toolTip: channel.sourceName + (channel.enabled ? "" : qsTr(" (off, click to enable)"))
-                                onToggled: {
-                                    if (!root.controller.setChannelEnabled(index, checked))
-                                        checked = Qt.binding(() => chip.channel.enabled)
-                                }
-                            }
-                        }
-                        ChannelChip {
-                            visible: root.mathShown
-                            compact: true
-                            checkable: false
-                            text: qsTr("Math")
-                            color: root.channelColor(2)
-                            detail: root.math.functionName + "  " + root.math.scaleLabels[root.math.scaleIndex] + "/div"
-                        }
-                        ChannelChip {
-                            visible: refATrace.visible
-                            compact: true
-                            checkable: false
-                            text: "REF A"
-                            color: Theme.ref
-                            detail: root.controller.refALabel
-                        }
-                        ChannelChip {
-                            visible: refBTrace.visible
-                            compact: true
-                            checkable: false
-                            text: "REF B"
-                            color: refBTrace.color
-                            detail: root.controller.refBLabel
-                        }
-                    }
-                    Row {
-                        anchors.right: parent.right
-                        anchors.rightMargin: parent.width - ytPlot.plotArea.x - ytPlot.plotArea.width + 22
-                        y: ytPlot.plotArea.y + ytPlot.plotArea.height - height - 8
-                        spacing: 6
-                        layoutDirection: Qt.RightToLeft
-                        Badge {
-                            visible: root.controller.rolling
-                            text: qsTr("Roll")
-                            color: Theme.accent
-                        }
-                        Badge {
-                            visible: root.controller.autoscaling
-                            text: qsTr("Autoscaling")
-                            color: Theme.accent
-                            iconName: "autoscale"
-                        }
-                        ActionButton {
-                            visible: ytPlot.xAxis.zoomed
-                            compact: true
-                            tone: "subtle"
-                            iconName: "zoom-fit"
-                            text: qsTr("Reset zoom")
-                            onClicked: ytPlot.resetView()
+                            root.controller.stepTimeDiv(-steps)
                         }
                     }
                 }
-
-                // ---- XY graph -------------------------------------------------------------------
-                BenchPlot {
-                    id: xyPlot
-                    hoverReadout: true
-                    visible: root.xyMode
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.verticalStretchFactor: 3
-                    graticule: Plot.Scope
-                    colorScheme: ytPlot.colorScheme
-                    backgroundColor: ytPlot.backgroundColor
-                    placeholderText: root.ch0.enabled && root.ch1.enabled ? (root.controller.running ? "" : qsTr("Press Run to acquire"))
-                                                                         : qsTr("XY mode needs CH 0 and CH 1 enabled")
-                    xAxis { min: -5; max: 5; divisions: 10; labelsVisible: false }
-                    yAxis { min: -5; max: 5; divisions: 10; labelsVisible: false }
-                    ScopeTrace {
-                        buffer: root.controller.xyTrace
-                        visible: root.ch0.enabled && root.ch1.enabled
-                        name: "CH 1 vs CH 0"
-                        traceStyle: root.ch0.style
-                        defaultColor: Theme.ch0
-                        xScale: 1 / root.ch0.voltsPerDiv
-                        xOffset: root.ch0.position
-                        yScale: 1 / root.ch1.voltsPerDiv
-                        yOffset: root.ch1.position
-                        persistence: root.persistenceHold ? 0 : root.controller.persistence
-                    }
-                    Row {
-                        x: xyPlot.plotArea.x + 8
-                        y: xyPlot.plotArea.y + xyPlot.plotArea.height - height - 8
-                        spacing: 6
-                        ChannelChip { compact: true; checkable: false; text: "X  CH 0"; color: root.channelColor(0); detail: root.ch0.scaleLabel + "/div" }
-                        ChannelChip { compact: true; checkable: false; text: "Y  CH 1"; color: root.channelColor(1); detail: root.ch1.scaleLabel + "/div" }
+                WheelHandler {
+                    id: wheelVolts
+                    acceptedModifiers: Qt.ShiftModifier
+                    property real accumulated: 0
+                    onWheel: event => {
+                        // Shift turns the wheel horizontal on some systems.
+                        accumulated += event.angleDelta.y !== 0 ? event.angleDelta.y : event.angleDelta.x
+                        const steps = Math.trunc(accumulated / 120)
+                        if (steps === 0)
+                            return
+                        accumulated -= steps * 120
+                        const area = ytPlot.plotArea
+                        const divisions = 5 - (wheelVolts.point.position.y - area.y) / area.height * 10
+                        const channel = root.controller.channelNearestTo(divisions)
+                        if (channel >= 0)
+                            root.controller.stepChannelScale(channel, -steps)
                     }
                 }
 
-                // ---- FFT of the math channel ----------------------------------------------------
-                BenchPlot {
-                    id: fftPlot
-                    objectName: "fftPlot"
-                    hoverReadout: true
-                    visible: root.fftShown
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.verticalStretchFactor: 2
-                    colorScheme: ytPlot.colorScheme
-                    backgroundColor: ytPlot.backgroundColor
-                    placeholderText: root.controller.running ? "" : qsTr("FFT of the displayed record")
-                    xAxis {
-                        min: 0
-                        max: root.fftNyquist
-                        unit: "Hz"
-                        unitInLabels: true
-                        lowerLimit: 0
-                        upperLimit: root.fftNyquist
-                        minimumSpan: root.fftNyquist / 200
-                    }
-                    yAxis { min: -140; max: 20; unit: "dBV"; title: qsTr("Magnitude"); limitToData: true; limitMargin: 0.5; minimumSpan: 3 }
-                    PlotTrace {
-                        id: fftTrace
-                        buffer: root.controller.fftTrace
-                        name: root.controller.fftSource !== ScopeController.FftOff ? "FFT CH " + (root.controller.fftSource - 1)
-                                                                                   : root.math.functionName
-                        unit: "dBV"
-                        color: root.controller.fftSource !== ScopeController.FftOff ? root.channelColor(root.controller.fftSource - 1)
-                                                                                    : root.channelColor(2)
-                        width: 1.2
-                        fill: true
-                        fillOpacity: 0.18
-                    }
-                    PlotMarker {
-                        visible: !isNaN(root.math.peakFrequency)
-                        x: root.math.peakFrequency
-                        y: root.math.peakLevel
-                        shape: PlotMarker.TriangleDown
-                        color: root.controller.fftSource !== ScopeController.FftOff ? root.channelColor(root.controller.fftSource - 1)
-                                                                                    : root.channelColor(2)
-                        label: Units.format(root.math.peakFrequency, "Hz", 4) + "  " + root.math.peakLevel.toFixed(1) + " dBV"
-                    }
+                PlotTrace {
+                    id: refATrace
+                    name: "REF A"
+                    unit: "V"
+                    buffer: root.controller.refA
+                    visible: root.controller.refAAvailable && root.controller.refAVisible
+                    color: Theme.signalRef
+                    userStyle: root.controller.refAStyle
+                    yScale: 1 / root.controller.refAScale
+                    yOffset: root.controller.refAPosition
+                }
+                PlotTrace {
+                    id: refBTrace
+                    name: "REF B"
+                    unit: "V"
+                    buffer: root.controller.refB
+                    visible: root.controller.refBAvailable && root.controller.refBVisible
+                    color: Theme.signalRef
+                    userStyle: root.controller.refBStyle
+                    yScale: 1 / root.controller.refBScale
+                    yOffset: root.controller.refBPosition
+                }
+                PlotTrace {
+                    id: mathTrace
+                    name: root.math.functionName
+                    unit: root.math.unit
+                    buffer: root.controller.mathTrace
+                    visible: root.math.enabled
+                    color: root.faded(Theme.signalMath)
+                    userStyle: root.math.style
+                    yScale: 1 / root.math.voltsPerDiv
+                    yOffset: root.math.position
+                    persistence: root.persistence
+                }
+                PlotTrace {
+                    id: trace1
+                    name: "CH1"
+                    unit: "V"
+                    buffer: root.controller.ch1
+                    visible: root.ch1.enabled
+                    color: root.faded(Theme.signalCh1)
+                    userStyle: root.ch1.style
+                    yScale: 1 / root.ch1.voltsPerDiv
+                    yOffset: root.ch1.position
+                    persistence: root.persistence
+                }
+                PlotTrace {
+                    id: trace0
+                    name: "CH0"
+                    unit: "V"
+                    buffer: root.controller.ch0
+                    visible: root.ch0.enabled
+                    color: root.faded(Theme.signalCh0)
+                    userStyle: root.ch0.style
+                    yScale: 1 / root.ch0.voltsPerDiv
+                    yOffset: root.ch0.position
+                    persistence: root.persistence
+                }
+
+                // Zero markers at the left edge: drag = the trace's position.
+                PlotLine {
+                    visible: root.math.enabled
+                    value: root.math.position
+                    handle: PlotLine.Start
+                    label: "M"
+                    color: root.traceColor(2)
+                    lineMode: PlotLine.WhileDragging
+                    onMoved: v => root.math.position = v
+                }
+                PlotLine {
+                    visible: root.ch1.enabled
+                    value: root.ch1.position
+                    handle: PlotLine.Start
+                    label: "1"
+                    color: root.traceColor(1)
+                    lineMode: PlotLine.WhileDragging
+                    onMoved: v => root.ch1.position = v
+                }
+                PlotLine {
+                    visible: root.ch0.enabled
+                    value: root.ch0.position
+                    handle: PlotLine.Start
+                    label: "0"
+                    color: root.traceColor(0)
+                    lineMode: PlotLine.WhileDragging
+                    onMoved: v => root.ch0.position = v
+                }
+                // Trigger level (right edge, in volts of the trigger channel) and horizontal
+                // position (top edge), in the trigger channel's color.
+                PlotLine {
+                    objectName: "triggerLevelMarker"
+                    visible: root.edge
+                    trace: root.traceFor(root.triggerChannel)
+                    value: root.controller.triggerLevel
+                    handle: PlotLine.End
+                    label: "T"
+                    color: root.traceColor(root.triggerChannel)
+                    style: PlotElement.Dash
+                    lineMode: PlotLine.WhileDragging
+                    onMoved: v => root.controller.triggerLevel = Math.round(v * 1000) / 1000
+                }
+                PlotLine {
+                    objectName: "triggerPositionMarker"
+                    visible: root.edge
+                    orientation: PlotElement.Vertical
+                    value: root.controller.horizontalPosition / 100 * root.controller.screenTime
+                    handle: PlotLine.Start
+                    label: "T"
+                    color: root.traceColor(root.triggerChannel)
+                    lineMode: PlotLine.WhileDragging
+                    onMoved: v => root.controller.horizontalPosition = Math.round(v / root.controller.screenTime * 100)
+                }
+
+                // Cursors C1 / C2: values are in the measurement strip (not on the plot).
+                ScopeCursorItem {
+                    id: cursor1
+                    cursor: root.controller.cursor1
+                    shown: root.controller.cursorsOn
+                    trace: root.traceFor(root.controller.cursor1.channel)
+                }
+                ScopeCursorItem {
+                    id: cursor2
+                    cursor: root.controller.cursor2
+                    shown: root.controller.cursorsOn
+                    trace: root.traceFor(root.controller.cursor2.channel)
+                }
+                PlotLine {
+                    visible: cursor1.crosshair
+                    trace: cursor1.trace
+                    value: cursor1.value
+                    handle: PlotLine.NoHandle
+                    draggable: false
+                    color: cursor1.color
+                    style: cursor1.style
+                    width: cursor1.lineWidth
+                }
+                PlotLine {
+                    visible: cursor2.crosshair
+                    trace: cursor2.trace
+                    value: cursor2.value
+                    handle: PlotLine.NoHandle
+                    draggable: false
+                    color: cursor2.color
+                    style: cursor2.style
+                    width: cursor2.lineWidth
+                }
+                PlotMarker {
+                    visible: cursor1.marked
+                    x: cursor1.position
+                    trace: cursor1.trace
+                    color: cursor1.color
+                    shape: root.markerShape(cursor1.cursor.style.pointStyle)
+                    size: 8 + 2 * cursor1.lineWidth
+                }
+                PlotMarker {
+                    visible: cursor2.marked
+                    x: cursor2.position
+                    trace: cursor2.trace
+                    color: cursor2.color
+                    shape: root.markerShape(cursor2.cursor.style.pointStyle)
+                    size: 8 + 2 * cursor2.lineWidth
+                }
+
+                // Level cursors: two horizontal lines on one trace (values in the strip).
+                PlotLine {
+                    visible: root.controller.levelCursorsOn
+                    trace: root.traceFor(root.controller.levelCursorChannel)
+                    value: root.controller.levelCursor1
+                    handle: PlotLine.End
+                    label: "H1"
+                    color: Theme.signalCursor
+                    style: PlotElement.Dash
+                    lineMode: PlotLine.Always
+                    onMoved: v => root.controller.levelCursor1 = v
+                }
+                PlotLine {
+                    visible: root.controller.levelCursorsOn
+                    trace: root.traceFor(root.controller.levelCursorChannel)
+                    value: root.controller.levelCursor2
+                    handle: PlotLine.End
+                    label: "H2"
+                    color: Theme.signalCursor
+                    style: PlotElement.Dash
+                    lineMode: PlotLine.Always
+                    onMoved: v => root.controller.levelCursor2 = v
+                }
+            }
+
+            // ---- XY graph: CH0 on X, CH1 on Y ---------------------------------------------------
+            BenchPlot {
+                id: xyPlot
+                objectName: "xyPlot"
+                // Square, so circles stay circles (Lissajous figures).
+                // (The YT plot fills the same area with the same margins.)
+                anchors.centerIn: parent
+                width: Math.min(parent.width, parent.height - (ytPlot.height - ytPlot.plotArea.height)
+                                              + (ytPlot.width - ytPlot.plotArea.width))
+                height: parent.height
+                visible: root.xyMode
+                hoverReadout: true
+                graticule: Plot.Scope
+                placeholderText: root.ch0.enabled && root.ch1.enabled ? root.idleText
+                                                                     : qsTr("XY needs Channel 0 and Channel 1")
+                xAxis { min: -5; max: 5; divisions: 10; labelsVisible: false }
+                yAxis { min: -5; max: 5; divisions: 10; labelsVisible: false }
+                PlotTrace {
+                    name: qsTr("CH1 vs CH0")
+                    buffer: root.controller.xyTrace
+                    visible: root.ch0.enabled && root.ch1.enabled
+                    color: Theme.signalCh0
+                    userStyle: root.ch0.style
+                    xScale: 1 / root.ch0.voltsPerDiv
+                    xOffset: root.ch0.position
+                    yScale: 1 / root.ch1.voltsPerDiv
+                    yOffset: root.ch1.position
+                    persistence: root.persistence
                 }
             }
         }
 
-        ScopeReadouts {
+        // ---- Scale legend of the shown traces (read-only; settings are in the inspector) ------------
+        Item {
+            id: legend
+            objectName: "scaleLegend"
             Layout.fillWidth: true
-            controller: root.controller
-            cursor1Value: cursor1.value
-            cursor2Value: cursor2.value
-            cursor1Position: cursor1.position
-            cursor2Position: cursor2.position
-            channelColors: [root.channelColor(0), root.channelColor(1), root.channelColor(2)]
+            Layout.preferredHeight: Theme.lineHeight + Theme.spacingS
+            Row {
+                x: root.timePlot.x + root.timePlot.plotArea.x
+                width: root.timePlot.plotArea.width
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.spacingL
+                clip: true
+                LegendEntry {
+                    visible: root.ch0.enabled
+                    swatch: root.traceColor(0)
+                    name: root.xyMode ? qsTr("X  CH0") : "CH0"
+                    detail: root.ch0.scaleLabel + "/div" + (root.ch0.audio ? "  AC" : "")
+                }
+                LegendEntry {
+                    visible: root.ch1.enabled
+                    swatch: root.traceColor(1)
+                    name: root.xyMode ? qsTr("Y  CH1") : "CH1"
+                    detail: root.ch1.scaleLabel + "/div" + (root.ch1.audio ? "  AC" : "")
+                }
+                LegendEntry {
+                    visible: root.math.enabled && !root.xyMode
+                    swatch: root.traceColor(2)
+                    name: qsTr("Math")
+                    detail: root.math.functionName + "  " + root.math.scaleLabels[root.math.scaleIndex] + "/div"
+                }
+                LegendEntry {
+                    visible: refATrace.visible && !root.xyMode
+                    swatch: refATrace.userStyle.lineColor.valid ? refATrace.userStyle.lineColor : Theme.signalRef
+                    name: "REF A"
+                    detail: root.controller.refALabel
+                }
+                LegendEntry {
+                    visible: refBTrace.visible && !root.xyMode
+                    swatch: refBTrace.userStyle.lineColor.valid ? refBTrace.userStyle.lineColor : Theme.signalRef
+                    name: "REF B"
+                    detail: root.controller.refBLabel
+                }
+            }
+        }
+
+        // ---- Spectrum of the FFT section's channel ----------------------------------------------------
+        Rectangle {
+            visible: root.fftShown
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.borderWidth
+            color: Theme.separator
+        }
+        BenchPlot {
+            id: fftPlot
+            objectName: "fftPlot"
+            visible: root.fftShown
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.verticalStretchFactor: 2
+            hoverReadout: true
+            xAxis {
+                min: 0
+                max: root.fftNyquist
+                unit: "Hz"
+                unitInLabels: true
+                lowerLimit: 0
+                upperLimit: root.fftNyquist
+                minimumSpan: root.fftNyquist / 200
+            }
+            yAxis { min: -140; max: 20; unit: "dBV"; limitToData: true; limitMargin: 0.5; minimumSpan: 3 }
+            PlotTrace {
+                name: qsTr("Spectrum CH%1").arg(root.fftChannel)
+                unit: "dBV"
+                buffer: root.controller.fftTrace
+                color: root.traceColor(root.fftChannel)
+                width: 1.2
+                fill: true
+                fillOpacity: 0.12
+            }
+            PlotMarker {
+                visible: !isNaN(root.math.peakFrequency)
+                x: root.math.peakFrequency
+                y: root.math.peakLevel
+                shape: PlotMarker.TriangleDown
+                color: root.traceColor(root.fftChannel)
+                label: Units.format(root.math.peakFrequency, "Hz", 4) + "  " + root.math.peakLevel.toFixed(1) + " dBV"
+            }
+        }
+        Item {
+            objectName: "fftLegend"
+            visible: root.fftShown
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.lineHeight + Theme.spacingS
+            LegendEntry {
+                x: fftPlot.plotArea.x
+                anchors.verticalCenter: parent.verticalCenter
+                swatch: root.traceColor(root.fftChannel)
+                name: qsTr("CH%1 spectrum").arg(root.fftChannel)
+                detail: qsTr("Hann window · dBV RMS")
+            }
         }
     }
 }

@@ -2,11 +2,12 @@
 // docs/instruments/algorithms/scope.md).
 //
 // Two channels (AI 0 / AI 1 or AudioInput Left / Right), ELVISmx timebase and record policy,
-// software edge trigger with the Timeout LED, RMS / Freq / Vp-p (+ extra) measurements, cursors,
-// ELVISmx autoscale, and the MYBENCH extensions: math trace (CH0 ± CH1, ×, −, FFT), XY mode, roll
-// mode, persistence, reference traces, maximum-rate sampling, trigger hysteresis and auto
-// trigger. The acquisition runs in the worker thread (scopecore.h: Acquirer, Roller); traces
-// reach MyBench.Plot through TraceBuffers.
+// software edge trigger with Auto / Normal / Clear timeout handling, RMS / Freq / Vp-p (+ extra)
+// measurements, cursors, ELVISmx autoscale, and the MYBENCH extensions: math trace (CH0 ± CH1, ×,
+// −), the FFT view of a channel, XY mode, roll mode, persistence, reference traces, long records,
+// trigger hysteresis and holdoff. The acquisition runs in the worker thread (scopecore.h: Acquirer,
+// Roller); traces reach MyBench.Plot through TraceBuffers. The pane-header state text
+// ("Triggered", "Waiting for trigger", "Timeout — free running") is the worker's statusText.
 #pragma once
 
 #include "scopecore.h"
@@ -35,8 +36,8 @@ class ScopeController : public InstrumentController
     Q_PROPERTY(mybench::instruments::ScopeChannel* channel0 READ channel0 CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeChannel* channel1 READ channel1 CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeMath* math READ math CONSTANT)
-    Q_PROPERTY(mybench::instruments::ScopeTraceStyle* refAStyle READ refAStyle CONSTANT)   // Graph Properties > Plots: REF A / REF B
-    Q_PROPERTY(mybench::instruments::ScopeTraceStyle* refBStyle READ refBStyle CONSTANT)
+    Q_PROPERTY(mybench::plot::TraceStyle* refAStyle READ refAStyle CONSTANT)   // look of REF A / REF B
+    Q_PROPERTY(mybench::plot::TraceStyle* refBStyle READ refBStyle CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeCursor* cursor1 READ cursor1 CONSTANT)
     Q_PROPERTY(mybench::instruments::ScopeCursor* cursor2 READ cursor2 CONSTANT)
 
@@ -53,7 +54,7 @@ class ScopeController : public InstrumentController
     Q_PROPERTY(double horizontalPosition READ horizontalPosition WRITE setHorizontalPosition NOTIFY horizontalPositionChanged)
     Q_PROPERTY(double triggerHysteresis READ triggerHysteresis WRITE setTriggerHysteresis NOTIFY triggerHysteresisChanged)
     Q_PROPERTY(NoTriggerMode noTriggerMode READ noTriggerMode WRITE setNoTriggerMode NOTIFY noTriggerModeChanged)
-    // FFT pane of a channel next to the graph (independent of the math channel).
+    // FFT view of a channel under the graph (the only spectrum path; math has no FFT).
     Q_PROPERTY(int averaging READ averaging WRITE setAveraging NOTIFY averagingChanged)   // records averaged: 1, 2, 4 … 64
     Q_PROPERTY(FftSource fftSource READ fftSource WRITE setFftSource NOTIFY fftSourceChanged)
     Q_PROPERTY(bool fftShown READ fftShown NOTIFY fftShownChanged STORED false)
@@ -76,7 +77,6 @@ class ScopeController : public InstrumentController
     // Counts the display-affecting setting changes (scales, positions, timebase, trigger, mode,
     // channels): persistence afterglow of an older setting must not stay on screen, the view resets.
     Q_PROPERTY(int persistenceEpoch READ persistenceEpoch NOTIFY persistenceEpochChanged STORED false)
-    Q_PROPERTY(Background background READ background WRITE setBackground NOTIFY backgroundChanged)
 
     // --- Value lists and derived values -------------------------------------------------------
     Q_PROPERTY(QList<double> timeDivValues READ timeDivValues CONSTANT)   // ascending
@@ -132,8 +132,9 @@ public:
     Q_ENUM(Slope)
     enum SamplingMode { Standard, HighResolution };
     Q_ENUM(SamplingMode)
-    // What an Edge acquisition without crossing shows after the trigger timeout: the last triggered
-    // trace (Normal, default), an empty graph (ELVISmx) or the untriggered record (Auto).
+    // Trigger mode = what an Edge acquisition without crossing shows after the trigger timeout:
+    // the last triggered trace (Normal, default), an empty graph (Clear, as ELVISmx) or the
+    // untriggered record (Auto).
     enum NoTriggerMode { ClearGraph, KeepLastTrace, ShowUntriggered };
     Q_ENUM(NoTriggerMode)
     enum FftSource { FftOff, FftChannel0, FftChannel1 };
@@ -142,8 +143,6 @@ public:
     Q_ENUM(FrequencyMethod)
     enum DisplayMode { YT, XY };
     Q_ENUM(DisplayMode)
-    enum Background { ThemeBackground, Black, White };
-    Q_ENUM(Background)
 
     ScopeController();
     ~ScopeController() override;
@@ -153,8 +152,8 @@ public:
     ScopeChannel* channel(int index) { return index == 0 ? &m_channel0 : &m_channel1; }
     const ScopeChannel* channel(int index) const { return index == 0 ? &m_channel0 : &m_channel1; }
     ScopeMath* math() { return &m_math; }
-    ScopeTraceStyle* refAStyle() { return &m_refAStyle; }
-    ScopeTraceStyle* refBStyle() { return &m_refBStyle; }
+    plot::TraceStyle* refAStyle() { return &m_refAStyle; }
+    plot::TraceStyle* refBStyle() { return &m_refBStyle; }
     ScopeCursor* cursor1() { return &m_cursor1; }
     ScopeCursor* cursor2() { return &m_cursor2; }
 
@@ -188,7 +187,7 @@ public:
     void setAveraging(int records);
     FftSource fftSource() const { return m_fftSource; }
     void setFftSource(FftSource source);
-    bool fftShown() const { return m_fftSource != FftOff || (m_math.enabled() && m_math.fft()); }
+    bool fftShown() const { return m_fftSource != FftOff; }
     double triggerTimeout() const { return m_triggerTimeout; }
     void setTriggerTimeout(double seconds);
     double triggerHoldoff() const { return m_triggerHoldoff; }
@@ -208,8 +207,6 @@ public:
     int persistence() const { return m_persistence; }
     int persistenceEpoch() const { return m_persistenceEpoch; }
     void setPersistence(int ms);
-    Background background() const { return m_background; }
-    void setBackground(Background background);
 
     QList<double> timeDivValues() const;
     QStringList timeDivLabels() const;
@@ -268,8 +265,6 @@ public:
     Q_INVOKABLE QString formatMeasurement(double value, const QString& unit) const;
     // ELVISmx Sample Rate text ("50.00 kS/s").
     Q_INVOKABLE QString formatRate(double samplesPerSecond) const;
-    // ELVISmx "Log" TXT layout (tab separated waveform export with absolute timestamps).
-    Q_INVOKABLE bool exportElvisText(const QUrl& file);
     // Reference traces: slot 0 = REF A, 1 = REF B; source 0 = CH 0, 1 = CH 1, 2 = math.
     Q_INVOKABLE bool saveReference(int slot, int source);
     Q_INVOKABLE void clearReference(int slot);
@@ -285,9 +280,8 @@ public:
     Q_INVOKABLE void stepTimeDiv(int steps);
     Q_INVOKABLE void stepChannelScale(int channel, int steps);
     Q_INVOKABLE int channelNearestTo(double divisions) const;
-    // Graph Properties "Reset to Default": every trace style (CH 0/1, math, references), both
-    // cursors, the background and the displayed measurements.
-    Q_INVOKABLE void resetGraphProperties();
+    // The measurement strip's rows: one set for every channel (written to both channels' masks).
+    Q_INVOKABLE void setMeasurementShown(int measurement, bool on);
 
     // Tests.
     const scope::Record& lastRecord() const { return m_record; }
@@ -316,7 +310,6 @@ signals:
     void displayModeChanged();
     void persistenceChanged();
     void persistenceEpochChanged();
-    void backgroundChanged();
     void planChanged();
     void waitingForTriggerChanged();
     void recordChanged();
@@ -357,8 +350,8 @@ private:
     ScopeChannel m_channel0{0, ScopeChannel::AI0, true};
     ScopeChannel m_channel1{1, ScopeChannel::AI1, false};
     ScopeMath m_math;
-    ScopeTraceStyle m_refAStyle;
-    ScopeTraceStyle m_refBStyle;
+    plot::TraceStyle m_refAStyle;
+    plot::TraceStyle m_refBStyle;
     ScopeCursor m_cursor1{QStringLiteral("C1"), 0};
     ScopeCursor m_cursor2{QStringLiteral("C2"), 1};
 
@@ -389,15 +382,14 @@ private:
     DisplayMode m_displayMode = YT;
     int m_persistence = 0;
     int m_persistenceEpoch = 0;
-    Background m_background = ThemeBackground;
 
     bool m_waitingForTrigger = false;
     bool m_autoscaling = false;
     bool m_autoscaleOnStart = false;
     double m_fftBinWidth = 0;
     scope::Record m_record;
-    double m_recordX0 = 0;
-    QDateTime m_recordTime;  // wall-clock time of the first sample of the displayed record   // x of sample 0 of the displayed record (roll mode: < 0 while filling)
+    double m_recordX0 = 0;    // x of sample 0 of the displayed record (roll mode: < 0 while filling)
+    QDateTime m_recordTime;   // wall-clock time of the first sample of the displayed record
     std::vector<double> m_mathRecord;
     Reference m_ref[2];
 

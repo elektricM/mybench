@@ -2,19 +2,26 @@ pragma Singleton
 import QtQuick
 import MyBench.Framework
 
-// Commands from the shell (shortcuts, palette) to the panel of an instrument: InstrumentPanel
-// listens for its controller's id. Focus mode (app.md 6.5): `focusInstrument` is the id shown
-// alone (display only), "" when off.
+// (alias, docs/UI.md §13.6) Commands from the shell (shortcuts, palette, plots) to the panel of an
+// instrument. The per-pane requests forward to PanelRegistry.whenReady(), so a request for a pane
+// that is still loading runs once it is ready. New code calls PanelRegistry directly.
+// Focus mode: `focusInstrument` is the id shown alone (display only), "" when off.
 QtObject {
     property string focusInstrument: ""
 
-    signal inspectorToggleRequested(string instrumentId)
-    signal exportDataRequested(string instrumentId)
-    signal exportImageRequested(string instrumentId)
-    signal exportPdfRequested(string instrumentId)
-    signal printRequested(string instrumentId)
     // Open the event log (error banner / toast `Details`); the shell handles it.
     signal eventLogRequested()
+
+    function forward(paneId: string, action: var) {
+        if (paneId.length === 0 || !InstrumentRegistry.contains(paneId.split("/")[0]))
+            return
+        PanelRegistry.whenReady(paneId, action)
+    }
+    function inspectorToggleRequested(paneId: string) { forward(paneId, panel => panel.toggleInspector()) }
+    function exportDataRequested(paneId: string) { forward(paneId, panel => panel.exportData()) }
+    function exportImageRequested(paneId: string) { forward(paneId, panel => panel.exportImage(false)) }
+    function exportPdfRequested(paneId: string) { forward(paneId, panel => panel.exportImage(true)) }
+    function printRequested(paneId: string) { forward(paneId, panel => panel.printPanel()) }
 
     function toggleFocus(instrumentId: string) {
         focusInstrument = focusInstrument === instrumentId ? "" : instrumentId

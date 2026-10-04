@@ -1,9 +1,12 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
-// Inline message strip (pause, error, hints) with actions on the right.
+// In-pane message (docs/UI.md §10): paused, reconnected, over range, error, pre-run conflict.
+// A neutral strip with the state as a colored icon only (no tinted wash), the message, optional
+// detail, actions (flat Buttons) and a close button.
 //     Banner { tone: "warning"; text: ctl.pauseReason
-//              ActionButton { text: qsTr("Resume"); compact: true; onClicked: ctl.resume() } }
+//              Button { flat: true; text: qsTr("Resume"); onClicked: ctl.resume() } }
 Rectangle {
     id: root
 
@@ -12,49 +15,56 @@ Rectangle {
     property string detail
     property bool closable: false
     default property alias actions: actionsRow.data
-    readonly property color toneColor: tone === "success" ? Theme.success
-                                     : tone === "warning" ? Theme.warning
-                                     : tone === "danger" ? Theme.danger : Theme.accent
+    readonly property color toneColor: tone === "success" ? Theme.positive
+                                     : tone === "warning" ? Theme.caution
+                                     : tone === "danger" ? Theme.negative : Theme.accent
     readonly property string toneIcon: tone === "success" ? "success"
                                      : tone === "warning" ? "warning"
                                      : tone === "danger" ? "error" : "info"
 
     signal closed()
 
-    implicitHeight: Math.max(38, layout.implicitHeight + 12)
-    radius: Theme.radiusM
-    color: Theme.alpha(toneColor, Theme.dark ? 0.12 : 0.09)
-    border.width: 1
-    border.color: Theme.alpha(toneColor, Theme.dark ? 0.35 : 0.3)
+    implicitWidth: layout.implicitWidth + Theme.spacingM + Theme.spacingXs
+    implicitHeight: Math.max(Theme.controlHeight + Theme.spacingS, layout.implicitHeight + Theme.spacingS)
+    radius: Theme.radiusControl
+    color: Theme.base
+    border.width: Theme.borderWidth
+    border.color: Theme.separator
+    Accessible.role: Accessible.AlertMessage
+    Accessible.name: text
 
     RowLayout {
         id: layout
         anchors.fill: parent
         anchors.leftMargin: Theme.spacingM
-        anchors.rightMargin: Theme.spacingS
-        spacing: Theme.spacingS + 2
+        anchors.rightMargin: Theme.spacingXs
+        spacing: Theme.spacingS
 
         Icon {
+            Layout.alignment: Qt.AlignVCenter
             name: root.toneIcon
             color: root.toneColor
         }
-        Column {
+        ColumnLayout {
             Layout.fillWidth: true
-            spacing: 1
+            Layout.topMargin: Theme.spacingXs
+            Layout.bottomMargin: Theme.spacingXs
+            spacing: 0
             Text {
-                width: parent.width
+                Layout.fillWidth: true
                 text: root.text
                 color: Theme.text
                 font.pixelSize: Theme.fontSizeBody
-                font.weight: Font.Medium
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
                 elide: Text.ElideRight
             }
             Text {
                 visible: root.detail.length > 0
-                width: parent.width
+                Layout.fillWidth: true
                 text: root.detail
                 color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeM
+                font.pixelSize: Theme.fontSizeSmall
                 wrapMode: Text.WordWrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
@@ -62,14 +72,21 @@ Rectangle {
         }
         Row {
             id: actionsRow
-            spacing: Theme.spacingS
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Theme.spacingXs
         }
-        IconButton {
+        ToolButton {
             visible: root.closable
-            iconName: "close"
-            iconSize: Theme.iconSizeS
-            size: 24
-            toolTip: qsTr("Dismiss")
+            Layout.alignment: Qt.AlignVCenter
+            implicitWidth: Theme.controlHeightS
+            implicitHeight: Theme.controlHeightS
+            icon.source: Theme.icon("close")
+            icon.width: Theme.iconSizeS
+            icon.height: Theme.iconSizeS
+            ToolTip.visible: hovered
+            ToolTip.delay: Theme.toolTipDelay
+            ToolTip.text: qsTr("Dismiss")
+            Accessible.name: qsTr("Dismiss")
             onClicked: root.closed()
         }
     }

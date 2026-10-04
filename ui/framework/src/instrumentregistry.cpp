@@ -38,6 +38,48 @@ QUrl InstrumentDescriptor::tileUrl() const
     return moduleFileUrl(module, tileType.isEmpty() ? lastUriPart(module) + u"Tile"_s : tileType);
 }
 
+QUrl ViewDescriptor::panelUrl(const QString& module) const
+{
+    return moduleFileUrl(module, panelType);
+}
+
+const ViewDescriptor* InstrumentDescriptor::view(const QString& viewId) const
+{
+    for (const ViewDescriptor& v : views) {
+        if (v.id == viewId)
+            return &v;
+    }
+    return nullptr;
+}
+
+QUrl InstrumentDescriptor::viewUrl(const QString& viewId) const
+{
+    const ViewDescriptor* v = view(viewId);
+    return v ? v->panelUrl(module) : QUrl();
+}
+
+namespace {
+
+QVariantMap viewMap(const InstrumentDescriptor& d, const ViewDescriptor& v)
+{
+    return {{u"id"_s, v.id},
+            {u"title"_s, v.title},
+            {u"icon"_s, v.icon},
+            {u"panelType"_s, v.panelType},
+            {u"panelUrl"_s, v.panelUrl(d.module)},
+            {u"instrumentId"_s, d.id}};
+}
+
+QVariantList viewList(const InstrumentDescriptor& d)
+{
+    QVariantList list;
+    for (const ViewDescriptor& v : d.views)
+        list.append(viewMap(d, v));
+    return list;
+}
+
+}  // namespace
+
 InstrumentRegistry::InstrumentRegistry(QObject* parent) : QAbstractListModel(parent) {}
 
 InstrumentRegistry* InstrumentRegistry::instance()
@@ -67,6 +109,17 @@ void InstrumentRegistry::registerInstrument(InstrumentDescriptor descriptor)
         descriptor.panelType = lastUriPart(descriptor.module) + u"Panel"_s;
     if (descriptor.tileType.isEmpty())
         descriptor.tileType = lastUriPart(descriptor.module) + u"Tile"_s;
+    static const QStringList groups = {u"measure"_s, u"generate"_s, u"digital"_s, u"apps"_s};
+    if (!groups.contains(descriptor.group)) {
+        if (!descriptor.group.isEmpty())
+            qWarning("InstrumentRegistry: unknown group \"%s\" for %s (measure, generate, digital or apps)",
+                     qPrintable(descriptor.group), qPrintable(descriptor.id));
+        descriptor.group = u"apps"_s;
+    }
+    for (ViewDescriptor& view : descriptor.views) {
+        if (view.icon.isEmpty())
+            view.icon = descriptor.icon;
+    }
 
     beginResetModel();
     const auto existing = std::find_if(m_descriptors.begin(), m_descriptors.end(),
@@ -125,6 +178,11 @@ void InstrumentRegistry::watch(InstrumentController* controller)
         emit runningChanged();
     });
     connect(controller, &InstrumentController::errorChanged, this, changed);
+    connect(controller, &InstrumentController::keyValueChanged, this, [this, id] {
+        const int row = indexOf(id);
+        if (row >= 0)
+            emit dataChanged(index(row), index(row), {KeyValueRole});
+    });
     connect(controller, &InstrumentController::holdsOutputsChanged, this, &InstrumentRegistry::runningChanged);
 }
 
@@ -169,7 +227,16 @@ QVariantMap InstrumentRegistry::info(const QString& id) const
     map.insert(u"tileUrl"_s, d->tileUrl());
     map.insert(u"helpId"_s, d->helpId);
     map.insert(u"order"_s, d->order);
+    map.insert(u"group"_s, d->group);
+    map.insert(u"views"_s, viewList(*d));
     return map;
+}
+
+QVariantMap InstrumentRegistry::viewInfo(const QString& viewId) const
+{
+    const InstrumentDescriptor* d = descriptor(viewId.section(u'/', 0, 0));
+    const ViewDescriptor* v = d ? d->view(viewId) : nullptr;
+    return v ? viewMap(*d, *v) : QVariantMap();
 }
 
 int InstrumentRegistry::indexOf(const QString& id) const
@@ -286,6 +353,12 @@ QVariant InstrumentRegistry::data(const QModelIndex& index, int role) const
         return controller && controller->hasError();
     case StateRole:
         return controller ? int(controller->state()) : int(InstrumentController::Idle);
+    case GroupRole:
+        return d.group;
+    case ViewsRole:
+        return viewList(d);
+    case KeyValueRole:
+        return controller ? controller->keyValue() : QString();
     default:
         return {};
     }
@@ -307,6 +380,9 @@ QHash<int, QByteArray> InstrumentRegistry::roleNames() const
         {PausedRole, "paused"},
         {HasErrorRole, "hasError"},
         {StateRole, "state"},
+        {GroupRole, "group"},
+        {ViewsRole, "views"},
+        {KeyValueRole, "keyValue"},
     };
 }
 

@@ -1,10 +1,11 @@
-// DMM panel layout (offscreen): the trend's time-range selector never overlaps the plot area,
-// where the shared plot toolbar (zoom, reset, export) lives, at wide and narrow widths.
+// DMM panel layout (offscreen, round-2 layout): display left, control column right, statistics
+// cards at the bottom, at wide, split and narrow sizes.
 #include "dmmcontroller.h"
 
 #include <mybench/devicehub.h>
 #include <mybench/offscreen.h>
 
+#include <QHash>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -27,7 +28,10 @@ private slots:
         mybench::InstrumentController::setRestoreSavedSettings(false);
     }
 
-    void trendControlsDoNotOverlap_data()
+    // Round-2 layout at wide, split and narrow sizes: the readout and the trend (display, left)
+    // never overlap the control column (right); the function buttons, the trend plot and the
+    // statistics cards are laid out inside the pane; no form inspector is left.
+    void layoutAtSizes_data()
     {
         QTest::addColumn<QSize>("size");
         QTest::newRow("1440") << QSize(1440, 900);
@@ -36,7 +40,7 @@ private slots:
         QTest::newRow("narrow") << QSize(420, 620);
     }
 
-    void trendControlsDoNotOverlap()
+    void layoutAtSizes()
     {
         QFETCH(QSize, size);
         DmmController dmm;
@@ -58,16 +62,66 @@ private slots:
         offscreen.renderFrame();
         offscreen.renderFrame();
 
-        auto* selector = root->findChild<QQuickItem*>("trendWindow");
-        auto* plot = root->findChild<QQuickItem*>("trendPlot");
-        QVERIFY(selector && plot);
-        const QRectF s(selector->mapToScene(QPointF(0, 0)), QSizeF(selector->width(), selector->height()));
-        const QRectF p(plot->mapToScene(QPointF(0, 0)), QSizeF(plot->width(), plot->height()));
-        QVERIFY2(s.width() > 0 && p.height() > 0, "not laid out");
-        QVERIFY2(!s.intersects(p), qPrintable(u"selector %1,%2 %3x%4 vs plot %5,%6 %7x%8"_s
-                                                  .arg(s.x()).arg(s.y()).arg(s.width()).arg(s.height())
-                                                  .arg(p.x()).arg(p.y()).arg(p.width()).arg(p.height())));
-        QVERIFY(s.right() <= item->width() + 0.5 && s.left() >= 0);
+        const auto rectOf = [](QQuickItem* i) {
+            return QRectF(i->mapToScene(QPointF(0, 0)), QSizeF(i->width(), i->height()));
+        };
+        const auto describe = [](const QRectF& r) {
+            return u"%1,%2 %3x%4"_s.arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height());
+        };
+        const QRectF pane(0, 0, item->width(), item->height());
+        QHash<QString, QRectF> rects;
+        for (const auto* name : {"dmmReadout", "dmmControls", "trendPlot", "functionGrid", "dmmStatistics", "dmmRunButton"}) {
+            auto* child = root->findChild<QQuickItem*>(QString::fromLatin1(name));
+            QVERIFY2(child, name);
+            QVERIFY2(child->isVisible(), name);
+            const QRectF r = rectOf(child);
+            QVERIFY2(r.width() > 0 && r.height() > 0, qPrintable(u"%1 not laid out: %2"_s.arg(QLatin1StringView(name), describe(r))));
+            QVERIFY2(pane.adjusted(-0.5, -0.5, 0.5, 0.5).contains(r),
+                     qPrintable(u"%1 outside the pane: %2"_s.arg(QLatin1StringView(name), describe(r))));
+            rects.insert(QString::fromLatin1(name), r);
+        }
+        const QRectF controls = rects.value(u"dmmControls"_s);
+        QVERIFY2(!rects.value(u"dmmReadout"_s).intersects(controls), qPrintable(describe(rects.value(u"dmmReadout"_s))));
+        QVERIFY2(!rects.value(u"trendPlot"_s).intersects(controls), qPrintable(describe(rects.value(u"trendPlot"_s))));
+        QVERIFY(rects.value(u"trendPlot"_s).right() <= controls.left() + 0.5);
+        QVERIFY(!rects.value(u"dmmReadout"_s).intersects(rects.value(u"trendPlot"_s)));
+
+        // Function buttons stay in step with the controller after clicks (one checked button).
+        auto* grid = root->findChild<QQuickItem*>(u"functionGrid"_s);
+        QList<QQuickItem*> buttons;
+        for (auto* child : grid->childItems()) {
+            if (child->property("checkable").isValid() && child->metaObject()->indexOfMethod("click()") >= 0)
+                buttons.append(child);
+        }
+        QCOMPARE(buttons.size(), 7);
+        QVERIFY(QMetaObject::invokeMethod(buttons.at(1), "click"));      // AC V
+        QCOMPARE(dmm.selectedFunction(), DmmController::AcVoltage);
+        QVERIFY(QMetaObject::invokeMethod(buttons.at(0), "click"));      // DC V
+        dmm.setSelectedFunction(DmmController::Resistance);              // key 5 / restore
+        offscreen.renderFrame();
+        int checkedCount = 0;
+        for (auto* b : buttons)
+            checkedCount += b->property("checked").toBool() ? 1 : 0;
+        QCOMPARE(checkedCount, 1);
+        QVERIFY(buttons.at(4)->property("checked").toBool());
+        QVERIFY(QMetaObject::invokeMethod(buttons.at(4), "click"));      // the selected one again
+        offscreen.renderFrame();
+        QCOMPARE(dmm.selectedFunction(), DmmController::Resistance);
+        QVERIFY2(buttons.at(4)->property("checked").toBool(), "clicking the selected function unchecked it");
+
+        // A tool opens a panel floating over the display, next to the column (never under it).
+        auto* connections = root->findChild<QQuickItem*>(u"connectionsPanel"_s);
+        QVERIFY(connections);
+        QVERIFY(!connections->isVisible());
+        root->setProperty("tool", u"connections"_s);
+        offscreen.renderFrame();
+        QVERIFY(connections->isVisible());
+        const QRectF panelRect = rectOf(connections);
+        QVERIFY2(panelRect.height() > 0 && panelRect.right() <= controls.left() + 0.5, qPrintable(describe(panelRect)));
+        QVERIFY2(panelRect.left() >= -0.5, qPrintable(describe(panelRect)));
+        // Review aid: MYBENCH_TEST_SHOT_DIR=<dir> saves the frame with the tool panel open.
+        if (const QString dir = qEnvironmentVariable("MYBENCH_TEST_SHOT_DIR"); !dir.isEmpty())
+            offscreen.grab().save(u"%1/%2-%3.png"_s.arg(dir, u"dmm-tool"_s, QString::fromLatin1(QTest::currentDataTag())));
         offscreen.setRootItem(nullptr);
     }
 };

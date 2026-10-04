@@ -18,10 +18,19 @@ Item {
     readonly property bool hasPoints: controller.pointCount > 0
     readonly property bool linearGain: controller.mapping === BodeController.Linear
     readonly property string gainUnit: linearGain ? "" : "dB"
-    // ELVISmx colors (option): one yellow trace with ring markers on both plots, red cursor.
-    readonly property color gainColor: controller.elvisColors ? Theme.cursor1 : Theme.ch0
-    readonly property color phaseColor: controller.elvisColors ? Theme.cursor1 : Theme.ch1
-    readonly property color cursorColor: controller.elvisColors ? Theme.danger : Theme.cursor1
+    // Gain follows the stimulus channel's color, phase the response's (the old "ELVISmx colors"
+    // option is gone; a restored value is ignored).
+    readonly property color gainColor: Theme.signalColor("ai0")
+    readonly property color phaseColor: Theme.signalColor("ai1")
+    readonly property color cursorColor: Theme.signalCursor
+    readonly property bool narrow: width < 1240     // knobs fold away (the inspector still takes room)
+    readonly property string progressText: {
+        const c = controller
+        if (!c.running || c.remeasuring || c.totalPoints <= 0)
+            return ""
+        const left = c.remainingSeconds > 0 ? qsTr(" · ≈ %1 left").arg(duration(c.remainingSeconds)) : ""
+        return qsTr("%1/%2").arg(Math.min(c.pointCount + 1, c.totalPoints)).arg(c.totalPoints) + left
+    }
     readonly property bool measurementLocked: controller.running
     readonly property bool cursorValid: controller.cursorsOn && controller.cursorIndex >= 0
     readonly property real leftMargin: Math.max(gainPlot.implicitLeftMargin, phasePlot.implicitLeftMargin)
@@ -160,8 +169,8 @@ Item {
                     color: root.gainColor
                     width: 2
                     pointsVisible: true
-                    pointSize: root.controller.elvisColors ? 6 : 5
-                    pointShape: root.controller.elvisColors ? PlotTrace.Circle : PlotTrace.FilledCircle
+                    pointSize: 5
+                    pointShape: PlotTrace.FilledCircle
                 }
                 PlotTrace {
                     buffer: root.controller.clippedGain
@@ -279,8 +288,8 @@ Item {
                     color: root.phaseColor
                     width: 2
                     pointsVisible: true
-                    pointSize: root.controller.elvisColors ? 6 : 5
-                    pointShape: root.controller.elvisColors ? PlotTrace.Circle : PlotTrace.FilledCircle
+                    pointSize: 5
+                    pointShape: PlotTrace.FilledCircle
                 }
                 PlotTrace {
                     buffer: root.controller.clippedPhase
@@ -336,8 +345,9 @@ Item {
                 }
             }
 
-            // --- Readout row (ELVISmx: Frequency, Phase, Gain, Gain (dB)) ------------------------
+            // --- Readout row: replaced by the measurement cards under the display ---------------
             Rectangle {
+                visible: false
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingS
                 implicitHeight: readoutRow.implicitHeight + 2 * Theme.spacingS
@@ -424,31 +434,132 @@ Item {
             }
         }
 
-        runBarControls: [
-            ActionButton {
-                text: qsTr("Keep as reference")
-                iconName: "layers"
-                compact: panel.runBar.compact
-                visible: !panel.runBar.compact
-                enabled: root.hasPoints && !root.controller.running
-                toolTip: qsTr("Store this sweep as a reference curve to compare with the next one")
-                onClicked: root.controller.keepAsReference()
+        showRunControls: false
+        runBar.showTimeout: false
+        headerContent: [
+            RowLayout {
+                objectName: "bodeBar"
+                spacing: Theme.spacingM
+                RunButton {
+                    objectName: "bodeRunButton"
+                    runText: qsTr("Sweep")
+                    running: root.controller.running
+                    stateText: root.progressText.length > 0 ? root.progressText : panel.paneHeader.statusText
+                    busy: root.controller.state === InstrumentController.Stopping
+                    enabled: root.controller.running || root.controller.canRun
+                    onToggled: root.controller.toggle()
+                }
+                Button {
+                    objectName: "keepReferenceButton"
+                    text: root.narrow ? "" : qsTr("Keep as Reference")
+                    icon.source: Theme.icon("layers")
+                    enabled: root.hasPoints && !root.controller.running
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Store this sweep as a reference curve to compare with the next one")
+                    onClicked: root.controller.keepAsReference()
+                }
+                KnobField {
+                    objectName: "startKnob"
+                    Layout.preferredWidth: root.narrow ? 140 : 180
+                    compact: root.narrow
+                    enabled: !root.measurementLocked
+                    label: qsTr("Start")
+                    unit: "Hz"
+                    accentColor: root.controller.settingsValid ? root.gainColor : Theme.negative
+                    from: 1
+                    to: 20000
+                    logarithmic: true
+                    value: root.controller.startFrequency
+                    caption: root.controller.settingsValid ? qsTr("%1 points").arg(root.controller.plannedPoints) : qsTr("Start > Stop")
+                    onValueModified: v => root.controller.startFrequency = v
+                }
+                KnobField {
+                    objectName: "stopKnob"
+                    Layout.preferredWidth: root.narrow ? 140 : 180
+                    compact: root.narrow
+                    enabled: !root.measurementLocked
+                    label: qsTr("Stop")
+                    unit: "Hz"
+                    accentColor: root.gainColor
+                    from: 1
+                    to: 20000
+                    logarithmic: true
+                    value: root.controller.stopFrequency
+                    caption: root.controller.settingsValid ? qsTr("about %1").arg(root.duration(root.controller.plannedSeconds)) : ""
+                    onValueModified: v => root.controller.stopFrequency = v
+                }
+                KnobField {
+                    objectName: "amplitudeKnob"
+                    Layout.preferredWidth: root.narrow ? 140 : 170
+                    compact: root.narrow
+                    enabled: !root.measurementLocked
+                    label: qsTr("Amplitude")
+                    unit: "Vpk"
+                    accentColor: Theme.signalColor("ao0")
+                    from: 0
+                    to: 5
+                    stepSize: 0.01
+                    value: root.controller.peakAmplitude
+                    formatter: v => v.toFixed(2) + " Vpk"
+                    caption: qsTr("sine on AO 0")
+                    onValueModified: v => root.controller.peakAmplitude = Math.round(v * 100) / 100
+                }
             }
         ]
-        runBarActions: [
-            RowLayout {
-                visible: root.controller.running && !root.controller.remeasuring && root.controller.totalPoints > 0
+
+        measurements: [
+            Flow {
+                objectName: "bodeCards"
+                readonly property string summaryText: root.controller.cutoffFrequencies.length > 0
+                    ? qsTr("f−3dB %1").arg(Units.format(root.controller.cutoffFrequencies[0], "Hz", 3)) : ""
+                width: parent ? parent.width : 0
                 spacing: Theme.spacingS
-                ProgressBar {
-                    Layout.preferredWidth: panel.runBar.compact ? 60 : 120
-                    value: root.controller.progress
+                padding: Theme.spacingS
+                component Card: MeasurementCard {
+                    removable: false
+                    width: root.narrow ? 150 : 180
                 }
-                Text {
-                    visible: !panel.runBar.compact && root.controller.remainingSeconds > 0
-                    text: qsTr("≈ %1 left").arg(root.duration(root.controller.remainingSeconds))
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeM
-                    font.features: Theme.tabularFigures
+                Card {
+                    objectName: "cardCutoff"
+                    title: qsTr("f−3dB")
+                    color: root.gainColor
+                    value: root.controller.cutoffFrequencies.length > 0
+                           ? root.controller.cutoffFrequencies.map(f => Units.format(f, "Hz", 3)).join(" · ") : "—"
+                }
+                Card {
+                    objectName: "cardUnity"
+                    title: qsTr("0 dB crossover")
+                    color: root.gainColor
+                    value: isFinite(root.controller.unityGainFrequency) && root.controller.unityGainFrequency > 0
+                           ? Units.format(root.controller.unityGainFrequency, "Hz", 3) : "—"
+                }
+                Card {
+                    objectName: "cardGainMargin"
+                    title: qsTr("Gain margin")
+                    color: root.gainColor
+                    value: isFinite(root.controller.gainMargin) ? Units.decibels(root.controller.gainMargin, 1) : "—"
+                }
+                Card {
+                    objectName: "cardPhaseMargin"
+                    title: qsTr("Phase margin")
+                    color: root.phaseColor
+                    value: isFinite(root.controller.phaseMargin) ? root.controller.phaseMargin.toFixed(1) + "°" : "—"
+                }
+                Card {
+                    objectName: "cardMaxGain"
+                    title: qsTr("Max gain")
+                    color: root.gainColor
+                    value: root.hasPoints && isFinite(root.controller.maxGainDb) ? Units.decibels(root.controller.maxGainDb, 2) : "—"
+                }
+                Card {
+                    objectName: "cardCursor"
+                    width: root.narrow ? 220 : 280
+                    title: root.cursorValid ? qsTr("Cursor") : qsTr("Last point")
+                    color: root.cursorValid ? root.cursorColor : Theme.textSecondary
+                    value: root.controller.readoutValid
+                           ? qsTr("%1 · %2 dB · %3°").arg(Units.format(root.controller.readoutFrequency, "Hz", 4))
+                                 .arg(root.fixed2(root.controller.readoutGainDb)).arg(root.fixed2(root.controller.readoutPhase))
+                           : "—"
                 }
             }
         ]
@@ -463,37 +574,6 @@ Item {
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeS
                     wrapMode: Text.WordWrap
-                }
-                FieldRow {
-                    Field {
-                        label: qsTr("Start Frequency")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "Hz"
-                            from: 1
-                            to: 20000
-                            digits: 4
-                            enabled: !root.measurementLocked
-                            accentColor: root.controller.settingsValid ? Theme.accent : Theme.danger
-                            toolTip: qsTr("1 Hz … 20 kHz")
-                            value: root.controller.startFrequency
-                            onValueModified: v => root.controller.startFrequency = v
-                        }
-                    }
-                    Field {
-                        label: qsTr("Stop Frequency")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "Hz"
-                            from: 1
-                            to: 20000
-                            digits: 4
-                            enabled: !root.measurementLocked
-                            toolTip: qsTr("1 Hz … 20 kHz")
-                            value: root.controller.stopFrequency
-                            onValueModified: v => root.controller.stopFrequency = v
-                        }
-                    }
                 }
                 Text {
                     visible: !root.controller.settingsValid
@@ -515,22 +595,6 @@ Item {
                             enabled: !root.measurementLocked
                             value: root.controller.stepsPerDecade
                             onValueModified: root.controller.stepsPerDecade = value
-                        }
-                    }
-                    Field {
-                        label: qsTr("Peak Amplitude")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "V"
-                            engineering: false
-                            decimals: 2
-                            from: 0
-                            to: 5
-                            stepSize: 0.01
-                            enabled: !root.measurementLocked
-                            toolTip: qsTr("Sine peak on AO 0, 0 … 5 V")
-                            value: root.controller.peakAmplitude
-                            onValueModified: v => root.controller.peakAmplitude = v
                         }
                     }
                 }
@@ -579,7 +643,7 @@ Item {
                 }
                 Field {
                     label: qsTr("Frequency axis")
-                    hint: qsTr("MYBENCH extension: logarithmic (ELVISmx) or linear frequency axis")
+                    hint: qsTr("Logarithmic or linear frequency axis")
                     SegmentedControl {
                         Layout.fillWidth: true
                         model: [qsTr("Logarithmic"), qsTr("Linear")]
@@ -588,18 +652,9 @@ Item {
                     }
                 }
                 ToggleSwitch {
-                    text: qsTr("ELVISmx colors")
-                    ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: qsTr("Yellow traces with ring markers and a red cursor, like the original Bode Analyzer")
-                    checked: root.controller.elvisColors
-                    onToggled: root.controller.elvisColors = checked
-                }
-                ToggleSwitch {
                     text: qsTr("Unwrap phase")
                     ToolTip.visible: hovered
-                    ToolTip.delay: 500
-                    ToolTip.text: qsTr("Removes the 360° jumps between consecutive points (ELVISmx shows the phase wrapped to ±180°)")
+                    ToolTip.text: qsTr("Removes the 360° jumps between consecutive points (off: phase wrapped to ±180°)")
                     checked: root.controller.unwrapPhase
                     onToggled: root.controller.unwrapPhase = checked
                 }
@@ -658,8 +713,8 @@ Item {
                         Layout.fillWidth: true
                         enabled: !root.measurementLocked
                         model: [
-                            { text: qsTr("Standard"), toolTip: qsTr("As ELVISmx: a range pre-measurement at every point") },
-                            { text: qsTr("Fast"), toolTip: qsTr("MYBENCH: no pre-measurement; ranges adapt from the previous point") }
+                            { text: qsTr("Standard"), toolTip: qsTr("A short range pre-measurement at every point") },
+                            { text: qsTr("Fast"), toolTip: qsTr("No pre-measurement; ranges adapt from the previous point") }
                         ]
                         currentIndex: root.controller.sweepMode === BodeController.Fast ? 1 : 0
                         onActivated: index => root.controller.sweepMode = index === 1 ? BodeController.Fast : BodeController.Standard
@@ -668,8 +723,8 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     text: root.controller.sweepMode === BodeController.Fast
-                          ? qsTr("Fast mode is a MYBENCH extension (not ELVISmx): no range pre-measurement; the circuit settles for 3 periods, the input ranges adapt from the previous point and clipped records are measured again.")
-                          : qsTr("ELVISmx behaviour: each point first measures both inputs briefly (80 ms) on ±10 V to choose their ranges.")
+                          ? qsTr("No range pre-measurement: the circuit settles for 3 periods, the input ranges adapt from the previous point and clipped records are measured again.")
+                          : qsTr("Each point first measures both inputs briefly (80 ms) on ±10 V to choose their ranges.")
                     color: Theme.textMuted
                     font.pixelSize: Theme.fontSizeS + 1
                     wrapMode: Text.WordWrap
@@ -778,7 +833,6 @@ Item {
                             font.pixelSize: Theme.fontSizeM
                             onEditingFinished: root.controller.renameReference(referenceRow.modelData.slot, text)
                             ToolTip.visible: hovered
-                            ToolTip.delay: 600
                             ToolTip.text: qsTr("%1 points%2 · click to rename").arg(referenceRow.modelData.points)
                                               .arg(referenceRow.modelData.inverted ? qsTr(", inverted") : "")
                         }

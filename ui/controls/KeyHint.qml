@@ -8,19 +8,18 @@ Rectangle {
     property string keys
     readonly property string label: Theme.keys(keys)
 
-    implicitWidth: text.implicitWidth + 10
-    implicitHeight: 18
-    radius: Theme.radiusXs + 1
-    color: Theme.surfaceSunken
-    border.width: 1
-    border.color: Theme.borderStrong
+    implicitWidth: Math.max(implicitHeight, text.implicitWidth + 2 * Theme.spacingXs + 2)
+    implicitHeight: Theme.fontSizeCaption + 7
+    radius: 3
+    color: "transparent"
+    border.width: Theme.borderWidth
+    border.color: Theme.controlBorder
 
     Text {
         id: text
         anchors.centerIn: parent
         text: root.label
         color: Theme.textSecondary
-        font.pixelSize: Theme.fontSizeS
-        font.weight: Font.Medium
+        font.pixelSize: Theme.fontSizeCaption
     }
 }

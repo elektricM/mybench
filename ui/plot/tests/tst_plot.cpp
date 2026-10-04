@@ -1289,6 +1289,39 @@ private slots:
         QCOMPARE(qobject_cast<PlotTrace *>(root.get())->interpolationMode(), PlotTrace::Step);
     }
 
+    // Colors come from the host (MyBench's Theme through BenchPlot): seriesColors drives the
+    // default trace colors, panelColor the in-plot panels; the built-in palette is only a fallback.
+    void seriesColorsAndPanel()
+    {
+        Plot plot;
+        const QColor fallback0 = plot.paletteColor(0);
+        QVERIFY(fallback0.isValid());
+        QVERIFY(plot.seriesColors().isEmpty());
+        QSignalSpy style(&plot, &Plot::styleChanged);
+        plot.setSeriesColors({QColor("#112233"), QColor("#445566")});
+        QCOMPARE(style.count(), 1);
+        QCOMPARE(plot.paletteColor(0), QColor("#112233"));
+        QCOMPARE(plot.paletteColor(1), QColor("#445566"));
+        QCOMPARE(plot.paletteColor(2), QColor("#112233"));
+        QCOMPARE(plot.paletteColor(-1), QColor("#445566"));
+        plot.setSeriesColors({QColor("#112233"), QColor("#445566")});
+        QCOMPARE(style.count(), 1);   // unchanged: no signal
+        auto *first = new PlotTrace(&plot);
+        auto *second = new PlotTrace(&plot);
+        plot.addElement(first);
+        plot.addElement(second);
+        QCOMPARE(plot.traceColor(first), QColor("#112233"));
+        QCOMPARE(plot.traceColor(second), QColor("#445566"));
+        plot.resetSeriesColors();
+        QCOMPARE(plot.paletteColor(0), fallback0);
+
+        const QColor defaultPanel = plot.panelColor();
+        plot.setPanelColor(QColor("#202020"));
+        QCOMPARE(plot.panelColor(), QColor("#202020"));
+        plot.resetPanelColor();
+        QCOMPARE(plot.panelColor(), defaultPanel);
+    }
+
     void traceStyleOnTrace()
     {
         PlotFixture f;

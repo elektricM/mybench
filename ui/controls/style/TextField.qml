@@ -3,6 +3,8 @@ import QtQuick.Controls.impl
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// Text field: `base` fill, hairline border, accent border while focused, the focus ring for
+// keyboard focus.
 T.TextField {
     id: control
 
@@ -12,16 +14,19 @@ T.TextField {
                              contentHeight + topPadding + bottomPadding,
                              placeholder.implicitHeight + topPadding + bottomPadding)
 
-    padding: 6
-    leftPadding: 9
-    rightPadding: 9
+    padding: 0
+    leftPadding: Theme.spacingS
+    rightPadding: Theme.spacingS
     hoverEnabled: true
+    font.pixelSize: Theme.fontSizeBody
     color: enabled ? Theme.text : Theme.textDisabled
-    selectionColor: Theme.alpha(Theme.accent, 0.35)
-    selectedTextColor: Theme.text
-    placeholderTextColor: Theme.textMuted
+    selectionColor: Theme.selection
+    selectedTextColor: Theme.selectionText
+    placeholderTextColor: Theme.textTertiary
     verticalAlignment: TextInput.AlignVCenter
     selectByMouse: true
+    // Unfocused fields show the start of their text.
+    autoScroll: activeFocus
 
     ContextMenu.menu: TextEditMenu {
         editor: control
@@ -43,12 +48,13 @@ T.TextField {
     }
 
     background: Rectangle {
-        implicitWidth: 160
+        implicitWidth: 120
         implicitHeight: Theme.controlHeight
-        radius: Theme.radiusM
-        color: control.enabled ? Theme.surfaceSunken : Theme.alpha(Theme.surfaceSunken, 0.5)
-        border.width: 1
-        border.color: control.activeFocus ? Theme.accent : control.hovered ? Theme.borderStrong : Theme.border
-        Behavior on border.color { ColorAnimation { duration: Theme.durationFast } }
+        radius: Theme.radiusControl
+        color: Theme.base
+        opacity: control.enabled ? 1 : 0.6
+        border.width: Theme.borderWidth
+        border.color: control.activeFocus && !control.readOnly ? Theme.accent : Theme.controlBorder
+        FocusRing { shown: control.activeFocus && (control.focusReason === Qt.TabFocusReason || control.focusReason === Qt.BacktabFocusReason) }
     }
 }

@@ -65,7 +65,7 @@ Dialog {
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape
-    title: instrumentTitle.length > 0 ? qsTr("Print / export %1").arg(instrumentTitle) : qsTr("Print / export")
+    title: instrumentTitle.length > 0 ? qsTr("Print / Export %1").arg(instrumentTitle) : qsTr("Print / Export")
 
     component OptionRow: RowLayout {
         id: optionRow
@@ -83,23 +83,22 @@ Dialog {
                 Layout.fillWidth: true
                 visible: text.length > 0
                 text: optionRow.detail
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeM
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeSmall
                 elide: Text.ElideRight
             }
         }
-        ToggleSwitch {
+        Switch {
             id: toggle
             Accessible.name: optionRow.label
             onToggled: optionRow.toggled(checked)
         }
     }
     component Caption: Text {
-        color: Theme.textMuted
-        font.pixelSize: Theme.fontSizeS
-        font.weight: Font.DemiBold
-        font.capitalization: Font.AllUppercase
-        font.letterSpacing: 0.6
+        Layout.topMargin: Theme.spacingXs
+        color: Theme.text
+        font.pixelSize: Theme.fontSizeBody
+        font.weight: Font.Medium
     }
 
     contentItem: ColumnLayout {
@@ -108,7 +107,6 @@ Dialog {
         Caption { text: qsTr("Destination") }
         SegmentedControl {
             objectName: "destination"
-            Layout.fillWidth: true
             model: dialog.destinations.map(d => d === "image" ? { text: qsTr("Image (PNG)"), icon: "image" }
                                                : d === "pdf" ? { text: qsTr("PDF"), icon: "file" }
                                                               : { text: qsTr("Printer"), icon: "printer" })
@@ -118,7 +116,6 @@ Dialog {
 
         Caption { text: qsTr("Content") }
         SegmentedControl {
-            Layout.fillWidth: true
             model: [qsTr("Display"), qsTr("Whole panel")]
             currentIndex: dialog.store.target === "panel" ? 1 : 0
             onActivated: index => dialog.store.target = index === 1 ? "panel" : "display"
@@ -154,22 +151,18 @@ Dialog {
             onToggled: checked => dialog.store.settingsTable = checked
         }
 
-        RowLayout {
+        FormRow {
             visible: dialog.destination !== "image"
-            Layout.fillWidth: true
-            spacing: Theme.spacingM
-            Text { text: qsTr("Orientation"); color: Theme.text; font.pixelSize: Theme.fontSizeBody; Layout.fillWidth: true }
+            label: qsTr("Orientation")
             SegmentedControl {
                 model: [qsTr("Landscape"), qsTr("Portrait")]
                 currentIndex: dialog.store.orientation === "portrait" ? 1 : 0
                 onActivated: index => dialog.store.orientation = index === 1 ? "portrait" : "landscape"
             }
         }
-        RowLayout {
+        FormRow {
             visible: dialog.destination === "printer"
-            Layout.fillWidth: true
-            spacing: Theme.spacingM
-            Text { text: qsTr("Printer"); color: Theme.text; font.pixelSize: Theme.fontSizeBody }
+            label: qsTr("Printer")
             ComboBox {
                 Layout.fillWidth: true
                 model: DataExport.printers.length > 0 ? DataExport.printers : [qsTr("No printer")]
@@ -177,7 +170,10 @@ Dialog {
                 currentIndex: Math.max(0, DataExport.printers.indexOf(dialog.store.printer.length > 0 ? dialog.store.printer : DataExport.defaultPrinter))
                 onActivated: index => dialog.store.printer = DataExport.printers[index] ?? ""
             }
-            Text { text: qsTr("Copies"); color: Theme.text; font.pixelSize: Theme.fontSizeBody }
+        }
+        FormRow {
+            visible: dialog.destination === "printer"
+            label: qsTr("Copies")
             SpinBox {
                 from: 1
                 to: 99
@@ -190,18 +186,19 @@ Dialog {
     footer: RowLayout {
         spacing: Theme.spacingS
         Item { Layout.fillWidth: true }
-        ActionButton {
+        Button {
             Layout.bottomMargin: Theme.spacingL
+            implicitHeight: Theme.controlHeightL
             text: qsTr("Cancel")
             onClicked: dialog.reject()
         }
-        ActionButton {
+        Button {
             objectName: "acceptButton"
             Layout.bottomMargin: Theme.spacingL
-            Layout.rightMargin: Theme.spacingL
+            Layout.rightMargin: Theme.spacingL + 4
+            implicitHeight: Theme.controlHeightL
             text: dialog.destination === "printer" ? qsTr("Print") : qsTr("Save…")
-            iconName: dialog.destination === "printer" ? "printer" : "download"
-            tone: "accent"
+            highlighted: true
             enabled: dialog.destination !== "printer" || DataExport.printers.length > 0
             onClicked: dialog.accept()
         }

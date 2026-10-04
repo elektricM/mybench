@@ -1050,7 +1050,7 @@ void PlotPrivate::buildPopups()
     const qreal lineH = std::ceil(fm.height());
     const QColor areaC = areaColor();
     const QColor titleC = titleColor();
-    const QColor panel = withAlpha(scheme == Plot::Dark ? QColor(0x1a, 0x1d, 0x23) : QColor(0xff, 0xff, 0xff), 0.94);
+    const QColor panel = withAlpha(panelColor(), 0.94);
     const QColor panelBorder = withAlpha(frameColor(), 1.4);
 
     const std::vector<PlotTrace *> all = elementsOf<PlotTrace>();

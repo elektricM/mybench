@@ -1,329 +1,297 @@
 import QtQuick
 import MyBench.Framework
 
-// Layout of the workspace: tabs (each one instrument, or two side by side), the current tab
-// (-1 = Home), the focused instrument (Space, help), the pinned dashboard column and the help
-// drawer. Serialized into SessionManager.workspace (sessions + auto-saved layout).
+// What the window shows (docs/UI.md §7, §8): Overview or one pane, optionally a second pane
+// beside it, the focused pane, the sidebar and inspector toggles per layout class, and the page
+// of the inspector dock. Serialized into SessionManager.workspace (sessions and the autosave);
+// fromMap() also reads the v1 layout (tabs, dashboard, help drawer) of older sessions.
+//
+// Showing another instrument, closing the split or going to Overview never stops an instrument:
+// stopping is always explicit (Run/Stop, Stop All, a context menu).
 QtObject {
     id: state
 
-    // [{ primary: "scope", secondary: "gen" | "" , ratio: 0.5 }]
-    property var tabs: []
-    property int currentIndex: -1
+    // "" = Overview; otherwise a pane id: an instrument ("scope") or a view ("gen/editor").
+    property string selected: ""
+    // The pane shown beside `selected` ("" = no split) and the width share of `selected`.
+    property string beside: ""
+    property real ratio: 0.5
+    // The pane that gets the keyboard, the menu commands and the inspector ("" on Overview).
     property string focused: ""
-    property bool dashboardPinned: false
-    // Instrument tiles of the dashboard column, top to bottom (app.md 2.4; default DMM + DIO).
-    readonly property var defaultDashboardTiles: ["dmm", "dio"]
-    property var dashboardTiles: defaultDashboardTiles
-    property bool helpOpen: false
+    // User toggles per layout class ("wide", "medium", "narrow", "compact"); absent = default.
+    property var sidebarCollapsed: ({})
+    property var inspectorVisible: ({})
+    // Page of the inspector dock: "inspector" (the focused pane's settings) or "help".
+    property string dockPage: "inspector"
     property string helpTopic: "app"
-    // Instruments whose panel was shown at least once (panels are created lazily, then kept).
+
+    // Not saved: the window's current layout class (set by the shell) and the panes created so far
+    // (panels are created on first show, then kept).
+    property string layoutClass: "wide"
     property var opened: ({})
 
-    readonly property var currentTab: currentIndex >= 0 && currentIndex < tabs.length ? tabs[currentIndex] : null
-    readonly property bool home: currentTab === null
-    readonly property bool split: currentTab !== null && currentTab.secondary.length > 0
+    readonly property bool overview: selected.length === 0
+    readonly property bool split: !overview && beside.length > 0
+    readonly property bool helpShown: dockPage === "help"
+    readonly property bool sidebarShown: !sidebarHiddenIn(layoutClass)
+    readonly property bool inspectorShown: inspectorShownIn(layoutClass)
 
     signal changed()
 
-    function indexOf(id: string): int {
-        for (let i = 0; i < tabs.length; ++i)
-            if (tabs[i].primary === id || tabs[i].secondary === id)
-                return i
-        return -1
+    // --- Pane ids --------------------------------------------------------------------------------
+    function isPane(paneId: string): bool {
+        if (paneId.indexOf("/") >= 0)
+            return (InstrumentRegistry.viewInfo(paneId).id ?? "").length > 0
+        return paneId.length > 0 && InstrumentRegistry.contains(paneId)
     }
-    function isVisible(id: string): bool {
-        return currentTab !== null && (currentTab.primary === id || currentTab.secondary === id)
+    function instrumentOf(paneId: string): string {
+        return paneId.split("/")[0]
     }
-    function markOpened(id: string) {
-        if (opened[id])
+    // Every pane in sidebar order: each instrument followed by its views.
+    function paneOrder(): var {
+        const list = []
+        for (const id of InstrumentRegistry.ids) {
+            list.push(id)
+            for (const view of (InstrumentRegistry.info(id).views ?? []))
+                list.push(view.id)
+        }
+        return list
+    }
+    function isShown(paneId: string): bool {
+        return paneId.length > 0 && (selected === paneId || (split && beside === paneId))
+    }
+    function helpTopicOf(paneId: string): string {
+        if (paneId.length === 0)
+            return "app"
+        const id = instrumentOf(paneId)
+        return InstrumentRegistry.info(id).helpId ?? id
+    }
+    function markOpened(paneId: string) {
+        if (paneId.length === 0 || opened[paneId])
             return
         const copy = Object.assign({}, opened)
-        copy[id] = true
+        copy[paneId] = true
         opened = copy
     }
-    function open(id: string) {
-        if (!InstrumentRegistry.contains(id))
+
+    // --- Showing -----------------------------------------------------------------------------------
+    // Shows `paneId` in the focused pane (or focuses it where it is already shown).
+    function show(paneId: string) {
+        if (!isPane(paneId))
             return
-        let i = indexOf(id)
-        if (i < 0) {
-            tabs = tabs.concat([{ primary: id, secondary: "", ratio: 0.5 }])
-            i = tabs.length - 1
+        markOpened(paneId)
+        if (!isShown(paneId)) {
+            if (split && focused === beside)
+                beside = paneId
+            else
+                selected = paneId
         }
-        markOpened(id)
-        currentIndex = i
-        focused = id
+        focused = paneId
         changed()
     }
-    // Shows `id` beside the current tab's instrument (moves it out of its own tab).
-    function openBeside(id: string) {
-        if (!InstrumentRegistry.contains(id))
+    // Shows `paneId` in a second pane: beside the focused one, or instead of the pane that is not
+    // focused when already split. From Overview it is a plain show().
+    function showBeside(paneId: string) {
+        if (!isPane(paneId))
             return
-        if (currentTab === null) {
-            open(id)
-            return
-        }
-        if (currentTab.primary === id || currentTab.secondary === id)
-            return
-        // Already split: the right pane's instrument moves to its own tab (never dropped).
-        if (currentTab.secondary.length > 0) {
-            openInPane(id, "right")
+        if (overview || isShown(paneId)) {
+            show(paneId)
             return
         }
-        const primary = currentTab.primary
-        let list = removed(id)
-        const index = list.findIndex(t => t.primary === primary || t.secondary === primary)
-        list[index] = { primary: primary, secondary: id, ratio: list[index].ratio ?? 0.5 }
-        tabs = list
-        currentIndex = index
-        markOpened(id)
-        focused = id
-        changed()
-    }
-    // Moves the secondary panel of tab `index` to its own tab.
-    function unsplit(index: int) {
-        const tab = tabs[index]
-        if (!tab || tab.secondary.length === 0)
-            return
-        const list = tabs.slice()
-        list[index] = { primary: tab.primary, secondary: "", ratio: tab.ratio }
-        list.splice(index + 1, 0, { primary: tab.secondary, secondary: "", ratio: 0.5 })
-        tabs = list
-        focused = tab.primary
-        changed()
-    }
-    function swap(index: int) {
-        const tab = tabs[index]
-        if (!tab || tab.secondary.length === 0)
-            return
-        const list = tabs.slice()
-        list[index] = { primary: tab.secondary, secondary: tab.primary, ratio: 1 - (tab.ratio ?? 0.5) }
-        tabs = list
-        changed()
-    }
-    function setRatio(index: int, ratio: real) {
-        const tab = tabs[index]
-        if (!tab || Math.abs((tab.ratio ?? 0.5) - ratio) < 0.001)
-            return
-        const list = tabs.slice()
-        list[index] = { primary: tab.primary, secondary: tab.secondary, ratio: ratio }
-        tabs = list
-        changed()
-    }
-    // Tabs without instrument `id` (a split tab keeps its other panel).
-    function removed(id: string): var {
-        const list = []
-        for (const t of tabs) {
-            if (t.primary === id && t.secondary.length > 0)
-                list.push({ primary: t.secondary, secondary: "", ratio: 0.5 })
-            else if (t.secondary === id)
-                list.push({ primary: t.primary, secondary: "", ratio: t.ratio })
-            else if (t.primary !== id)
-                list.push(t)
-        }
-        return list
-    }
-    // Every instrument shown in `list` (tabs).
-    function shownIds(list: var): var {
-        const ids = []
-        for (const t of list) {
-            ids.push(t.primary)
-            if (t.secondary.length > 0)
-                ids.push(t.secondary)
-        }
-        return ids
-    }
-    // Tells the controllers whose last view disappeared (stop, outputs to their safe state).
-    function notifyClosed(before: var) {
-        const after = shownIds(tabs)
-        for (const id of shownIds(before))
-            if (after.indexOf(id) < 0)
-                InstrumentRegistry.notifyPanelClosed(id)
-    }
-    function closeInstrument(id: string) {
-        const current = currentTab
-        const before = tabs
-        tabs = removed(id)
-        if (current === null)
-            currentIndex = -1
+        markOpened(paneId)
+        if (split && focused === beside)
+            selected = paneId
         else
-            currentIndex = Math.min(indexOf(current.primary === id ? current.secondary : current.primary), tabs.length - 1)
-        if (focused === id)
-            focused = currentTab ? currentTab.primary : ""
-        notifyClosed(before)
+            beside = paneId
+        focused = paneId
         changed()
     }
-    function closeTab(index: int) {
-        if (index < 0 || index >= tabs.length)
+    // Ends the split and keeps the focused pane. The other instrument keeps running.
+    function closeSplit() {
+        if (!split)
             return
-        const before = tabs
-        const list = tabs.slice()
-        list.splice(index, 1)
-        tabs = list
-        if (currentIndex >= tabs.length)
-            currentIndex = tabs.length - 1
-        else if (currentIndex > index)
-            currentIndex -= 1
-        focused = currentTab ? currentTab.primary : ""
-        notifyClosed(before)
+        if (focused === beside)
+            selected = beside
+        beside = ""
+        focused = selected
         changed()
     }
-    function select(index: int) {
-        currentIndex = Math.max(-1, Math.min(index, tabs.length - 1))
-        if (currentTab) {
-            markOpened(currentTab.primary)
-            if (currentTab.secondary.length > 0)
-                markOpened(currentTab.secondary)
-            if (!isVisible(focused))
-                focused = currentTab.primary
+    // Removes one pane of a split (the × of its header); keeps the other one.
+    function closePane(paneId: string) {
+        if (!split || !isShown(paneId))
+            return
+        if (paneId === selected)
+            selected = beside
+        beside = ""
+        focused = selected
+        changed()
+    }
+    // ⌘\ : closes the split, or shows the next pane (sidebar order) beside the focused one.
+    function toggleSplit() {
+        if (split) {
+            closeSplit()
+            return
         }
-        changed()
-    }
-    function showHome() {
-        select(-1)
-    }
-    function toggleDashboard() {
-        dashboardPinned = !dashboardPinned
-        changed()
-    }
-    function addDashboardTile(id: string) {
-        if (!InstrumentRegistry.contains(id) || dashboardTiles.indexOf(id) >= 0)
+        if (overview)
             return
-        dashboardTiles = dashboardTiles.concat([id])
-        changed()
-    }
-    function removeDashboardTile(id: string) {
-        if (dashboardTiles.indexOf(id) < 0)
-            return
-        dashboardTiles = dashboardTiles.filter(t => t !== id)
-        changed()
-    }
-    function moveDashboardTile(from: int, to: int) {
-        if (from < 0 || to < 0 || from >= dashboardTiles.length || to >= dashboardTiles.length || from === to)
-            return
-        const list = dashboardTiles.slice()
-        list.splice(to, 0, list.splice(from, 1)[0])
-        dashboardTiles = list
-        changed()
-    }
-    // Stored tiles without unknown/duplicate ids; the default when absent (older sessions).
-    function validDashboardTiles(value: var): var {
-        if (value === undefined || value === null || typeof value === "string" || typeof value.length !== "number")
-            return defaultDashboardTiles.filter(id => InstrumentRegistry.contains(id))
-        const list = []
-        for (let i = 0; i < value.length; ++i) {
-            const id = String(value[i])
-            if (InstrumentRegistry.contains(id) && list.indexOf(id) < 0)
-                list.push(id)
+        const order = paneOrder().filter(id => id.indexOf("/") < 0 || id === selected)
+        const start = order.indexOf(selected)
+        for (let i = 1; i < order.length; ++i) {
+            const candidate = order[(start + i) % order.length]
+            if (candidate !== selected) {
+                showBeside(candidate)
+                return
+            }
         }
-        return list
+    }
+    function swapPanes() {
+        if (!split)
+            return
+        const left = selected
+        selected = beside
+        beside = left
+        ratio = 1 - ratio
+        changed()
+    }
+    function showOverview() {
+        selected = ""
+        beside = ""
+        focused = ""
+        changed()
+    }
+    function focus(paneId: string) {
+        if (!isShown(paneId) || focused === paneId)
+            return
+        focused = paneId
+        changed()
+    }
+    function setRatio(value: real) {
+        const clamped = Math.max(0.1, Math.min(0.9, value))
+        if (Math.abs(clamped - ratio) < 0.001)
+            return
+        ratio = clamped
+        changed()
+    }
+    // Next (+1) or previous (-1) entry of the sidebar, Overview included, in the focused pane.
+    function cycle(step: int) {
+        const order = [""].concat(paneOrder())
+        const current = Math.max(0, order.indexOf(overview ? "" : focused))
+        const next = order[(current + step + order.length) % order.length]
+        if (next.length === 0)
+            showOverview()
+        else
+            show(next)
+    }
+
+    // --- Sidebar, inspector, help -----------------------------------------------------------------
+    function sidebarHiddenIn(cls: string): bool {
+        const value = sidebarCollapsed[cls]
+        return value === undefined ? cls === "compact" : value === true
+    }
+    function inspectorShownIn(cls: string): bool {
+        const value = inspectorVisible[cls]
+        return value === undefined ? cls === "wide" || cls === "medium" : value === true
+    }
+    function setSidebarShown(shown: bool) {
+        const copy = Object.assign({}, sidebarCollapsed)
+        copy[layoutClass] = !shown
+        sidebarCollapsed = copy
+        changed()
+    }
+    function setInspectorShown(shown: bool) {
+        const copy = Object.assign({}, inspectorVisible)
+        copy[layoutClass] = shown
+        inspectorVisible = copy
+        changed()
     }
     function showHelp(topic: string) {
-        helpTopic = topic.length > 0 ? topic : "app"
-        helpOpen = true
+        helpTopic = topic.length > 0 ? topic : helpTopicOf(focused)
+        dockPage = "help"
+        if (!inspectorShown)
+            setInspectorShown(true)
         changed()
     }
+    function showSettings() {
+        dockPage = "inspector"
+        if (!inspectorShown)
+            setInspectorShown(true)
+        changed()
+    }
+    // F1: the help of the focused pane, or back to its settings.
     function toggleHelp() {
-        if (!helpOpen)
-            helpTopic = focused.length > 0 && !home ? (InstrumentRegistry.info(focused).helpId ?? "app") : "app"
-        helpOpen = !helpOpen
-        changed()
+        if (helpShown && inspectorShown)
+            showSettings()
+        else
+            showHelp(helpTopicOf(focused))
+    }
+    // While help is shown it follows the focused pane.
+    onFocusedChanged: {
+        if (helpShown)
+            helpTopic = helpTopicOf(focused)
     }
 
-    // --- Tab drag and "other pane" (app.md 2.2, 2.4) ---------------------------------------
-    // Moves tab `from` to position `to` (tab strip drag); the current tab stays current.
-    function moveTab(from: int, to: int) {
-        if (from < 0 || from >= tabs.length)
-            return
-        to = Math.max(0, Math.min(to, tabs.length - 1))
-        if (to === from)
-            return
-        const current = currentTab
-        const list = tabs.slice()
-        const moved = list.splice(from, 1)[0]
-        list.splice(to, 0, moved)
-        tabs = list
-        if (current !== null)
-            currentIndex = list.findIndex(t => t.primary === current.primary)
-        changed()
-    }
-    // Shows `id` in pane `side` ("left" or "right") of the current tab, creating the split if
-    // needed; the instrument shown there before moves to its own tab next to it.
-    function openInPane(id: string, side: string) {
-        if (!InstrumentRegistry.contains(id))
-            return
-        const cur = currentTab
-        if (cur === null) {
-            open(id)
-            return
-        }
-        const right = side !== "left"
-        const here = right ? cur.secondary : cur.primary
-        const there = right ? cur.primary : cur.secondary
-        if (here === id || (!right && cur.secondary.length === 0 && cur.primary === id)) {
-            focused = id
-            changed()
-            return
-        }
-        if (there === id) {   // already in the other pane of this tab: swap sides
-            if (cur.secondary.length > 0)
-                swap(currentIndex)
-            focused = id
-            changed()
-            return
-        }
-        const list = removed(id)   // the current tab does not show `id`: it stays as it is
-        const index = list.findIndex(t => t.primary === cur.primary)
-        if (index < 0)
-            return
-        let tab
-        let displaced = ""
-        if (cur.secondary.length === 0)   // single pane: split it
-            tab = right ? { primary: cur.primary, secondary: id, ratio: 0.5 } : { primary: id, secondary: cur.primary, ratio: 0.5 }
-        else {
-            displaced = here
-            tab = right ? { primary: cur.primary, secondary: id, ratio: cur.ratio ?? 0.5 }
-                        : { primary: id, secondary: cur.secondary, ratio: cur.ratio ?? 0.5 }
-        }
-        list[index] = tab
-        if (displaced.length > 0)
-            list.splice(index + 1, 0, { primary: displaced, secondary: "", ratio: 0.5 })
-        tabs = list
-        currentIndex = index
-        markOpened(id)
-        focused = id
-        changed()
-    }
-    // Ctrl/⌘+click in the nav rail: `id` in the pane that is not focused (right when unsplit).
-    function openInOtherPane(id: string) {
-        const cur = currentTab
-        if (cur === null) {
-            open(id)
-            return
-        }
-        const focusedRight = cur.secondary.length > 0 && focused === cur.secondary
-        openInPane(id, focusedRight ? "left" : "right")
-    }
-
+    // --- Serialization -----------------------------------------------------------------------------
     function toMap(): var {
-        return { version: 1, tabs: tabs, current: currentIndex, focused: focused,
-                 dashboardPinned: dashboardPinned, dashboardTiles: dashboardTiles, helpOpen: helpOpen, helpTopic: helpTopic }
+        return { version: 2, selected: selected, beside: beside, ratio: ratio, focused: focused,
+                 sidebarCollapsed: sidebarCollapsed, inspectorVisible: inspectorVisible,
+                 dockPage: dockPage, helpTopic: helpTopic }
     }
+    function validPane(value: var): string {
+        const id = value === undefined || value === null ? "" : String(value)
+        return isPane(id) ? id : ""
+    }
+    function validToggles(value: var): var {
+        const map = {}
+        if (value && typeof value === "object")
+            for (const cls of ["wide", "medium", "narrow", "compact"])
+                if (value[cls] !== undefined)
+                    map[cls] = value[cls] === true
+        return map
+    }
+    // Reads a v2 map, or migrates a v1 one ({tabs: [{primary, secondary, ratio}], current,
+    // focused, dashboard*, helpOpen, helpTopic}): the current tab becomes selected/beside/ratio,
+    // current -1 is Overview, the dashboard keys are dropped and helpOpen opens the help page.
     function fromMap(map: var) {
-        const list = []
-        for (const t of (map && map.tabs) ? map.tabs : []) {
-            if (!t || !InstrumentRegistry.contains(t.primary))
-                continue
-            const secondary = InstrumentRegistry.contains(t.secondary ?? "") ? t.secondary : ""
-            list.push({ primary: t.primary, secondary: secondary, ratio: Number(t.ratio ?? 0.5) })
+        const m = map ?? {}
+        let first = ""
+        let second = ""
+        let share = 0.5
+        let page = "inspector"
+        if (Number(m.version ?? 1) >= 2 || m.selected !== undefined) {
+            first = validPane(m.selected)
+            second = validPane(m.beside)
+            share = Number(m.ratio ?? 0.5)
+            page = m.dockPage === "help" ? "help" : "inspector"
+            sidebarCollapsed = validToggles(m.sidebarCollapsed)
+            inspectorVisible = validToggles(m.inspectorVisible)
+        } else {
+            const tabs = Array.isArray(m.tabs) ? m.tabs : []
+            const index = Number(m.current ?? -1)
+            const tab = index >= 0 && index < tabs.length ? tabs[index] : null
+            if (tab) {
+                first = validPane(tab.primary)
+                second = validPane(tab.secondary)
+                share = Number(tab.ratio ?? 0.5)
+            }
+            page = m.helpOpen === true ? "help" : "inspector"
+            sidebarCollapsed = {}
+            inspectorVisible = {}
         }
-        tabs = list
-        currentIndex = Math.max(-1, Math.min(Number(map && map.current !== undefined ? map.current : -1), tabs.length - 1))
-        focused = map && map.focused ? String(map.focused) : ""
-        dashboardPinned = !!(map && map.dashboardPinned)
-        dashboardTiles = validDashboardTiles(map ? map.dashboardTiles : undefined)
-        helpOpen = !!(map && map.helpOpen)
-        helpTopic = map && map.helpTopic ? String(map.helpTopic) : "app"
-        select(currentIndex)
+        if (first.length === 0) {
+            first = second
+            second = ""
+        }
+        selected = first
+        beside = second !== first ? second : ""
+        ratio = isFinite(share) ? Math.max(0.1, Math.min(0.9, share)) : 0.5
+        const wanted = validPane(m.focused)
+        focused = isShown(wanted) ? wanted : selected
+        dockPage = page
+        helpTopic = m.helpTopic ? String(m.helpTopic) : "app"
+        if (dockPage === "help" && !m.helpTopic)
+            helpTopic = helpTopicOf(focused)
+        markOpened(selected)
+        markOpened(beside)
+        changed()
     }
 }

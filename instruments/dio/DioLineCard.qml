@@ -16,7 +16,7 @@ Rectangle {
                                    : (controller.inputMask >> line) & 1 ? DioController.In : DioController.Unused
     readonly property bool isOut: direction === DioController.Out
     readonly property bool isIn: direction === DioController.In
-    readonly property color accentColor: isOut ? Theme.math : isIn ? Theme.ch1 : Theme.textMuted
+    readonly property color accentColor: isOut ? Theme.accent : isIn ? Theme.text : Theme.textMuted
     // OUT: the written level (ELVISmx semantics); IN: the level read; unused: never lit.
     readonly property bool level: isOut ? ((controller.hasWritten ? controller.writtenLevels : 0) >> line) & 1
                                 : isIn ? (controller.lineStates >> line) & 1 : false
@@ -62,7 +62,7 @@ Rectangle {
                 anchors.centerIn: parent
                 size: Math.max(16, Math.min(36, parent.height - 6, parent.width - 16))
                 on: root.level
-                color: Theme.ch1
+                color: Theme.text
                 opacity: root.direction === DioController.Unused ? 0.4 : 1
             }
             // Readback mismatch (short circuit / overload on an output).

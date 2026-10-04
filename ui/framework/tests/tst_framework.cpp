@@ -415,9 +415,12 @@ private slots:
     void appInfoOptions()
     {
         AppInfo* info = AppInfo::instance();
-        info->setLaunch({u"--instrument"_s, u"scope"_s, u"--tile"_s, u"--run"_s, u"--show-help"_s, u"x.mybench"_s},
+        info->setLaunch({u"--instrument"_s, u"scope"_s, u"--tile"_s, u"--run"_s, u"--show-help"_s, u"--sidebar"_s,
+                         u"compact"_s, u"--inspector"_s, u"hidden"_s, u"x.mybench"_s},
                         true, u"light"_s);
         QCOMPARE(info->instrument(), u"scope"_s);
+        QCOMPARE(info->value(u"sidebar"_s), u"compact"_s);     // shell layout options take a value
+        QCOMPARE(info->value(u"inspector"_s), u"hidden"_s);
         QVERIFY(info->flag(u"tile"_s));
         QVERIFY(info->flag(u"run"_s));   // "--run" followed by an option is a flag
         QVERIFY(info->flag(u"show-help"_s));

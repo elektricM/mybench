@@ -51,71 +51,32 @@ void restoreProperties(QObject* object, const QJsonObject& json)
     json::writeProperties(object, settingProperties(object), json);
 }
 
-// --- ScopeTraceStyle ---------------------------------------------------------------------------
+// --- Trace styles ------------------------------------------------------------------------------
 
-void ScopeTraceStyle::setLineColor(const QString& color)
+void initTraceStyle(plot::TraceStyle& style, plot::TraceStyle::LineStyle lineStyle, double width)
 {
-    if (assign(m_lineColor, color))
-        emit changed();
+    style.setLineWidth(width);
+    style.setLineStyle(lineStyle);
+    style.setAsDefault();
 }
 
-void ScopeTraceStyle::setLineWidth(double width)
+QVariantMap traceStyleJson(const QJsonObject& json)
 {
-    if (assign(m_lineWidth, std::clamp(width, 0.0, 5.0)))
-        emit changed();
-}
-
-void ScopeTraceStyle::setLineStyle(LineStyle style)
-{
-    if (assign(m_lineStyle, style))
-        emit changed();
-}
-
-void ScopeTraceStyle::setPoints(bool on)
-{
-    setPointStyle(on ? (m_pointStyle == NoPoints ? FilledCircle : m_pointStyle) : NoPoints);
-}
-
-void ScopeTraceStyle::setPointStyle(PointStyle style)
-{
-    if (assign(m_pointStyle, style))
-        emit changed();
-}
-
-void ScopeTraceStyle::setInterpolation(Interpolation interpolation)
-{
-    if (assign(m_interpolation, interpolation))
-        emit changed();
-}
-
-void ScopeTraceStyle::setFillTo(FillTo fill)
-{
-    if (assign(m_fillTo, fill))
-        emit changed();
-}
-
-void ScopeTraceStyle::setFillColor(const QString& color)
-{
-    if (assign(m_fillColor, color))
-        emit changed();
-}
-
-void ScopeTraceStyle::setDefaults(LineStyle style, double width)
-{
-    m_defaultLineStyle = style;
-    m_defaultLineWidth = width;
-    reset();
-}
-
-void ScopeTraceStyle::reset()
-{
-    setLineColor(QString());
-    setLineWidth(m_defaultLineWidth);
-    setLineStyle(m_defaultLineStyle);
-    setPointStyle(NoPoints);
-    setInterpolation(Linear);
-    setFillTo(NoFill);
-    setFillColor(QString());
+    QVariantMap map = json.toVariantMap();
+    // Older versions stored enum key names ("Dash", "FilledCircle", "NoPoints", "NoFill"); the
+    // shared TraceStyle uses lower camel case and "none".
+    for (const QString& key : {u"lineStyle"_s, u"pointStyle"_s, u"interpolation"_s, u"fillTo"_s}) {
+        QString value = map.value(key).toString();
+        if (value.isEmpty() || !value.front().isUpper())
+            continue;
+        if (value == u"NoPoints"_s || value == u"NoFill"_s)
+            value = u"none"_s;
+        else
+            value.front() = value.front().toLower();
+        map.insert(key, value);
+    }
+    map.remove(u"points"_s);
+    return map;
 }
 
 // --- ScopeChannel ------------------------------------------------------------------------------
@@ -123,6 +84,7 @@ void ScopeTraceStyle::reset()
 ScopeChannel::ScopeChannel(int index, Source source, bool enabled, QObject* parent)
     : QObject(parent), m_index(index), m_source(source), m_enabled(enabled)
 {
+    initTraceStyle(m_style, plot::TraceStyle::Solid, 1.0);   // ELVISmx: 1 px solid
     connect(this, &ScopeChannel::measurementMaskChanged, this, &ScopeChannel::readoutsChanged);
     connect(this, &ScopeChannel::resultsChanged, this, &ScopeChannel::readoutsChanged);
     for (auto signal : {&ScopeChannel::sourceChanged, &ScopeChannel::voltsPerDivChanged, &ScopeChannel::inputRangeChanged})
@@ -176,15 +138,9 @@ void ScopeChannel::setInputRange(InputRange range)
         emit inputRangeChanged();
 }
 
-void ScopeChannel::setDisplayMeasurements(bool on)
-{
-    if (assign(m_displayMeasurements, on))
-        emit displayMeasurementsChanged();
-}
-
 void ScopeChannel::setMeasurementMask(int mask)
 {
-    if (assign(m_measurementMask, mask & 0x3FFF))
+    if (assign(m_measurementMask, mask & kAllMeasurements))
         emit measurementMaskChanged();
 }
 
@@ -245,27 +201,29 @@ void ScopeChannel::clearResults()
 
 QString ScopeChannel::measurementLabel(Measurement m)
 {
+    // Row titles of the measurement strip (sentence case, short).
     switch (m) {
     case Rms: return tr("RMS");
-    case Frequency: return tr("Freq");
-    case PeakToPeak: return tr("Vp-p");
+    case Frequency: return tr("Frequency");
+    case PeakToPeak: return tr("Peak-to-peak");
     case Mean: return tr("Mean");
-    case Minimum: return tr("Min");
-    case Maximum: return tr("Max");
-    case Amplitude: return tr("Ampl");
+    case Minimum: return tr("Minimum");
+    case Maximum: return tr("Maximum");
+    case Amplitude: return tr("Amplitude");
     case Period: return tr("Period");
-    case CounterFrequency: return tr("Freq (count)");
-    case DutyCycle: return tr("Duty");
-    case RiseTime: return tr("Rise");
-    case FallTime: return tr("Fall");
-    case PositiveWidth: return tr("+Width");
-    case NegativeWidth: return tr("−Width");
+    case CounterFrequency: return tr("Frequency (edges)");
+    case DutyCycle: return tr("Duty cycle");
+    case RiseTime: return tr("Rise time");
+    case FallTime: return tr("Fall time");
+    case PositiveWidth: return tr("Positive width");
+    case NegativeWidth: return tr("Negative width");
     case AcRms: return tr("AC RMS");
-    case CrestFactor: return tr("Crest");
+    case CrestFactor: return tr("Crest factor");
     case Overshoot: return tr("Overshoot");
     case Preshoot: return tr("Preshoot");
-    case SlewRate: return tr("Slew");
+    case SlewRate: return tr("Slew rate");
     case Phase: return tr("Phase");
+    case Peak: return tr("Peak");
     }
     return {};
 }
@@ -313,33 +271,36 @@ double ScopeChannel::measurementValue(const scope::Measurements& r, Measurement 
     case Preshoot: return r.preshoot;
     case SlewRate: return r.slewRate;
     case Phase: return r.phase;
+    case Peak: return r.peak;
     }
     return scope::kNaN;
 }
 
 QString ScopeChannel::measurementName(Measurement m)
 {
+    // Entries of the measurement strip's "+" menu (Title Case).
     switch (m) {
     case Rms: return tr("RMS Voltage");
     case Frequency: return tr("Frequency");
-    case PeakToPeak: return tr("Voltage Peak-to-Peak");
+    case PeakToPeak: return tr("Peak-to-Peak Voltage");
     case Mean: return tr("Mean");
     case Minimum: return tr("Minimum");
     case Maximum: return tr("Maximum");
-    case Amplitude: return tr("Amplitude (high − low)");
+    case Amplitude: return tr("Amplitude (High − Low)");
     case Period: return tr("Period");
-    case CounterFrequency: return tr("Frequency (counter)");
+    case CounterFrequency: return tr("Frequency by Edge Counting");
     case DutyCycle: return tr("Duty Cycle");
     case RiseTime: return tr("Rise Time (10–90 %)");
     case FallTime: return tr("Fall Time (90–10 %)");
     case PositiveWidth: return tr("Positive Pulse Width");
     case NegativeWidth: return tr("Negative Pulse Width");
-    case AcRms: return tr("AC RMS Voltage (DC removed)");
-    case CrestFactor: return tr("Crest Factor (peak / RMS)");
-    case Overshoot: return tr("Overshoot (above high level)");
-    case Preshoot: return tr("Preshoot (below low level)");
-    case SlewRate: return tr("Slew Rate (10–90 % rising)");
-    case Phase: return tr("Phase versus the other channel");
+    case AcRms: return tr("AC RMS (DC Removed)");
+    case CrestFactor: return tr("Crest Factor (Peak / RMS)");
+    case Overshoot: return tr("Overshoot");
+    case Preshoot: return tr("Preshoot");
+    case SlewRate: return tr("Slew Rate (Rising)");
+    case Phase: return tr("Phase to the Other Channel");
+    case Peak: return tr("Peak (Largest |V|)");
     }
     return {};
 }
@@ -350,9 +311,17 @@ QVariantList ScopeChannel::measurementCatalog()
     for (int bit = 0; bit < kMeasurementCount; ++bit) {
         const auto m = Measurement(1 << bit);
         list.append(QVariantMap{{u"flag"_s, int(m)}, {u"label"_s, measurementLabel(m)}, {u"name"_s, measurementName(m)},
-                                {u"extension"_s, (int(m) & kElvisMeasurements) == 0}});
+                                {u"unit"_s, measurementUnit(m)}, {u"extension"_s, (int(m) & kElvisMeasurements) == 0}});
     }
     return list;
+}
+
+double ScopeChannel::measurement(int flag) const
+{
+    if (!m_hasResults)
+        return scope::kNaN;
+    const double v = measurementValue(m_results, Measurement(flag));
+    return flag == DutyCycle ? v * 100.0 : v;
 }
 
 QVariantList ScopeChannel::readouts() const
@@ -385,7 +354,7 @@ QVariantList ScopeChannel::readouts() const
 QJsonObject ScopeChannel::save() const
 {
     QJsonObject json = saveProperties(this);
-    json.insert(u"style"_s, saveProperties(&m_style));
+    json.insert(u"style"_s, QJsonObject::fromVariantMap(m_style.toJson()));
     return json;
 }
 
@@ -394,14 +363,17 @@ void ScopeChannel::restore(const QJsonObject& json)
     // Source first: it bounds Volts/Div.
     if (json.contains(u"source"_s))
         restoreProperties(this, QJsonObject{{u"source"_s, json.value(u"source"_s)}});
-    restoreProperties(this, json);
+    restoreProperties(this, json);   // "displayMeasurements" of older versions is ignored
     if (json.contains(u"style"_s))
-        restoreProperties(&m_style, json.value(u"style"_s).toObject());
+        m_style.fromJson(traceStyleJson(json.value(u"style"_s).toObject()));
 }
 
 // --- ScopeMath ---------------------------------------------------------------------------------
 
-ScopeMath::ScopeMath(QObject* parent) : QObject(parent) {}
+ScopeMath::ScopeMath(QObject* parent) : QObject(parent)
+{
+    initTraceStyle(m_style, plot::TraceStyle::Solid, 1.0);
+}
 
 void ScopeMath::setEnabled(bool on)
 {
@@ -411,6 +383,8 @@ void ScopeMath::setEnabled(bool on)
 
 void ScopeMath::setOperation(Operation operation)
 {
+    if (operation == FftA || operation == FftB)
+        return;   // the spectrum is the FFT section's job (ScopeController::fftSource)
     if (assign(m_operation, operation))
         emit operationChanged();
 }
@@ -485,15 +459,15 @@ void ScopeMath::setResults(double rms, double vpp, double peakFrequency, double 
 QJsonObject ScopeMath::save() const
 {
     QJsonObject json = saveProperties(this);
-    json.insert(u"style"_s, saveProperties(&m_style));
+    json.insert(u"style"_s, QJsonObject::fromVariantMap(m_style.toJson()));
     return json;
 }
 
 void ScopeMath::restore(const QJsonObject& json)
 {
-    restoreProperties(this, json);
+    restoreProperties(this, json);   // an FFT operation is refused (ScopeController migrates it)
     if (json.contains(u"style"_s))
-        restoreProperties(&m_style, json.value(u"style"_s).toObject());
+        m_style.fromJson(traceStyleJson(json.value(u"style"_s).toObject()));
 }
 
 // --- ScopeCursor -------------------------------------------------------------------------------
@@ -501,6 +475,7 @@ void ScopeMath::restore(const QJsonObject& json)
 ScopeCursor::ScopeCursor(const QString& label, int channel, QObject* parent)
     : QObject(parent), m_label(label), m_channel(channel), m_defaultChannel(channel)
 {
+    initTraceStyle(m_style, plot::TraceStyle::Dash, 1.0);   // ELVISmx: dashed, 1 px
 }
 
 void ScopeCursor::setChannel(int channel)
@@ -517,48 +492,21 @@ void ScopeCursor::setPosition(double seconds)
     }
 }
 
-void ScopeCursor::setColor(const QString& color)
-{
-    if (assign(m_color, color))
-        emit styleChanged();
-}
-
-void ScopeCursor::setLineStyle(ScopeTraceStyle::LineStyle style)
-{
-    if (assign(m_lineStyle, style))
-        emit styleChanged();
-}
-
 void ScopeCursor::setCursorStyle(CursorStyle style)
 {
     if (assign(m_cursorStyle, style))
-        emit styleChanged();
+        emit cursorStyleChanged();
 }
 
 void ScopeCursor::setShowValue(bool on)
 {
     if (assign(m_showValue, on))
-        emit styleChanged();
-}
-
-void ScopeCursor::setLineWidth(double width)
-{
-    if (assign(m_lineWidth, std::clamp(width, 1.0, 5.0)))
-        emit styleChanged();
-}
-
-void ScopeCursor::setPointStyle(ScopeTraceStyle::PointStyle style)
-{
-    if (assign(m_pointStyle, style))
-        emit styleChanged();
+        emit showValueChanged();
 }
 
 void ScopeCursor::resetStyle()
 {
-    setColor(QString());
-    setLineWidth(1.0);
-    setPointStyle(ScopeTraceStyle::NoPoints);
-    setLineStyle(ScopeTraceStyle::Dash);
+    m_style.reset();
     setCursorStyle(VerticalLine);
     setShowValue(true);
     setChannel(m_defaultChannel);
@@ -566,7 +514,9 @@ void ScopeCursor::resetStyle()
 
 QJsonObject ScopeCursor::save() const
 {
-    return saveProperties(this);
+    QJsonObject json = saveProperties(this);
+    json.insert(u"style"_s, QJsonObject::fromVariantMap(m_style.toJson()));
+    return json;
 }
 
 void ScopeCursor::restore(const QJsonObject& json)
@@ -574,6 +524,17 @@ void ScopeCursor::restore(const QJsonObject& json)
     if (!json.contains(u"position"_s))
         setPosition(scope::kNaN);
     restoreProperties(this, json);
+    if (json.contains(u"style"_s)) {
+        m_style.fromJson(traceStyleJson(json.value(u"style"_s).toObject()));
+    } else if (json.contains(u"lineStyle"_s) || json.contains(u"color"_s)) {
+        // Older versions kept the cursor look in the cursor itself.
+        QJsonObject style{{u"lineColor"_s, json.value(u"color"_s)},
+                          {u"lineStyle"_s, json.value(u"lineStyle"_s)},
+                          {u"pointStyle"_s, json.value(u"pointStyle"_s)}};
+        if (json.contains(u"lineWidth"_s))
+            style.insert(u"lineWidth"_s, json.value(u"lineWidth"_s));
+        m_style.fromJson(traceStyleJson(style));
+    }
 }
 
 }  // namespace mybench::instruments

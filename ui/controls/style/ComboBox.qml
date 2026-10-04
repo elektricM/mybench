@@ -1,10 +1,14 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls.impl
-import QtQuick.Effects
 import QtQuick.Templates as T
 import MyBench.Controls
 
+// Pop-up button (docs/UI.md §6 "Choices"): looks like a push button with a chevron; editable
+// combos look like a text field. The list opens below as a popup window (in-window popup in
+// screenshot/test mode, Theme.inlinePopups), the current entry carries a check mark.
+// - Press-drag-release: press the combo, drag onto the list, release on an entry to pick it.
+// - Wheel: only when the combo has focus or the wheel gesture starts over it (WheelGuard); never
+//   on macOS, where pop-up buttons ignore the wheel. Type-ahead selects by the first letters.
 T.ComboBox {
     id: control
 
@@ -14,14 +18,17 @@ T.ComboBox {
                              implicitContentHeight + topPadding + bottomPadding,
                              implicitIndicatorHeight + topPadding + bottomPadding)
 
-    leftPadding: padding + (!control.mirrored || !indicator || !indicator.visible ? 0 : indicator.width + spacing)
-    rightPadding: padding + (control.mirrored || !indicator || !indicator.visible ? 0 : indicator.width + spacing)
-    padding: 4
-    spacing: 4
+    // Stable width from the widest entry (a combo never resizes when its value changes).
+    implicitContentWidthPolicy: T.ComboBox.WidestTextWhenCompleted
+    leftPadding: Theme.spacingS + (!mirrored || !indicator || !indicator.visible ? 0 : indicator.width + spacing)
+    rightPadding: Theme.spacingS + (mirrored || !indicator || !indicator.visible ? 0 : indicator.width + spacing)
+    topPadding: 0
+    bottomPadding: 0
+    spacing: Theme.spacingXs
     hoverEnabled: true
-    // Native wheel etiquette (KDE/Breeze, Qt Widgets): the wheel steps through the entries only
-    // when the combo has focus or the wheel gesture starts over it; a scroll that passes over the
-    // combo keeps scrolling its view (WheelGuard). macOS pop-up buttons never take the wheel.
+    font.pixelSize: Theme.fontSizeBody
+
+    // --- Wheel (WheelGuard etiquette) ----------------------------------------------------------
     // T.ComboBox's own wheel handling stays off: it would take the events unconditionally.
     property bool wheelChanges: !Theme.macShortcuts
     wheelEnabled: false
@@ -47,9 +54,7 @@ T.ComboBox {
         }
     }
 
-    // Press-drag-release: pressing the combo and dragging onto the list opens it and highlights the
-    // entry under the pointer; releasing over an entry selects it (releasing on the combo itself
-    // keeps the normal click behavior).
+    // --- Press-drag-release --------------------------------------------------------------------
     property int dragIndex: -1
     readonly property ListView dragList: popup.contentItem as ListView
     function delegateAt(scenePoint: point): var {
@@ -96,32 +101,59 @@ T.ComboBox {
         }
     }
 
-    delegate: ItemDelegate {
+    delegate: T.ItemDelegate {
+        id: row
         required property var model
         required property int index
+        readonly property bool current: control.currentIndex === index
+        readonly property bool lit: control.highlightedIndex === index || control.dragIndex === index
 
         width: ListView.view.width
+        implicitHeight: Theme.controlHeight - 2
+        leftPadding: Theme.spacingS + 16
+        rightPadding: Theme.spacingS
         text: model[control.textRole]
-        font.weight: control.currentIndex === index ? Font.DemiBold : Font.Normal
-        highlighted: control.highlightedIndex === index || control.dragIndex === index
+        font: control.font
         hoverEnabled: control.hoverEnabled
+        highlighted: lit
         checkable: true
-        checked: control.currentIndex === index
+        checked: current
+        Accessible.name: text
+
+        contentItem: Text {
+            text: row.text
+            font: row.font
+            color: !row.enabled ? Theme.textDisabled : row.lit ? Theme.selectionText : Theme.text
+            elide: Text.ElideRight
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: Theme.radiusControl - 1
+            color: row.lit ? Theme.selection : "transparent"
+            Icon {
+                visible: row.current
+                x: (Theme.spacingS + 16 - width) / 2
+                anchors.verticalCenter: parent.verticalCenter
+                name: "check"
+                size: 12
+                color: row.lit ? Theme.selectionText : Theme.text
+            }
+        }
     }
 
     indicator: Icon {
-        x: control.mirrored ? control.padding + 4 : control.width - width - control.padding - 6
-        y: control.topPadding + (control.availableHeight - height) / 2
-        name: "chevron-down-line"
+        x: control.mirrored ? Theme.spacingS : control.width - width - Theme.spacingS
+        y: (control.height - height) / 2
+        name: "chevron-down"
         size: 12
-        color: control.enabled ? (control.hovered ? Theme.text : Theme.textMuted) : Theme.textDisabled
-        rotation: control.popup.visible ? 180 : 0
-        Behavior on rotation { NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic } }
+        color: control.enabled ? Theme.textSecondary : Theme.textDisabled
     }
 
     contentItem: T.TextField {
-        leftPadding: !control.mirrored ? 6 : 1
-        rightPadding: control.mirrored ? 6 : 1
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
         text: control.editable ? control.editText : control.displayText
         enabled: control.editable
         autoScroll: control.editable
@@ -131,46 +163,42 @@ T.ComboBox {
         selectByMouse: control.selectTextByMouse
         font: control.font
         color: control.enabled ? Theme.text : Theme.textDisabled
-        selectionColor: Theme.alpha(Theme.accent, 0.35)
-        selectedTextColor: Theme.text
+        selectionColor: Theme.selection
+        selectedTextColor: Theme.selectionText
         verticalAlignment: Text.AlignVCenter
     }
 
     background: Rectangle {
         implicitWidth: 120
         implicitHeight: Theme.controlHeight
-        radius: Theme.radiusM
-        visible: !control.flat || control.down || control.hovered
-        color: control.editable ? Theme.surfaceSunken
-             : control.down || control.popup.visible ? Theme.surfacePressed
-             : control.hovered ? Theme.surfaceHover : Theme.surfaceRaised
-        border.width: 1
-        border.color: control.activeFocus && control.editable ? Theme.accent
-                    : control.popup.visible ? Theme.borderStrong
-                    : control.hovered ? Theme.borderStrong : Theme.border
+        radius: Theme.radiusControl
+        color: control.editable ? Theme.base : control.flat ? "transparent" : Theme.controlFill
+        border.width: control.flat && !control.editable ? 0 : Theme.borderWidth
+        border.color: control.editable && control.activeFocus ? Theme.accent : Theme.controlBorder
         opacity: control.enabled ? 1 : 0.55
-        Behavior on color { ColorAnimation { duration: Theme.durationFast } }
-        FocusRing { shown: control.visualFocus; radius: Theme.radiusM + 3 }
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            visible: !control.editable
+            color: control.down || control.popup.visible ? Theme.pressedFill
+                 : control.hovered ? Theme.hoverFill : "transparent"
+        }
+        FocusRing { shown: control.visualFocus }
     }
 
     popup: T.Popup {
-        y: control.height + 4
+        popupType: Theme.inlinePopups ? T.Popup.Item : T.Popup.Window
+        y: control.height + 2
         width: Math.max(control.width, 140)
         height: Math.min(contentItem.implicitHeight + topPadding + bottomPadding, 420)
-        topMargin: 8
-        bottomMargin: 8
-        padding: 4
+        topMargin: Theme.spacingS
+        bottomMargin: Theme.spacingS
+        padding: Theme.spacingXs
         font: control.font
         palette: control.palette
 
         enter: Transition {
-            ParallelAnimation {
-                NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationFast }
-                NumberAnimation { property: "scale"; from: 0.97; to: 1; duration: Theme.durationNormal; easing.type: Easing.OutCubic }
-            }
-        }
-        exit: Transition {
-            NumberAnimation { property: "opacity"; to: 0; duration: Theme.durationFast }
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durationFast }
         }
 
         contentItem: ListView {
@@ -183,20 +211,8 @@ T.ComboBox {
             T.ScrollIndicator.vertical: ScrollIndicator {}
         }
 
-        background: Rectangle {
-            radius: Theme.radiusL
-            color: Theme.surfaceRaised
-            border.width: 1
-            border.color: Theme.dark ? "#2C303A" : Theme.border
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                shadowEnabled: true
-                shadowColor: Theme.shadow
-                shadowBlur: 0.8
-                shadowVerticalOffset: 6
-                shadowOpacity: Theme.dark ? 0.9 : 0.45
-                blurMax: 32
-            }
+        background: PopupFrame {
+            shadow: control.popup.popupType === T.Popup.Item
         }
     }
 }

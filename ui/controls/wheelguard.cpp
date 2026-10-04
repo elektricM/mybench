@@ -30,22 +30,18 @@ void WheelGuard::setFresh(bool fresh)
 
 bool WheelGuard::eventFilter(QObject* watched, QEvent* event)
 {
-    if (event->type() == QEvent::Wheel) {
+    // Classify each wheel event once, when it reaches its window: Qt Quick then re-sends it to the
+    // items under the pointer, which must not count as further events of the gesture.
+    if (event->type() == QEvent::Wheel && watched->isWindowType()) {
         const auto* wheel = static_cast<QWheelEvent*>(event);
         const bool paused = !m_last.isValid() || m_last.elapsed() > m_gap;
-        switch (wheel->phase()) {
-        case Qt::ScrollBegin:
-            setFresh(true);
-            break;
-        case Qt::ScrollUpdate:
-        case Qt::ScrollMomentum:
-        case Qt::ScrollEnd:
-            setFresh(false);
-            break;
-        case Qt::NoScrollPhase:
-            setFresh(paused);
-            break;
-        }
+        // A touchpad gesture begins with ScrollBegin; a phase-less (mouse) event after a pause
+        // begins a new gesture; updates, momentum and the end continue the current one.
+        const Qt::ScrollPhase phase = wheel->phase();
+        const bool starts = phase == Qt::ScrollBegin || (phase == Qt::NoScrollPhase && paused);
+        setFresh(starts);
+        if (starts)
+            emit gestureStarted();
         m_last.start();
     }
     return QObject::eventFilter(watched, event);

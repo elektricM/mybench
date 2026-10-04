@@ -13,7 +13,7 @@ Item {
 
     required property GenController controller
     required property GenChannel channel
-    readonly property color channelColor: channel.index === 0 ? Theme.ch0 : Theme.ch1
+    readonly property color channelColor: channel.index === 0 ? Theme.signalAo0 : Theme.signalAo1
     readonly property bool frequencyView: controller.displayMode === GenController.Frequency
     readonly property bool dcChart: channel.mode === GenChannel.Dc && !frequencyView
     readonly property bool active: channel.state === GenChannel.Running || channel.state === GenChannel.Sweeping

@@ -44,6 +44,12 @@ BodeController::BodeController() : InstrumentController(u"bode"_s)
     }
     m_maxGainDb = m_unityGain = m_phaseMargin = m_phaseCrossover = m_gainMargin = kNaN;
     updatePlan();
+    // Key value (sidebar, Overview): sweep progress while sweeping, then "f₋₃dB 1.23 kHz".
+    connect(this, &BodeController::pointsChanged, this, [this] {
+        setKeyValue(isRunning() && m_total > 0 ? tr("Point %1/%2").arg(pointCount()).arg(m_total)
+                    : !m_cutoff.isEmpty() ? u"f₋₃dB "_s + mydaq::dsp::formatEng(m_cutoff.first(), u"Hz"_s, 3, false)
+                    : QString());
+    });
 }
 
 BodeController::~BodeController()
@@ -878,6 +884,7 @@ void registerBode(InstrumentRegistry& registry)
         .module = u"MyBench.Instruments.Bode"_s,
         .icon = u"instrument-bode"_s,
         .order = 40,
+        .group = QStringLiteral("measure"),
         .createController = [] { return new BodeController; },
     });
 }
