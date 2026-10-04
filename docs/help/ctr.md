@@ -64,8 +64,8 @@ field beside them, or use − / +.
   (degrees). *Z Index* on DIO 1 reloads the *Z Index Value* once per turn. The secondary line
   shows velocity or rpm.
 - **Expected Range**: the slowest and fastest values you expect. MYBENCH picks the counter's
-  timebase from it (100 MHz, 20 MHz or 100 kHz) and shows its resolution and the longest interval
-  it can time.
+  timebase from it (100 MHz, 20 MHz or 100 kHz); the tooltips of the two fields show its
+  resolution and the longest interval it can time.
 - **Acquisition**: *On Demand* takes the latest measurement every *Update interval* (knob); *Buffered*
   measures every single period (best for statistics and jitter; Single measures the number of
   *Samples* and stops). Edge counts and encoders are always on demand.

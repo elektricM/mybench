@@ -21,6 +21,23 @@ class TestLogQml : public QObject
 {
     Q_OBJECT
 
+
+    // Every object with a display title (the InstrumentPanel and its pane parts) shows none:
+    // the values are in their controls ("less text, more instrument").
+    static void verifyNoDisplayText(QObject* root)
+    {
+        int panels = 0;
+        for (QObject* o : root->findChildren<QObject*>()) {
+            if (o->metaObject()->indexOfProperty("displayTitle") < 0)
+                continue;
+            ++panels;
+            QCOMPARE(o->property("displayTitle").toString(), QString());
+            if (o->metaObject()->indexOfProperty("displayInfo") >= 0)
+                QCOMPARE(o->property("displayInfo").toString(), QString());
+        }
+        QVERIFY(panels > 0);
+    }
+
 private slots:
     void initTestCase()
     {
@@ -75,6 +92,15 @@ private slots:
         QVERIFY2(pane.contains(p) && pane.contains(c), qPrintable(describe(p) + u" / "_s + describe(c)));
         QVERIFY2(p.right() <= c.left() + 0.5, qPrintable(describe(p) + u" vs "_s + describe(c)));
         QVERIFY(c.width() < p.width() || size.width() < 500);   // the display stays the larger part
+
+        // Less text: no display title or info line; the AI cards carry only the range chip.
+        verifyNoDisplayText(root.get());
+        if (QTest::currentTestFailed())
+            return;
+        auto* ai0 = root->findChild<QObject*>(u"logCardAi0"_s);
+        QVERIFY(ai0);
+        QCOMPARE(ai0->property("subtitle").toString(), QString());
+        QCOMPARE(ai0->property("facts").toStringList(), QStringList{u"±10 V"_s});
 
         // Log File tool: one Format choice; the restored ELVISmx layout shows as "ELVISmx".
         auto* fileType = root->findChild<QQuickItem*>(u"logFileType"_s);

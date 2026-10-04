@@ -90,9 +90,19 @@ Item {
         return paneId.indexOf("/") >= 0 ? (InstrumentRegistry.viewInfo(paneId).icon ?? "")
                                         : (InstrumentRegistry.info(paneId).icon ?? "")
     }
-    function textEdit(): Item {
+    function textEdit(): var {
         const item = Window.activeFocusItem
-        return item && typeof item.selectAll === "function" && typeof item.paste === "function" ? item : null
+        return item && canCall(item, "selectAll") && canCall(item, "paste") ? item : null
+    }
+    // Duck-typed calls (text fields, panels with copy()); names resolved at run time.
+    function canCall(object: var, name: string): bool {
+        return object !== null && object !== undefined && typeof object[name] === "function"
+    }
+    function callIf(object: var, name: string): bool {
+        if (!canCall(object, name))
+            return false
+        object[name]()
+        return true
     }
 
     // --- File ----------------------------------------------------------------------------------------
@@ -152,25 +162,22 @@ Item {
     // --- Edit (the focused text field, else the focused pane) ------------------------------------
     property ShellAction cut: ShellAction {
         text: qsTr("Cut"); keys: StandardKey.Cut; inPalette: false
-        onTriggered: { const field = actions.textEdit(); if (field) field.cut() }
+        onTriggered: actions.callIf(actions.textEdit(), "cut")
     }
     property ShellAction copy: ShellAction {
         text: qsTr("Copy"); iconName: "copy"; keys: StandardKey.Copy; inPalette: false
         onTriggered: {
-            const field = actions.textEdit()
-            if (field)
-                field.copy()
-            else if (actions.focusedPanel && typeof actions.focusedPanel.copy === "function")
-                actions.focusedPanel.copy()
+            if (!actions.callIf(actions.textEdit(), "copy"))
+                actions.callIf(actions.focusedPanel, "copy")
         }
     }
     property ShellAction paste: ShellAction {
         text: qsTr("Paste"); keys: StandardKey.Paste; inPalette: false
-        onTriggered: { const field = actions.textEdit(); if (field) field.paste() }
+        onTriggered: actions.callIf(actions.textEdit(), "paste")
     }
     property ShellAction selectAll: ShellAction {
         text: qsTr("Select All"); keys: StandardKey.SelectAll; inPalette: false
-        onTriggered: { const field = actions.textEdit(); if (field) field.selectAll() }
+        onTriggered: actions.callIf(actions.textEdit(), "selectAll")
     }
 
     // --- View ----------------------------------------------------------------------------------------
@@ -312,7 +319,7 @@ Item {
         onTriggered: actions.focusedController.returnToSafeState()
     }
     property ShellAction resetAllInstruments: ShellAction {
-        text: qsTr("Reset All Instruments…"); iconName: "reset"; keywords: "defaults revert"
+        text: qsTr("Reset All Instruments to Defaults…"); iconName: "reset"; keywords: "defaults revert"
         onTriggered: actions.dialogs.resetAllInstruments()
     }
     // The focused instrument's commands (InstrumentController.commands).

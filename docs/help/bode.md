@@ -14,7 +14,7 @@ Start and Stop frequencies (1 Hz to 20 kHz).
 | circuit output | **AI 1+** (response) |
 | **AI 0-**, **AI 1-**, circuit ground | **AGND** |
 
-The display shows the reminder `Connections: AI 0 - AO 0   AI 1 - Signal`.
+The display shows the reminder `AI 0 – AO 0 · AI 1 – Signal`.
 
 ## Quick start
 
@@ -97,7 +97,7 @@ The gain trace uses the AI 0 colour, the phase trace the AI 1 colour.
 - **Gain and phase margins** – for loop-gain measurements: phase margin = 180° + phase at the 0 dB
   crossover; gain margin = minus the gain where the phase crosses -180°.
 
-The card lists the values; the measurement cards show them too.
+The measurement cards under the graph show the values.
 
 ### References
 

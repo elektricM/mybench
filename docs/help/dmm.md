@@ -52,10 +52,10 @@ Measure resistance, diodes and continuity only on circuits that are switched off
   - Resistance: 200Ω, 2kΩ, 20kΩ, 200kΩ, 2MΩ, 20MΩ
   - Diode: 2V · Continuity: no range to choose
 
-  Changing the function selects its largest range again. In Auto the status line under the
-  readout shows the range in use.
+  Changing the function selects its largest range again. In Auto the line under the readout
+  shows the range in use.
 - **Relative** (top bar) – null offset. When you switch it on, the next valid reading becomes the
-  null value (shown as `Relative to …` in the status line) and later readings are shown minus that value.
+  null value (shown under the readout) and later readings are shown minus that value.
   Use it to cancel the resistance of the test leads or an offset. Switch it off and on again to take
   a new null value; changing the function switches it off.
 
@@ -66,8 +66,8 @@ Measure resistance, diodes and continuity only on circuits that are switched off
 - **% FS** – how much of the range the raw reading uses (0 – 100 %). A small percentage means a
   smaller range would give more resolution.
 - **+Over** – the input is beyond the range: choose a larger range or Auto.
-- **Status line** – the range in use, the null value while Relative is on, the diode or continuity
-  state and Hold.
+- **Under the readout** – only what the controls do not show: the range Auto picked, the null
+  value while Relative is on, and the diode state.
 - **Trend** – the readings over the last 1 min, 10 min, 1 h or everything (time window and Clear
   in the chart's toolbar). Overloads leave gaps. Drag to pan, scroll to zoom, double-click to
   return. The trend restarts when you change the function.

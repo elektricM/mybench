@@ -239,7 +239,7 @@ Item {
             }
         }
 
-        // --- Display Mode (ELVISmx: under the spectrum) + averaging state -----------------------
+        // --- Display Mode (ELVISmx: under the spectrum) + averaging progress -----------------------
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingM
@@ -253,8 +253,12 @@ Item {
                                                                                    : DsaController.PowerSpectrumDisplay
             }
             Item { Layout.fillWidth: true }
+            // Averaging progress only while the average fills (mode and count are in the
+            // Averaging tool).
             Text {
-                text: root.controller.averagingText
+                objectName: "averagingProgress"
+                visible: root.controller.averagesTarget > 1 && root.controller.averagesDone < root.controller.averagesTarget
+                text: qsTr("Avg %1/%2").arg(root.controller.averagesDone).arg(root.controller.averagesTarget)
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSizeM
                 font.features: Theme.tabularFigures

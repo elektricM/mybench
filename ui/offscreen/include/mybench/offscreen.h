@@ -25,6 +25,11 @@
 //   --theme dark|light        sets QStyleHints::colorScheme (+ LaunchOptions::theme for setup())
 //   --dpr <ratio>             device pixel ratio of the screenshot (default 1; 2 = retina)
 //   --samples <n>             MSAA sample count of the offscreen target (default 1, like a window)
+//   --style <name>            Qt Quick Controls style: native (the platform's: macOS, FluentWinUI3,
+//                             org.kde.desktop or Fusion), mybench (MyBench.Style), or any style name
+//   --grab <file.png>         run on the REAL platform (e.g. cocoa, native style), show the window
+//                             transparent and without focus, grab it with QQuickWindow::grabWindow()
+//                             after --delay, write the PNG and exit (verifies native looks)
 //   --help-launch             print these options
 //
 // With --screenshot and no QT_QPA_PLATFORM / -platform given, the "offscreen" platform plugin is
@@ -58,11 +63,27 @@ struct LaunchOptions {
     QString theme;               // "dark", "light" or empty (not given)
     qreal devicePixelRatio = 1.0;
     int samples = 1;
+    QString style;               // --style (empty: QmlApp::style)
+    QString grabPath;            // --grab: real-platform window capture
     bool help = false;
     QStringList arguments;       // arguments not consumed here (program name excluded)
 
     bool screenshot() const { return !screenshotPath.isEmpty(); }
+    bool grab() const { return !grabPath.isEmpty(); }
+    bool capture() const { return screenshot() || grab(); }   // a one-shot image run
 };
+
+// The platform's own Qt Quick Controls style: "macOS", "FluentWinUI3" (Windows), "org.kde.desktop"
+// when its QML module is installed (KDE Plasma), else "Fusion".
+QString nativeQuickStyle();
+
+// Resolves a style request: "native" -> nativeQuickStyle(), "mybench" -> "MyBench.Style", any other
+// name as is. `offscreenRender`: offscreen/test rendering, where "native" means "Fusion" (the macOS
+// and Windows styles draw no bezels without a real window).
+QString resolveQuickStyle(const QString &name, bool offscreenRender);
+
+// The Qt Quick Controls style runQmlApp() selected (empty before; "Basic", "Fusion", "macOS", ...).
+QString quickStyle();
 
 // Parses `args` (program name excluded). Unknown arguments go to LaunchOptions::arguments.
 // Returns false and sets *error on malformed options (e.g. "--size abc").
@@ -87,7 +108,9 @@ struct QmlApp {
     QString applicationName;          // QCoreApplication::applicationName / window title
     QString organizationName;         // for QSettings / QtCore.Settings
     QString organizationDomain;
-    QString style = QStringLiteral("Basic");  // Qt Quick Controls style; empty = keep default
+    // Qt Quick Controls style; empty = keep default. "native" = the platform style on a real screen
+    // and Fusion offscreen (--screenshot, tests) unless --style names one.
+    QString style = QStringLiteral("Basic");
     QSize defaultSize{1280, 800};     // used when neither --size nor the root gives a size
 
     // Called after the engine exists and before the root is created. Register singletons, add

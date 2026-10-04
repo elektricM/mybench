@@ -90,6 +90,38 @@ Rectangle {
     // The keyboard cursor follows the selection.
     onSelectedPaneChanged: list.currentIndex = indexOfPane(selectedPane)
 
+    // A pane header dropped here closes that pane (the instrument keeps running).
+    DropArea {
+        id: closeDrop
+        objectName: "sidebarDropArea"
+        anchors.fill: parent
+        keys: ["mybench/instrument"]
+        onEntered: drag => drag.accepted = (drag.source as DragChip)?.origin === "pane"
+        onDropped: drop => {
+            const chip = drop.source as DragChip
+            if (chip && chip.origin === "pane") {
+                drop.accept()
+                sidebar.workspace.dropOnSidebar(chip.paneId)
+            }
+        }
+    }
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: Theme.spacingXs
+        z: 2
+        visible: closeDrop.containsDrag
+        radius: Theme.radiusControl
+        color: Qt.alpha(Theme.accent, 0.12)
+        border.width: Theme.borderWidth
+        border.color: Theme.accent
+        Icon {
+            anchors.centerIn: parent
+            name: "close"
+            size: Theme.iconSizeL
+            color: Theme.accent
+        }
+    }
+
     ListView {
         id: list
         objectName: "sidebarList"

@@ -79,7 +79,7 @@ Shapes each record before the FFT. *None* is exact for signals that fit the reco
   (keeps the maximum of each line).
 - **Weighting** (RMS and Vector only) – *Linear*: averages the first N spectra, then holds the result
   until you restart. *Exponential*: a running average where each new spectrum counts 1/N.
-- **Averages** – N (knob).
+- **Averages** – N (knob). While the average fills, `Avg n/N` shows under the spectrum.
 - **Restart** (instrument bar) starts the averaging again. Changing the window or an averaging
   setting also restarts it; changing the source, range, span or lines restarts the acquisition.
 

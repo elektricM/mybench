@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
@@ -96,6 +95,65 @@ Item {
         visible: false
     }
 
+    // Drop target of instrument rows, Overview tiles and pane headers (docs/UI.md §8): the left or
+    // right third splits (or swaps a dragged pane), the middle replaces the focused pane. The
+    // accent preview shows the area the instrument will take.
+    DropArea {
+        id: drop
+        objectName: "workspaceDropArea"
+        anchors.fill: parent
+        z: 10
+        keys: ["mybench/instrument"]
+        property string zone: ""
+        readonly property DragChip chip: drag.source as DragChip
+        readonly property bool fromPane: chip !== null && chip.origin === "pane"
+
+        function zoneAt(x: real): string {
+            if (view.workspace.overview && !fromPane)
+                return "center"
+            if (x < width / 3)
+                return "left"
+            if (x > width * 2 / 3)
+                return "right"
+            return fromPane ? "" : "center"
+        }
+        // A pane header only swaps: its own half (and the middle) drop nothing.
+        function acceptsZone(z: string): bool {
+            if (!fromPane)
+                return z.length > 0
+            return view.splitShown && ((z === "left" && chip.paneId === view.rightPane)
+                                       || (z === "right" && chip.paneId === view.leftPane))
+        }
+        onEntered: drag => zone = zoneAt(drag.x)
+        onPositionChanged: drag => zone = zoneAt(drag.x)
+        onExited: zone = ""
+        onDropped: dropEvent => {
+            const source = dropEvent.source as DragChip
+            const where = zoneAt(dropEvent.x)
+            zone = ""
+            if (!source || !acceptsZone(where))
+                return
+            dropEvent.accept()
+            view.workspace.dropPane(source.paneId, where, source.origin === "pane")
+        }
+
+        Rectangle {
+            objectName: "dropPreview"
+            visible: drop.containsDrag && drop.acceptsZone(drop.zone)
+            // The middle replaces the focused pane: its slot in a split, else everything.
+            readonly property bool focusRight: view.splitShown && view.workspace.focused === view.rightPane
+            x: drop.zone === "right" ? parent.width / 2
+             : drop.zone === "center" && focusRight ? leftSlot.width : 0
+            width: drop.zone !== "center" ? parent.width / 2
+                 : !view.splitShown ? parent.width
+                 : focusRight ? parent.width - leftSlot.width : leftSlot.width
+            height: parent.height
+            color: Qt.alpha(Theme.accent, 0.14)
+            border.width: 2
+            border.color: Theme.accent
+        }
+    }
+
     // Keyboard focus moving into a pane focuses it.
     Connections {
         target: view.Window.window
@@ -170,6 +228,12 @@ Item {
             Binding {
                 target: host.panel
                 when: host.panel !== null
+                property: "draggable"
+                value: host.slot !== null
+            }
+            Binding {
+                target: host.panel
+                when: host.panel !== null
                 property: "note"
                 value: view.workspace.split && !view.splitShown && host.slot !== null
                        ? qsTr("Split hidden — window too narrow") : ""
@@ -179,6 +243,16 @@ Item {
                 function onCloseRequested() {
                     view.workspace.closePane(host.paneId)
                 }
+            }
+            // Drag image of the pane header's title (drop: swap the panes, or close on the sidebar).
+            DragChip {
+                objectName: "paneDragChip"
+                handler: host.panel ? host.panel.paneHeader.titleDrag : null
+                source: host
+                paneId: host.paneId
+                title: host.panel ? host.panel.paneHeader.title : ""
+                iconName: host.panel ? host.panel.paneHeader.iconName : ""
+                origin: "pane"
             }
             // Pane-shaped placeholder while the panel is created.
             PanePlaceholder {

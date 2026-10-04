@@ -82,17 +82,30 @@ Item {
         }
     }
 
-    Text {
+    // Channel legend: swatch + name. A hollow swatch means the output switch is off.
+    Row {
+        objectName: "previewLegend" + root.channel.index
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.leftMargin: plot.plotArea.x + 8
         anchors.topMargin: plot.plotArea.y + 6
         visible: plot.visible
-        text: root.channel.name + (root.dcChart ? qsTr(" · level history") : root.frequencyView ? qsTr(" · spectrum")
-                                   : root.channel.previewStep && root.channel.mode === GenChannel.Function ? qsTr(" · output samples") : "")
-        color: Theme.alpha(root.channelColor, 0.9)
-        font.pixelSize: Theme.fontSizeS
-        font.weight: Font.DemiBold
+        spacing: 6
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: 12
+            height: 4
+            radius: 2
+            color: root.channel.outputOn ? root.channelColor : "transparent"
+            border.width: root.channel.outputOn ? 0 : 1
+            border.color: root.channelColor
+        }
+        Text {
+            text: root.channel.name
+            color: root.channel.outputOn ? Theme.alpha(root.channelColor, 0.9) : Theme.displayTextSecondary
+            font.pixelSize: Theme.fontSizeS
+            font.weight: Font.DemiBold
+        }
     }
 
     Rectangle {
@@ -115,7 +128,7 @@ Item {
                 border.color: root.channelColor
             }
             Text {
-                text: qsTr("%1 is off · 0 V").arg(root.channel.name)
+                text: qsTr("%1 off").arg(root.channel.name)
                 color: Theme.textMuted
                 font.pixelSize: Theme.fontSizeM
             }

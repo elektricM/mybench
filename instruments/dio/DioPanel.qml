@@ -11,7 +11,7 @@ import MyBench.Plot
 // Release Outputs is the pane header's own. Display: Inputs / Outputs values, eight line tiles
 // (DIO 7 ... DIO 0: LED, direction, owner, the manual-pattern switch of OUT lines) and the
 // timeline (window selector in its toolbar). Right column: Lines (direction per line), Reader
-// (sample interval), Writer (pattern picture buttons and its settings), tools (Labels, Timeline).
+// (sample interval), Writer (pattern picture buttons and its settings), the Labels tool.
 Item {
     id: root
 
@@ -54,9 +54,7 @@ Item {
         id: panel
         anchors.fill: parent
         controller: root.controller
-        displayTitle: qsTr("Line States")
-        displayInfo: [root.hasInputs ? qsTr("Read %1").arg(root.controller.readLinesLabel) : "",
-                      root.hasOutputs ? qsTr("Write %1").arg(root.controller.writeLinesLabel) : ""].filter(s => s.length > 0).join(" · ")
+        // No display title or info line: the line groups are in the Lines card.
         showRunControls: false
         runBar.showTimeout: false
         inspector: []
@@ -146,11 +144,6 @@ Item {
                                 font.weight: Font.DemiBold
                                 font.letterSpacing: 1
                             }
-                            Text {
-                                text: valueBlock.modelData.output ? root.controller.writeLinesLabel : root.controller.readLinesLabel
-                                color: Theme.textMuted
-                                font.pixelSize: Theme.fontSizeXs
-                            }
                         }
                         RowLayout {
                             spacing: Theme.spacingS
@@ -171,27 +164,6 @@ Item {
                     }
                 }
                 Item { Layout.fillWidth: true }
-                // Writer state.
-                ColumnLayout {
-                    visible: root.hasOutputs
-                    spacing: 2
-                    Text {
-                        Layout.alignment: Qt.AlignRight
-                        text: qsTr("PATTERN")
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSizeXs
-                        font.weight: Font.DemiBold
-                        font.letterSpacing: 1
-                    }
-                    Text {
-                        Layout.alignment: Qt.AlignRight
-                        text: root.controller.patternNames[root.controller.pattern]
-                              + (root.controller.pattern !== DioController.Manual && root.controller.running && root.controller.sequenceStep >= 0
-                                 ? qsTr(" · every %1 ms").arg(root.controller.stepInterval) : "")
-                        color: Theme.textSecondary
-                        font.pixelSize: Theme.fontSizeBody
-                    }
-                }
             }
 
             // Line cards, MSB left (DIO 7 ... DIO 0) as in ELVISmx.
@@ -254,7 +226,7 @@ Item {
                     Component.onCompleted: root.resetTimelineView()
                     ToolTip.visible: timelineHover.hovered && timelineHover.point.position.y < 26
                     ToolTip.delay: 900
-                    ToolTip.text: qsTr("Software-timed sampling: pulses shorter than the sample interval can be missed, edges have several ms of jitter.")
+                    ToolTip.text: qsTr("Software-timed sampling: pulses shorter than the sample interval can be missed, edges have several ms of jitter. The last 10 minutes are kept.")
                     HoverHandler { id: timelineHover }
                 }
                 Row {
@@ -376,7 +348,6 @@ Item {
                         objectName: "dioLinesCard"
                         Layout.fillWidth: true
                         title: qsTr("Lines")
-                        subtitle: root.controller.readLinesLabel + " in · " + root.controller.writeLinesLabel + " out"
                         color: Theme.accent
                         checkable: false
                         compact: root.narrow
@@ -460,7 +431,6 @@ Item {
                         objectName: "dioReaderCard"
                         Layout.fillWidth: true
                         title: qsTr("Reader")
-                        subtitle: root.controller.readLinesLabel
                         color: Theme.text
                         checkable: false
                         compact: root.narrow
@@ -477,7 +447,7 @@ Item {
                             logarithmic: true
                             defaultValue: 0.1
                             value: root.controller.sampleInterval / 1000
-                            caption: qsTr("Inputs and timeline; software timed")
+                            toolTip: qsTr("Inputs and timeline; software timed")
                             onValueModified: v => root.controller.sampleInterval = Math.round(v * 1000)
                         }
                     }
@@ -488,7 +458,6 @@ Item {
                         visible: root.hasOutputs
                         Layout.fillWidth: true
                         title: qsTr("Writer")
-                        subtitle: root.controller.writeLinesLabel
                         color: Theme.accent
                         checkable: false
                         compact: root.narrow
@@ -559,13 +528,6 @@ Item {
                                     }
                                 }
                             }
-                            Text {
-                                Layout.fillWidth: true
-                                text: qsTr("Flip a line with its switch in the display, or keys 0–7.")
-                                color: Theme.textTertiary
-                                font.pixelSize: Theme.fontSizeCaption
-                                wrapMode: Text.WordWrap
-                            }
                         }
                         ColumnLayout {
                             visible: root.controller.pattern === DioController.Manual || root.controller.pattern === DioController.WalkingOnes
@@ -597,7 +559,7 @@ Item {
                             logarithmic: true
                             defaultValue: 0.5
                             value: root.controller.stepInterval / 1000
-                            caption: qsTr("Time between two values of the pattern")
+                            toolTip: qsTr("Time between two values of the pattern")
                             onValueModified: v => root.controller.stepInterval = Math.round(v * 1000)
                         }
                     }
@@ -606,8 +568,7 @@ Item {
                         objectName: "dioTools"
                         Layout.fillWidth: true
                         columns: 3
-                        model: [{ id: "labels", text: qsTr("Labels"), icon: "edit" },
-                                { id: "timeline", text: qsTr("Timeline"), icon: "trend" }]
+                        model: [{ id: "labels", text: qsTr("Labels"), icon: "edit" }]
                         currentId: root.tool
                         onActivated: id => root.tool = root.tool === id ? "" : id
                     }
@@ -646,29 +607,6 @@ Item {
                         onEditingFinished: root.controller.setLineLabel(labelRow.line, text)
                     }
                 }
-            }
-        }
-        ToolPanel {
-            objectName: "dioTimelinePanel"
-            visible: root.tool === "timeline"
-            anchors { right: column.left; top: parent.top; margins: Theme.spacingS }
-            width: 300
-            z: 10
-            title: qsTr("Timeline")
-            onCloseRequested: root.tool = ""
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("All eight lines are sampled by software every sample interval (not a hardware-timed logic analyzer): pulses shorter than the interval can be missed and edges have several ms of jitter. The last 10 minutes are kept; Export Data saves them.")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeS
-                wrapMode: Text.WordWrap
-            }
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Window, cursors, pause and clear are in the timeline's toolbar.")
-                color: Theme.textTertiary
-                font.pixelSize: Theme.fontSizeCaption
-                wrapMode: Text.WordWrap
             }
         }
         }

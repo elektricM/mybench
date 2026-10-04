@@ -35,6 +35,8 @@ Item {
     // Set by the shell for a split pane: the header's × (closeRequested(): Close Split, never stops
     // the instrument) and a short header note ("Split hidden — window too narrow").
     property bool closable: false
+    // The shell's workspace: the header's title area can be dragged (split, swap, close).
+    property bool draggable: false
     property string note: ""
     signal closeRequested()
     property string stateText: ""                  // overrides the derived state text
@@ -347,6 +349,8 @@ Item {
             detailText: root.displayInfo
             focused: root.focused
             closable: root.closable
+            paneId: root.paneId
+            draggable: root.draggable
             note: root.note
             onCloseRequested: root.closeRequested()
             menuItems: root.menuItems

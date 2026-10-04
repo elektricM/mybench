@@ -21,6 +21,9 @@ Control {
     property bool running: false
     property bool canToggle: false
     property Menu menu: null
+    // Drag the tile onto the workspace to show the instrument (docs/UI.md §8).
+    property string paneId: ""
+    property alias dragChip: chip
 
     signal clicked()
     signal runToggled()
@@ -43,6 +46,22 @@ Control {
     Keys.onSpacePressed: tile.clicked()
 
     ContextMenu.menu: tile.menu
+
+    DragHandler {
+        id: dragHandler
+        target: null
+        enabled: tile.paneId.length > 0
+        grabPermissions: PointerHandler.CanTakeOverFromAnything
+    }
+    DragChip {
+        id: chip
+        objectName: "tileDragChip"
+        handler: dragHandler
+        paneId: tile.paneId
+        title: tile.title
+        iconName: tile.iconName
+        origin: "tile"
+    }
 
     background: Rectangle {
         radius: Theme.radiusPopup

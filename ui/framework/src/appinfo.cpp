@@ -4,12 +4,64 @@
 #include <QGuiApplication>
 #include <QFile>
 #include <QJSEngine>
+#include <QPalette>
+#include <QQuickStyle>
 
 using namespace Qt::StringLiterals;
 
 namespace mybench {
 
 AppInfo::AppInfo(QObject* parent) : QObject(parent) {}
+
+QString AppInfo::controlsStyle() const
+{
+    return QQuickStyle::name();
+}
+
+bool AppInfo::nativeControls() const
+{
+    const QString style = QQuickStyle::name();
+    return !style.isEmpty() && style != QLatin1String("MyBench.Style") && style != QLatin1String("Basic");
+}
+
+void AppInfo::setApplicationPalette(const QVariantMap& colors)
+{
+    if (colors.isEmpty()) {
+        QGuiApplication::setPalette(QPalette());
+        return;
+    }
+    QPalette palette = QGuiApplication::palette();
+    const auto set = [&](const char* key, QPalette::ColorRole role) {
+        const QVariant value = colors.value(QLatin1String(key));
+        if (value.isValid())
+            palette.setColor(QPalette::All, role, value.value<QColor>());
+    };
+    set("window", QPalette::Window);
+    set("windowText", QPalette::WindowText);
+    set("base", QPalette::Base);
+    set("alternateBase", QPalette::AlternateBase);
+    set("text", QPalette::Text);
+    set("button", QPalette::Button);
+    set("buttonText", QPalette::ButtonText);
+    set("highlight", QPalette::Highlight);
+    set("highlightedText", QPalette::HighlightedText);
+    set("accent", QPalette::Accent);
+    set("placeholderText", QPalette::PlaceholderText);
+    set("mid", QPalette::Mid);
+    set("dark", QPalette::Dark);
+    set("light", QPalette::Light);
+    set("midlight", QPalette::Midlight);
+    set("shadow", QPalette::Shadow);
+    set("toolTipBase", QPalette::ToolTipBase);
+    set("toolTipText", QPalette::ToolTipText);
+    const QVariant disabled = colors.value(QLatin1String("disabledText"));
+    if (disabled.isValid()) {
+        const QColor c = disabled.value<QColor>();
+        for (QPalette::ColorRole role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+            palette.setColor(QPalette::Disabled, role, c);
+    }
+    QGuiApplication::setPalette(palette);
+}
 
 bool AppInfo::offscreen() const
 {

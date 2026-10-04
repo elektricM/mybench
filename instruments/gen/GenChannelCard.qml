@@ -28,11 +28,11 @@ ChannelCard {
     // The card stays open while the output is off, so the next output can be set up first.
     checkable: false
     subtitle: root.channel.errorText.length > 0 ? root.channel.errorText
-              : root.channel.state === GenChannel.Done ? qsTr("Done · holding the last sample")
+              : root.channel.state === GenChannel.Done ? qsTr("Done")
               : root.channel.state === GenChannel.Paused ? qsTr("Paused")
-              : root.channel.sweeping ? qsTr("Sweeping · step %1 of %2").arg(root.channel.sweepStepIndex).arg(root.channel.sweepStepCount)
-              : root.channel.mode === GenChannel.Off ? qsTr("Pick a waveform")
-              : root.channel.outputOn ? qsTr("Output on") : qsTr("Output off (0 V)")
+              : root.channel.sweeping ? qsTr("Sweep %1/%2").arg(root.channel.sweepStepIndex).arg(root.channel.sweepStepCount)
+              : root.channel.mode !== GenChannel.Off && !root.channel.outputOn ? qsTr("0 V")
+              : ""   // the switch and the waveform pictures say the rest
 
     headerExtras: [
         Switch {

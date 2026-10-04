@@ -10,6 +10,13 @@ one calm, dense, professional window that behaves like a native Qt application.
 > panels on the right of the display, measurement cards with statistics. Dark is the default theme.
 > Where this conflicts with §1, §6 or the "no knobs" wording below, this note wins.
 
+> **Round 3 (2026-10-05, Martin):** standard controls use the **OS-native Qt style** (macOS on Mac,
+> FluentWinUI3 on Windows, Fusion or KDE's org.kde.desktop on Linux; Fusion offscreen/in tests);
+> custom instrument parts stay ours and follow the system palette. Never override
+> `background`/`contentItem`/`indicator` on standard controls; custom-looking components derive from
+> QtQuick.Templates. No sentence-style summary text: a value appears once, in its control.
+> Drag-and-drop to split is required. This overrides the "own MyBench.Style" decision below.
+
 This document is the **contract** for every UI change. It supersedes UI v1 (2026-09) and
 `docs/ui-proposal.md`. Migration progress: `docs/audit.md`, section "UI v2". If code and this
 document disagree, this document wins; change it first if it is wrong.

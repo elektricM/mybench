@@ -121,15 +121,7 @@ Item {
         id: panel
         anchors.fill: parent
         controller: root.controller
-        displayTitle: {
-            const names = []
-            if (root.controller.ai0Enabled) names.push("AI 0")
-            if (root.controller.ai1Enabled) names.push("AI 1")
-            if (root.controller.dmmEnabled) names.push(qsTr("DMM"))
-            return names.length > 0 ? names.join(" · ") : qsTr("No channel")
-        }
-        displayInfo: root.analog ? qsTr("Sampling Rate %1").arg(Units.format(root.controller.coercedRate, "S/s", 4))
-                                 : qsTr("DMM readings")
+        // No display title or info line: the channels are the card switches, the rate is its knob.
         showRunControls: false
         inspector: []
 
@@ -194,9 +186,9 @@ Item {
                         compact: root.narrow
                         values: root.rates
                         currentIndex: root.rateIndex(root.controller.samplingRate)
-                        caption: root.narrow ? "" : qsTr("chart keeps %1").arg(root.controller.chartCapacity)
                         enabled: !root.controller.running
-                        toolTip: qsTr("Samples per second, per channel (1 – 1000 S/s)")
+                        toolTip: qsTr("Samples per second, per channel (1 – 1000 S/s); the chart keeps the last %1, the file everything")
+                                     .arg(root.controller.chartCapacity)
                         onIndexActivated: index => root.controller.samplingRate = root.rates[index]
                     }
                 }
@@ -365,10 +357,9 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: root.controller.recordFile.length > 0
-                                          ? root.fileName(root.controller.recordFile) + (root.controller.recording
-                                                ? "  ·  " + Units.format(root.controller.recordBytes, "B", 3) : "")
-                                          : qsTr("Press Record to save to a file")
+                                    visible: root.controller.recordFile.length > 0
+                                    text: root.fileName(root.controller.recordFile) + (root.controller.recording
+                                              ? "  ·  " + Units.format(root.controller.recordBytes, "B", 3) : "")
                                     color: Theme.textTertiary
                                     font.pixelSize: Theme.fontSizeCaption
                                     elide: Text.ElideMiddle
@@ -388,31 +379,30 @@ Item {
                                 objectName: "logCardAi0"
                                 Layout.fillWidth: true
                                 title: "AI 0"
-                                subtitle: qsTr("Analog input")
                                 color: Theme.signalCh0
                                 compact: root.narrow
                                 checked: root.controller.ai0Enabled
                                 enabled: !root.controller.running
-                                facts: [qsTr("±%1 V range").arg(root.controller.hardwareRange)]
+                                facts: [qsTr("±%1 V").arg(root.controller.hardwareRange)]
                                 onToggled: on => root.controller.ai0Enabled = on
                             }
                             ChannelCard {
                                 objectName: "logCardAi1"
                                 Layout.fillWidth: true
                                 title: "AI 1"
-                                subtitle: qsTr("Analog input")
                                 color: Theme.signalCh1
                                 compact: root.narrow
                                 checked: root.controller.ai1Enabled
                                 enabled: !root.controller.running
-                                facts: [qsTr("±%1 V range").arg(root.controller.hardwareRange)]
+                                facts: [qsTr("±%1 V").arg(root.controller.hardwareRange)]
                                 onToggled: on => root.controller.ai1Enabled = on
                             }
                             ChannelCard {
                                 objectName: "logCardDmm"
                                 Layout.fillWidth: true
                                 title: qsTr("DMM")
-                                subtitle: root.controller.dmmFunctionNames[root.controller.dmmFunction] ?? ""
+                                // The function shows once: as the checked button, or here while off.
+                                subtitle: root.controller.dmmEnabled ? "" : root.controller.dmmFunctionNames[root.controller.dmmFunction] ?? ""
                                 color: Theme.textSecondary
                                 compact: root.narrow
                                 checked: root.controller.dmmEnabled
@@ -642,15 +632,8 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         visible: root.controller.minimum >= root.controller.maximum
-                        text: qsTr("Minimum must be below Maximum: Run is refused until it is.")
+                        text: qsTr("Minimum must be below Maximum")
                         color: Theme.negative
-                        font.pixelSize: Theme.fontSizeCaption
-                        wrapMode: Text.WordWrap
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: qsTr("Hardware range ±%1 V (limits within ±2 V use the finer range).").arg(root.controller.hardwareRange)
-                        color: Theme.textTertiary
                         font.pixelSize: Theme.fontSizeCaption
                         wrapMode: Text.WordWrap
                     }
@@ -678,15 +661,6 @@ Item {
                         text: qsTr("Overview of the whole run")
                         checked: root.overviewVisible
                         onToggled: root.overviewVisible = checked
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: qsTr("The chart keeps the last %1 at %2 per channel; the file keeps everything.")
-                                  .arg(root.controller.chartCapacity)
-                                  .arg(Units.format(root.controller.coercedRate, "S/s", 7))
-                        color: Theme.textTertiary
-                        font.pixelSize: Theme.fontSizeCaption
-                        wrapMode: Text.WordWrap
                     }
                 }
             }

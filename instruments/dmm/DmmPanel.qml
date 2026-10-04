@@ -35,22 +35,17 @@ Item {
     readonly property bool currentFunction: root.controller.selectedFunction === DmmController.DcCurrent
                                             || root.controller.selectedFunction === DmmController.AcCurrent
     readonly property bool continuity: root.controller.selectedFunction === DmmController.Continuity
-    readonly property string rangeText: root.controller.effectiveAutoRange
-                                        ? (root.controller.activeRangeLabel.length > 0 ? qsTr("Auto · %1").arg(root.controller.activeRangeLabel) : qsTr("Auto"))
-                                        : root.controller.selectedRangeLabel
-    // One status line under the readout: range in use, null value, diode/continuity state.
+    // One short status line under the readout, only what no control shows: the range Auto picked,
+    // the null value while Relative is on, the diode state. Empty otherwise.
     readonly property string statusText: {
-        const parts = [qsTr("Range %1").arg(root.rangeText)]
+        const parts = []
+        if (root.controller.effectiveAutoRange && root.controller.activeRangeLabel.length > 0)
+            parts.push(qsTr("Range %1").arg(root.controller.activeRangeLabel))
         if (root.controller.nullOffset)
-            parts.push(root.controller.nullArmed ? qsTr("Relative: capturing the next reading")
-                                                 : qsTr("Relative to %1").arg(root.controller.nullText))
+            parts.push(root.controller.nullArmed ? qsTr("Null pending") : qsTr("Null %1").arg(root.controller.nullText))
         if (root.controller.diodeStatus.length > 0)
-            parts.push(root.controller.diodeStatus === "GOOD" ? qsTr("Diode conducts") : qsTr("Diode open"))
-        if (root.continuity && root.controller.hasReading)
-            parts.push(root.controller.continuityClosed ? qsTr("Continuity") : qsTr("Open circuit"))
-        if (root.controller.hold)
-            parts.push(qsTr("Hold"))
-        return parts.join("   ·   ")
+            parts.push(root.controller.diodeStatus === "GOOD" ? qsTr("Conducts") : qsTr("Open"))
+        return parts.join("  ·  ")
     }
 
     function selectButton(index: int) {
@@ -74,10 +69,9 @@ Item {
 
     InstrumentPanel {
         id: panel
+        objectName: "dmmPane"
         anchors.fill: parent
         controller: root.controller
-        displayTitle: root.controller.functionName
-        displayInfo: root.rangeText
         showRunControls: false
         inspector: []
 
@@ -182,6 +176,7 @@ Item {
                             }
                             Text {
                                 objectName: "dmmStatusLine"
+                                visible: text.length > 0
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 width: parent.width - 2 * Theme.spacingS
                                 horizontalAlignment: Text.AlignHCenter

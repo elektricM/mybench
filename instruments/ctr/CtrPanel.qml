@@ -134,15 +134,8 @@ Item {
         id: panel
         anchors.fill: parent
         controller: root.controller
-        displayTitle: root.controller.functionTitle
-        displayInfo: {
-            const parts = []
-            if (root.controller.plannedLines !== 0)
-                parts.push(root.controller.terminals)
-            if (root.measuring && root.interval)
-                parts.push(qsTr("Timebase %1").arg(Units.format(root.controller.timebase, "Hz", 3)))
-            return parts.join("  ·  ")
-        }
+        // No display title or info line: the mode is the checked mode button, the terminals are
+        // the settings card subtitle and the timebase is in the expected-range tooltips.
         showRunControls: false
         runBar.showTimeout: false
         inspector: []
@@ -211,7 +204,6 @@ Item {
                             objectName: "ctrValue"
                             visible: root.measuring
                             Layout.fillWidth: true
-                            label: root.controller.functionTitle
                             valueText: root.controller.valueText
                             fontSize: Math.max(40, Math.min(96, display.width / 9))
                             stale: !root.controller.running
@@ -256,23 +248,14 @@ Item {
                             digits: 6
                             fontSize: Math.max(40, Math.min(96, display.width / 9))
                             stale: !root.controller.running
-                            caption: root.controller.freqOutEnabled ? qsTr("Square wave on DIO 4 · %1").arg(root.controller.freqOutDivider)
-                                                                    : qsTr("Turn FREQOUT on in its card, or choose a counter mode")
+                            caption: root.controller.freqOutEnabled ? "" : qsTr("Off")
                         }
 
                         Caption {
-                            visible: root.pulsing
+                            visible: root.pulsing && text.length > 0
                             horizontalAlignment: Text.AlignHCenter
-                            text: {
-                                const parts = [root.controller.pulseGeneration === CtrController.FinitePulses
-                                               ? qsTr("%1 pulses").arg(root.controller.pulseCount) : qsTr("Continuous"),
-                                               qsTr("idle %1").arg(root.controller.idleHigh ? qsTr("high") : qsTr("low"))]
-                                if (root.controller.initialDelay > 0)
-                                    parts.push(qsTr("delay %1").arg(Units.format(root.controller.initialDelay, "s", 4)))
-                                if (root.controller.outputState.length > 0)
-                                    parts.push(root.controller.outputState)
-                                return parts.join("  ·  ")
-                            }
+                            // Only the output state (generation, idle state and delay are in the card).
+                            text: root.controller.outputState
                         }
                         // FREQOUT actual value beside a counter mode (under the readouts).
                         Rectangle {
@@ -483,7 +466,7 @@ Item {
                             objectName: "ctrSettingsCard"
                             visible: root.measuring
                             Layout.fillWidth: true
-                            title: root.controller.functionTitle
+                            title: qsTr("Input")
                             subtitle: root.controller.terminals
                             color: Theme.signalCh0
                             checkable: false
@@ -660,7 +643,7 @@ Item {
                                         from: root.measurement === CtrController.Frequency ? 0.01 : 10e-9
                                         to: root.measurement === CtrController.Frequency ? 50e6 : 1000
                                         value: root.measurement === CtrController.Frequency ? root.controller.frequencyMin : root.controller.timeMin
-                                        toolTip: qsTr("Minimum")
+                                        toolTip: qsTr("Minimum") + "\n" + root.controller.timebaseText
                                         onValueModified: v => {
                                             if (root.measurement === CtrController.Frequency)
                                                 root.controller.frequencyMin = v
@@ -676,7 +659,7 @@ Item {
                                         from: root.measurement === CtrController.Frequency ? 0.01 : 10e-9
                                         to: root.measurement === CtrController.Frequency ? 50e6 : 1000
                                         value: root.measurement === CtrController.Frequency ? root.controller.frequencyMax : root.controller.timeMax
-                                        toolTip: qsTr("Maximum")
+                                        toolTip: qsTr("Maximum") + "\n" + root.controller.timebaseText
                                         onValueModified: v => {
                                             if (root.measurement === CtrController.Frequency)
                                                 root.controller.frequencyMax = v
@@ -685,7 +668,6 @@ Item {
                                         }
                                     }
                                 }
-                                Caption { text: root.controller.timebaseText }
                             }
 
                             // Acquisition.
@@ -885,7 +867,7 @@ Item {
                                 values: root.freqOutKnobValues
                                 labels: root.freqOutKnobLabels
                                 currentIndex: Math.max(0, Math.min(root.freqOutValues.length - 1, root.knobToTable(Math.max(0, root.controller.freqOutIndex))))
-                                caption: qsTr("Square wave; changes apply while running")
+                                toolTip: qsTr("Square wave on DIO 4; changes apply while running")
                                 onIndexActivated: index => root.controller.selectFreqOut(root.knobToTable(index))
                             }
                         }

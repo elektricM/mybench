@@ -62,6 +62,26 @@ Item {
     }
     ContextMenu.menu: row.contextMenu
 
+    // Drag the row onto the workspace: left/right half = split, center = replace (docs/UI.md §8).
+    DragHandler {
+        id: dragHandler
+        objectName: "rowDragHandler"
+        target: null
+        enabled: row.paneId.length > 0
+        // The list must not take the gesture over once it is a drag.
+        grabPermissions: PointerHandler.CanTakeOverFromAnything
+    }
+    property alias dragChip: chip
+    DragChip {
+        id: chip
+        objectName: "rowDragChip"
+        handler: dragHandler
+        paneId: row.paneId
+        title: row.title
+        iconName: row.iconName
+        origin: "sidebar"
+    }
+
     ToolTip.visible: compact && hover.hovered
     ToolTip.delay: Theme.toolTipDelay
     ToolTip.text: [title, statusText, keyValue].filter(s => s.length > 0).join(" — ")

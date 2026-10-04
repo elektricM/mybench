@@ -97,16 +97,9 @@ Item {
         id: panel
         anchors.fill: parent
         controller: root.controller
-        displayTitle: qsTr("Connections: AI 0 – AO 0   AI 1 – Signal")
-        displayInfo: {
-            const c = root.controller
-            if (c.running && !c.remeasuring && c.totalPoints > 0)
-                return qsTr("Point %1 of %2").arg(Math.min(c.pointCount + 1, c.totalPoints)).arg(c.totalPoints)
-            if (c.pointCount > 0)
-                return qsTr("%1 points · %2 – %3").arg(c.pointCount).arg(Units.format(c.dataMinFrequency, "Hz", 3))
-                                                  .arg(Units.format(c.dataMaxFrequency, "Hz", 3))
-            return ""
-        }
+        // The wiring, as a compact legend (the sweep progress is the Run button's, the measured
+        // values are the cards').
+        displayTitle: qsTr("AI 0 – AO 0  ·  AI 1 – Signal")
 
         ColumnLayout {
             anchors.fill: parent
@@ -405,31 +398,6 @@ Item {
                         color: Theme.danger
                     }
                     Item { Layout.fillWidth: true }
-                    // Marker summary (MYBENCH).
-                    ColumnLayout {
-                        spacing: 2
-                        visible: root.hasPoints && panel.width > 900
-                        Text {
-                            visible: root.controller.showCutoffMarkers
-                            Layout.alignment: Qt.AlignRight
-                            text: root.controller.cutoffFrequencies.length > 0
-                                  ? qsTr("−3 dB  %1").arg(root.controller.cutoffFrequencies.map(f => Units.format(f, "Hz", 3)).join(" · "))
-                                  : qsTr("−3 dB  not crossed")
-                            color: root.controller.cutoffFrequencies.length > 0 ? Theme.math : Theme.textMuted
-                            font.pixelSize: Theme.fontSizeM
-                            font.features: Theme.tabularFigures
-                        }
-                        Text {
-                            visible: root.controller.showMarginMarkers
-                            Layout.alignment: Qt.AlignRight
-                            text: qsTr("PM %1 · GM %2")
-                                  .arg(isFinite(root.controller.phaseMargin) ? root.controller.phaseMargin.toFixed(1) + "°" : "—")
-                                  .arg(isFinite(root.controller.gainMargin) ? Units.decibels(root.controller.gainMargin, 1) : "—")
-                            color: Theme.cursor2
-                            font.pixelSize: Theme.fontSizeM
-                            font.features: Theme.tabularFigures
-                        }
-                    }
                 }
             }
         }
@@ -501,7 +469,7 @@ Item {
                     stepSize: 0.01
                     value: root.controller.peakAmplitude
                     formatter: v => v.toFixed(2) + " Vpk"
-                    caption: qsTr("sine on AO 0")
+                    caption: qsTr("sine")
                     onValueModified: v => root.controller.peakAmplitude = Math.round(v * 100) / 100
                 }
             }
@@ -569,13 +537,6 @@ Item {
                 title: qsTr("Measurement Settings")
                 summary: qsTr("%1 pts").arg(root.controller.plannedPoints)
                 Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Stimulus is measured on AI 0, response on AI 1 (the generator AO 0 drives the circuit).")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-                Text {
                     visible: !root.controller.settingsValid
                     Layout.fillWidth: true
                     text: qsTr("Start Frequency must not be higher than Stop Frequency.")
@@ -607,15 +568,6 @@ Item {
                         currentIndex: root.controller.polarity === BodeController.Inverted ? 1 : 0
                         onActivated: index => root.controller.polarity = index === 1 ? BodeController.Inverted : BodeController.Normal
                     }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: root.controller.settingsValid
-                          ? qsTr("%1 points · about %2").arg(root.controller.plannedPoints).arg(root.duration(root.controller.plannedSeconds))
-                          : ""
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS + 1
-                    font.features: Theme.tabularFigures
                 }
             },
             Section {
@@ -713,21 +665,12 @@ Item {
                         Layout.fillWidth: true
                         enabled: !root.measurementLocked
                         model: [
-                            { text: qsTr("Standard"), toolTip: qsTr("A short range pre-measurement at every point") },
-                            { text: qsTr("Fast"), toolTip: qsTr("No pre-measurement; ranges adapt from the previous point") }
+                            { text: qsTr("Standard"), toolTip: qsTr("Each point first measures both inputs briefly (80 ms) on ±10 V to choose their ranges") },
+                            { text: qsTr("Fast"), toolTip: qsTr("No pre-measurement: the circuit settles for 3 periods, the ranges adapt from the previous point and clipped records are measured again") }
                         ]
                         currentIndex: root.controller.sweepMode === BodeController.Fast ? 1 : 0
                         onActivated: index => root.controller.sweepMode = index === 1 ? BodeController.Fast : BodeController.Standard
                     }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: root.controller.sweepMode === BodeController.Fast
-                          ? qsTr("No range pre-measurement: the circuit settles for 3 periods, the input ranges adapt from the previous point and clipped records are measured again.")
-                          : qsTr("Each point first measures both inputs briefly (80 ms) on ±10 V to choose their ranges.")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS + 1
-                    wrapMode: Text.WordWrap
                 }
                 Field {
                     label: qsTr("Averages per point")
@@ -761,38 +704,6 @@ Item {
                     checked: root.controller.showMarginMarkers
                     onToggled: root.controller.showMarginMarkers = checked
                 }
-                GridLayout {
-                    Layout.fillWidth: true
-                    visible: root.hasPoints
-                    columns: 2
-                    columnSpacing: Theme.spacingM
-                    rowSpacing: 3
-                    component Key: Text {
-                        color: Theme.textMuted
-                        font.pixelSize: Theme.fontSizeS + 1
-                    }
-                    component Value: Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignRight
-                        color: Theme.text
-                        font.pixelSize: Theme.fontSizeS + 1
-                        font.features: Theme.tabularFigures
-                    }
-                    Key { text: qsTr("Maximum gain") }
-                    Value { text: isFinite(root.controller.maxGainDb) ? Units.decibels(root.controller.maxGainDb) : "—" }
-                    Key { text: qsTr("−3 dB") }
-                    Value { text: root.controller.cutoffFrequencies.length > 0 ? root.controller.cutoffFrequencies.map(f => Units.format(f, "Hz", 4)).join(", ") : "—" }
-                    Key { text: qsTr("0 dB crossover") }
-                    Value { text: isFinite(root.controller.unityGainFrequency) ? Units.format(root.controller.unityGainFrequency, "Hz", 4) : "—" }
-                    Key { text: qsTr("Phase margin") }
-                    Value { text: isFinite(root.controller.phaseMargin) ? root.controller.phaseMargin.toFixed(1) + "°" : "—" }
-                    Key { text: qsTr("Gain margin") }
-                    Value {
-                        text: isFinite(root.controller.gainMargin)
-                              ? qsTr("%1 at %2").arg(Units.decibels(root.controller.gainMargin, 1)).arg(Units.format(root.controller.phaseCrossoverFrequency, "Hz", 3))
-                              : "—"
-                    }
-                }
             },
             Section {
                 title: qsTr("References")
@@ -803,15 +714,8 @@ Item {
                     text: qsTr("Keep as reference")
                     iconName: "plus"
                     enabled: root.hasPoints && !root.controller.running && root.controller.references.length < root.controller.maxReferences
+                    toolTip: qsTr("Keep a finished sweep to draw it under the next ones (up to %1)").arg(root.controller.maxReferences)
                     onClicked: root.controller.keepAsReference()
-                }
-                Text {
-                    visible: root.controller.references.length === 0
-                    Layout.fillWidth: true
-                    text: qsTr("Keep a finished sweep to draw it under the next ones (up to %1).").arg(root.controller.maxReferences)
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS + 1
-                    wrapMode: Text.WordWrap
                 }
                 Repeater {
                     model: root.controller.references

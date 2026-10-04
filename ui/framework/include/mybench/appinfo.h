@@ -53,6 +53,10 @@ class AppInfo : public QObject
     Q_PROPERTY(bool screenshot READ screenshot CONSTANT)
     Q_PROPERTY(bool offscreen READ offscreen CONSTANT)
     Q_PROPERTY(QString theme READ theme CONSTANT)
+    // Qt Quick Controls style in use ("macOS", "FluentWinUI3", "Fusion", "MyBench.Style", ...) and
+    // whether it is a platform style (standard controls drawn natively, not by MyBench.Style).
+    Q_PROPERTY(QString controlsStyle READ controlsStyle CONSTANT)
+    Q_PROPERTY(bool nativeControls READ nativeControls CONSTANT)
     Q_PROPERTY(QString instrument READ instrument CONSTANT)
     Q_PROPERTY(QStringList panels READ panels CONSTANT)
     Q_PROPERTY(QStringList arguments READ arguments CONSTANT)   // unparsed (positional) arguments
@@ -72,6 +76,13 @@ public:
     bool screenshot() const { return m_screenshot; }
     bool offscreen() const;
     QString theme() const { return m_theme; }
+    QString controlsStyle() const;
+    bool nativeControls() const;
+    // Sets the application QPalette (keys: window, windowText, base, alternateBase, text, button,
+    // buttonText, highlight, highlightedText, accent, placeholderText, mid, dark, light, toolTipBase,
+    // toolTipText, disabledText). Used offscreen, where the platform provides no dark palette, so
+    // Fusion controls match the theme. An empty map restores the platform palette.
+    Q_INVOKABLE void setApplicationPalette(const QVariantMap& colors);
     QString instrument() const
     {
         const QStringList list = panels();

@@ -12,8 +12,8 @@ knob sit in the bar at the top.
 
 1. Connect the signal to **AI 0+ / AI 0−** (and AI 1 if needed).
 2. Switch on the channels to log on their cards (AI 0, AI 1, DMM). Set the **Sampling Rate** with
-   the knob in the top bar (1000 S/s by default; type a value or use − / +) and, if needed, the
-   **Limits** tool.
+   the knob in the top bar (1000 S/s by default; type a value or use − / +; its tooltip says how
+   long the chart keeps at that rate) and, if needed, the **Limits** tool.
 3. Press **Run** to watch the signals (nothing is saved yet), then **Record** to start a file.
    **Record** also starts the logger when it is idle.
 4. **Pause** stops writing for a while (the chart keeps running), **Stop Recording** closes the
@@ -26,7 +26,7 @@ knob sit in the bar at the top.
   and a range, or *Auto*, with the buttons on its card. The meter delivers 2 readings per second, independently of the
   sampling rate; a range change (also an automatic one) makes it pause for about 2.6 s. Use the meter's banana jacks.
 - **Limits** tool, **Maximum / Minimum (V)**: limits within ±2 V use the more precise ±2 V range,
-  otherwise ±10 V (the AI cards show the range in use). The chart scales itself; lock its vertical
+  otherwise ±10 V (the AI cards show the range in use, e.g. `±10 V`). The chart scales itself; lock its vertical
   scale with the chart toolbar.
 - Channels, rate and limits are fixed while the logger runs (hovering them says so); stop it to
   change them.

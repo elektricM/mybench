@@ -77,6 +77,23 @@ class TestDioQml : public QObject
         return true;
     }
 
+
+    // Every object with a display title (the InstrumentPanel and its pane parts) shows none:
+    // the values are in their controls ("less text, more instrument").
+    static void verifyNoDisplayText(QObject* root)
+    {
+        int panels = 0;
+        for (QObject* o : root->findChildren<QObject*>()) {
+            if (o->metaObject()->indexOfProperty("displayTitle") < 0)
+                continue;
+            ++panels;
+            QCOMPARE(o->property("displayTitle").toString(), QString());
+            if (o->metaObject()->indexOfProperty("displayInfo") >= 0)
+                QCOMPARE(o->property("displayInfo").toString(), QString());
+        }
+        QVERIFY(panels > 0);
+    }
+
 private slots:
     void initTestCase()
     {
@@ -141,6 +158,27 @@ private slots:
         QCOMPARE(dio.outputRadix(), DioController::Binary);
         QCOMPARE(dio.inputRadix(), DioController::Binary);
         QCOMPARE(radix->property("currentIndex").toInt(), 1);
+    }
+
+    void lessText()
+    {
+        DioController& dio = controller();
+        if (!createPanel(dio))
+            QSKIP("no graphics device");
+        // The line groups show once (the Lines card's Read / Write buttons): no display title or
+        // info line, no card subtitles, no prose-only Timeline tool.
+        verifyNoDisplayText(m_root.get());
+        if (QTest::currentTestFailed())
+            return;
+        for (const QString& name : {u"dioReaderCard"_s, u"dioWriterCard"_s}) {
+            QObject* card = find(name);
+            QVERIFY2(card, qPrintable(name));
+            QCOMPARE(card->property("subtitle").toString(), QString());
+        }
+        QVERIFY(!find(u"dioTimelinePanel"_s));
+        QObject* tools = find(u"dioTools"_s);
+        QVERIFY(tools);
+        QCOMPARE(tools->property("model").toList().size(), 1);
     }
 };
 

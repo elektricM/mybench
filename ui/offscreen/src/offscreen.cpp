@@ -15,6 +15,7 @@
 #include <QQuickRenderTarget>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QLibraryInfo>
 #include <QRegularExpression>
 #include <QStyleHints>
 #include <QTimer>
@@ -39,6 +40,9 @@ QString launchOptionsHelp()
         "  --theme dark|light       color scheme (QStyleHints::colorScheme)\n"
         "  --dpr <ratio>            screenshot device pixel ratio (default 1, 2 = retina)\n"
         "  --samples <n>            MSAA samples of the offscreen target (default 1)\n"
+        "  --style <name>           controls style: native (default: macOS, FluentWinUI3, org.kde.desktop\n"
+        "                           or Fusion; Fusion offscreen), mybench, Fusion, Basic, ...\n"
+        "  --grab <file.png>        real window on the real platform, grabbed after --delay, then exit\n"
         "  --help-launch            show this help\n"
         "Environment: QSG_RHI_BACKEND=metal|vulkan|opengl|d3d11|d3d12 forces the graphics API.\n");
 }
@@ -106,6 +110,14 @@ bool parseLaunchOptions(const QStringList &args, LaunchOptions *options, QString
             if (r < 0 || !ok || samples < 1 || samples > 16)
                 return fail(QStringLiteral("--samples needs 1..16"));
             result.samples = samples;
+        } else if ((r = takeValue(QStringLiteral("--style"), &value)) != 0) {
+            if (r < 0 || value.isEmpty())
+                return fail(QStringLiteral("--style needs a style name (native, mybench, Fusion, ...)"));
+            result.style = value;
+        } else if ((r = takeValue(QStringLiteral("--grab"), &value)) != 0) {
+            if (r < 0 || value.isEmpty())
+                return fail(QStringLiteral("--grab needs a file name"));
+            result.grabPath = value;
         } else if (arg == u"--help-launch") {
             result.help = true;
         } else {
@@ -545,18 +557,92 @@ const LaunchOptions &launchOptions()
     return g_launchOptions;
 }
 
+namespace {
+QString g_quickStyle;
+
+#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
+bool qmlModuleInstalled(const QString &relativeDir)
+{
+    QStringList roots{QLibraryInfo::path(QLibraryInfo::QmlImportsPath)};
+    for (const char *variable : {"QML_IMPORT_PATH", "QML2_IMPORT_PATH"})
+        roots += qEnvironmentVariable(variable).split(QDir::listSeparator(), Qt::SkipEmptyParts);
+    for (const QString &root : std::as_const(roots)) {
+        if (QFileInfo::exists(root + u'/' + relativeDir + QStringLiteral("/qmldir")))
+            return true;
+    }
+    return false;
+}
+#endif
+}  // namespace
+
+QString nativeQuickStyle()
+{
+#if defined(Q_OS_MACOS)
+    return QStringLiteral("macOS");
+#elif defined(Q_OS_WIN)
+    return QStringLiteral("FluentWinUI3");
+#else
+    return qmlModuleInstalled(QStringLiteral("org/kde/desktop")) ? QStringLiteral("org.kde.desktop")
+                                                                   : QStringLiteral("Fusion");
+#endif
+}
+
+QString resolveQuickStyle(const QString &name, bool offscreenRender)
+{
+    if (name.compare(u"native", Qt::CaseInsensitive) == 0)
+        return offscreenRender ? QStringLiteral("Fusion") : nativeQuickStyle();
+    if (name.compare(u"mybench", Qt::CaseInsensitive) == 0)
+        return QStringLiteral("MyBench.Style");
+    return name;
+}
+
+QString quickStyle()
+{
+    return g_quickStyle;
+}
+
+namespace {
+// Real-platform capture (--grab): the window is shown (fully transparent, without taking focus and
+// transparent for mouse input, so the user's desktop keeps working), rendered for delayMs and grabbed with QQuickWindow::grabWindow().
+int runGrab(QGuiApplication &app, QQuickWindow *window, const LaunchOptions &options)
+{
+    window->setOpacity(0.0);
+    window->setFlag(Qt::WindowDoesNotAcceptFocus, true);
+    window->setFlag(Qt::WindowTransparentForInput, true);   // clicks and hover go to what lies below
+    window->show();
+    int exitCode = 1;
+    QTimer::singleShot(options.delayMs, &app, [&] {
+        const QImage image = window->grabWindow();
+        const QString path = QFileInfo(options.grabPath).absoluteFilePath();
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        if (!image.isNull() && image.save(path)) {
+            std::fprintf(stderr, "grab: wrote %s (%dx%d px, %s, style %s)\n", qPrintable(path), image.width(),
+                         image.height(), qPrintable(QGuiApplication::platformName()), qPrintable(g_quickStyle));
+            exitCode = 0;
+        } else {
+            std::fprintf(stderr, "grab: cannot write %s\n", qPrintable(path));
+        }
+        QCoreApplication::exit(exitCode);
+    });
+    app.exec();
+    return exitCode;
+}
+}  // namespace
+
 int runQmlApp(int argc, char *argv[], const QmlApp &spec)
 {
-    // Pre-parse to decide on the platform plugin before QGuiApplication exists.
+    // Pre-parse to decide on the platform plugin before QGuiApplication exists. --style is taken
+    // from here: QGuiApplication consumes "-style"/"--style" (its style override) from the arguments.
+    QString requestedStyle;
     {
         QStringList raw;
         for (int i = 1; i < argc; ++i)
             raw.append(QString::fromLocal8Bit(argv[i]));
         LaunchOptions pre;
-        if (parseLaunchOptions(raw, &pre) && pre.screenshot()
-            && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM") && !argvHasPlatform(argc, argv)) {
+        const bool parsed = parseLaunchOptions(raw, &pre);
+        requestedStyle = pre.style;
+        if (parsed && pre.screenshot() && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM") && !argvHasPlatform(argc, argv))
             qputenv("QT_QPA_PLATFORM", "offscreen");
-        }
     }
 
     if (!spec.applicationName.isEmpty())
@@ -576,14 +662,25 @@ int runQmlApp(int argc, char *argv[], const QmlApp &spec)
         std::fprintf(stderr, "%s\n\n%s", qPrintable(error), qPrintable(launchOptionsHelp()));
         return 2;
     }
+    if (options.style.isEmpty())
+        options.style = requestedStyle;
     g_launchOptions = options;
     if (options.help) {
         std::fprintf(stdout, "%s", qPrintable(launchOptionsHelp()));
         return 0;
     }
 
-    if (!spec.style.isEmpty())
-        QQuickStyle::setStyle(spec.style);
+    {
+        // --style overrides QmlApp::style. "native" means Fusion when rendering offscreen
+        // (screenshots, tests on the offscreen platform); name "macOS" etc. to force one.
+        const QString platform = QGuiApplication::platformName();
+        const bool offscreenRender = options.screenshot() || platform == u"offscreen" || platform == u"minimal";
+        const QString style = resolveQuickStyle(options.style.isEmpty() ? spec.style : options.style, offscreenRender);
+        if (!style.isEmpty()) {
+            QQuickStyle::setStyle(style);
+            g_quickStyle = style;
+        }
+    }
     if (!options.theme.isEmpty())
         QGuiApplication::styleHints()->setColorScheme(options.theme == u"dark" ? Qt::ColorScheme::Dark
                                                                                 : Qt::ColorScheme::Light);
@@ -613,8 +710,8 @@ int runQmlApp(int argc, char *argv[], const QmlApp &spec)
     }
     if (!initialProperties.isEmpty())
         component.setInitialProperties(root.get(), initialProperties);
-    if (options.screenshot() && qobject_cast<QQuickWindow *>(root.get()))
-        root->setProperty("visible", false);  // the QML window itself must never be shown
+    if (options.capture() && qobject_cast<QQuickWindow *>(root.get()))
+        root->setProperty("visible", false);  // never shown (--screenshot) or shown by runGrab()
     component.completeCreate();
     if (component.isError()) {
         printErrors(component.errors());
@@ -636,14 +733,14 @@ int runQmlApp(int argc, char *argv[], const QmlApp &spec)
         return code;
     }
 
-    // Interactive run.
+    // Interactive run (or a --grab of the real window).
     std::unique_ptr<QQuickWindow> ownWindow;
     if (auto *window = qobject_cast<QQuickWindow *>(root.get())) {
         if (options.size.isValid())
             window->resize(size);
         if (window->title().isEmpty() && !spec.applicationName.isEmpty())
             window->setTitle(spec.applicationName);
-        if (!window->isVisible())
+        if (!window->isVisible() && !options.grab())
             window->show();
     } else if (auto *item = qobject_cast<QQuickItem *>(root.get())) {
         ownWindow = std::make_unique<QQuickWindow>();
@@ -656,13 +753,20 @@ int runQmlApp(int argc, char *argv[], const QmlApp &spec)
         QObject::connect(w, &QWindow::heightChanged, item, fit);
         ownWindow->resize(size);
         fit();
-        ownWindow->show();
+        if (!options.grab())
+            ownWindow->show();
     } else {
         std::fprintf(stderr, "the root object is neither an Item nor a Window\n");
         return 1;
     }
 
-    const int code = app.exec();
+    int code = 0;
+    if (options.grab()) {
+        QQuickWindow *window = ownWindow ? ownWindow.get() : qobject_cast<QQuickWindow *>(root.get());
+        code = runGrab(app, window, options);
+    } else {
+        code = app.exec();
+    }
     if (auto *item = qobject_cast<QQuickItem *>(root.get()))
         item->setParentItem(nullptr);
     root.reset();

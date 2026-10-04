@@ -27,7 +27,8 @@ lines 4-7. A timeline records the state of every line, like a simple logic analy
 At the top: **Run**, **Single** and the **Radix** buttons (**Hex | Bin | Dec**: the Inputs and
 Outputs values, the pattern number and the cursor values). **Release Outputs** appears there while
 stopped outputs still drive their lines. The display is on the left; the **Lines**, **Reader** and
-**Writer** cards and the tools (**Labels**, **Timeline**) are in the column on the right.
+**Writer** cards and the **Labels** tool are in the column on the right. The read and written line
+groups appear once, in the **Lines** card.
 
 ## The display
 

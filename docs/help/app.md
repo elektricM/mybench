@@ -33,6 +33,10 @@ used the NI ELVISmx instruments, you will find the same instruments, settings an
   sidebar row, the View menu, or `Ctrl+\`), for example the Generator next to the Scope. The pane you
   work in has a blue line under its header; the **×** of a pane closes the split, never the
   instrument. In a window too narrow for two panes the split waits until there is room again.
+- **Drag and drop**: drag a sidebar row or an Overview tile onto the workspace. The left or right
+  third splits with the instrument on that side, the middle replaces the pane you work in; a blue
+  area shows where it goes. Drag a pane by its name onto the other half to swap the two panes, or
+  onto the sidebar to close that pane. Dragging never starts or stops an instrument.
 - **Inspector** (right): the settings of the instrument you work in, or its help page (**Help**,
   `F1`). Instruments that keep their controls next to their display need no inspector: the column
   then disappears and comes back only when you open the help. Drag its left edge to resize it.
@@ -50,12 +54,17 @@ Each instrument pane has a **header** and a **display**:
 - **Release Outputs** appears when an instrument is stopped but still drives an output (for
   example digital lines left high after Single): it returns them to their safe state. **Stop** and
   **Stop All** do the same.
+- **↺** (before **⋯**): **Reset to Defaults**, after a confirmation (**Reset**).
 - **⋯**: Export Data, Export Image, Print, Trace Style, Show Measurements, Reset Settings and Help.
 
 ## Overview
 
 Overview (top of the sidebar) is the starting page and replaces the ELVISmx Instrument Launcher:
 - **Device**: the myDAQ in use and its state, or how to connect one (or **Use Simulated Device**).
+  With the simulated myDAQ it also shows its wiring: AO 0 → AI 0 direct, AO 0 → RC low-pass → AI 1,
+  AO 1 not connected. **Reset All…** (also Instrument menu and Search: *Reset All Instruments to
+  Defaults…*) stops every instrument, returns the outputs to their safe state and restores every
+  setting; the layout is kept.
 - **Instruments**: every instrument as a live tile; click to show it, or **Run**/**Stop** from the
   tile. The context menu of a tile has **Show Beside** and **Pin to Top**.
 - **Recent Sessions**: the last saved `.mybench` files; click one to open it.

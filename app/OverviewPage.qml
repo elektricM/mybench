@@ -95,8 +95,8 @@ Rectangle {
                         }
                         Rectangle {
                             Layout.leftMargin: Theme.spacingXs
-                            width: Theme.spacingS - 1
-                            height: width
+                            implicitWidth: Theme.spacingS - 1
+                            implicitHeight: implicitWidth
                             radius: width / 2
                             color: DeviceHub.connectionState === DeviceHub.Connected ? Theme.positive
                                  : DeviceHub.connectionState === DeviceHub.Resetting ? Theme.caution : Theme.negative
@@ -122,12 +122,18 @@ Rectangle {
                     Secondary {
                         objectName: "firstRunHint"
                         Layout.fillWidth: true
+                        Layout.leftMargin: Theme.iconSizeL + Theme.spacingS
+                        visible: !DeviceHub.connected && !DeviceHub.simulated
+                        text: qsTr("Connect a myDAQ by USB")
+                    }
+                    // The simulated device's wiring (why AI 0 / AI 1 show what AO 0 generates).
+                    SimWiring {
+                        Layout.leftMargin: Theme.iconSizeL + Theme.spacingS
                         Layout.topMargin: Theme.spacingXs
-                        visible: !DeviceHub.connected || DeviceHub.simulated
-                        text: DeviceHub.simulated
-                              ? qsTr("Working with the simulated myDAQ. Connect a myDAQ with a USB cable and choose it in the Device menu.")
-                              : qsTr("Connect a myDAQ with a USB cable, or work with the simulated device.")
-                        wrapMode: Text.WordWrap
+                        Layout.maximumWidth: 320
+                        Layout.fillWidth: true
+                        visible: DeviceHub.simulated
+                        background: Theme.base
                     }
                     Flow {
                         Layout.fillWidth: true
@@ -140,6 +146,15 @@ Rectangle {
                         }
                         Button { action: page.actions.deviceInfo }
                         Button { action: page.actions.resetDevice }
+                        Button {
+                            objectName: "overviewResetAll"
+                            text: qsTr("Reset All…")
+                            icon.source: Theme.icon("reset")
+                            onClicked: page.actions.resetAllInstruments.trigger()
+                            ToolTip.visible: hovered
+                            ToolTip.delay: Theme.toolTipDelay
+                            ToolTip.text: qsTr("Reset All Instruments to Defaults…")
+                        }
                         Button {
                             visible: DeviceHub.simulated
                             action: page.actions.simulatorSettings
@@ -162,10 +177,14 @@ Rectangle {
                         Button { flat: true; action: page.actions.openSession }
                     }
                     Secondary {
+                        id: noSessions
                         visible: SessionManager.recentSessions.length === 0
                         Layout.fillWidth: true
-                        text: qsTr("Saved sessions appear here. A session keeps the layout and every instrument's settings.")
-                        wrapMode: Text.WordWrap
+                        text: qsTr("No saved sessions")
+                        HoverHandler { id: noSessionsHover }
+                        ToolTip.visible: noSessionsHover.hovered
+                        ToolTip.delay: Theme.toolTipDelay
+                        ToolTip.text: qsTr("A session keeps the layout and every instrument's settings.")
                     }
                     Repeater {
                         model: SessionManager.recentSessions.slice(0, 5)
@@ -224,6 +243,7 @@ Rectangle {
                             readonly property var info: InstrumentRegistry.info(modelData)
                             readonly property InstrumentController controller: InstrumentRegistry.controller(modelData)
                             objectName: "overviewTile-" + modelData
+                            paneId: modelData
                             Layout.fillWidth: true
                             Layout.preferredWidth: grid.minimumTileWidth
                             Layout.preferredHeight: 132

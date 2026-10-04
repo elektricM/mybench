@@ -33,6 +33,11 @@ Rectangle {
     property bool closable: false
     property string closeToolTip: qsTr("Close Split")
     property string note: ""
+    // The shell's workspace: the icon and name can be dragged (`titleDrag`; the shell shows the
+    // drag image and handles the drop: swap the panes, or close the pane on the sidebar).
+    property string paneId: ""
+    property bool draggable: false
+    property alias titleDrag: titleDragHandler
     // Narrow pane: Single and Release lose their labels, the state detail is hidden.
     property bool compact: width < 640
 
@@ -170,20 +175,36 @@ Rectangle {
         anchors.bottomMargin: 1
         spacing: Theme.spacingS
 
-        Icon {
-            visible: header.iconName.length > 0
-            name: header.iconName
-            size: Theme.iconSize
-            color: Theme.textSecondary
-        }
-        Text {
-            id: titleLabel
-            text: header.title
-            color: Theme.text
-            font.pixelSize: Theme.fontSizeHeading
-            font.weight: Font.DemiBold
-            elide: Text.ElideRight
-            Layout.maximumWidth: Math.max(80, header.width * 0.3)
+        RowLayout {
+            id: titleArea
+            objectName: "paneTitleArea"
+            spacing: Theme.spacingS
+            Layout.fillHeight: true
+            Icon {
+                visible: header.iconName.length > 0
+                name: header.iconName
+                size: Theme.iconSize
+                color: Theme.textSecondary
+            }
+            Text {
+                id: titleLabel
+                text: header.title
+                color: Theme.text
+                font.pixelSize: Theme.fontSizeHeading
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                Layout.maximumWidth: Math.max(80, header.width * 0.3)
+            }
+            DragHandler {
+                id: titleDragHandler
+                target: null
+                enabled: header.draggable && header.paneId.length > 0
+                cursorShape: Qt.ClosedHandCursor
+            }
+            HoverHandler {
+                enabled: titleDragHandler.enabled
+                cursorShape: Qt.OpenHandCursor
+            }
         }
 
         // State: dot, text and detail. Elides before anything on the right shrinks.
@@ -393,6 +414,18 @@ Rectangle {
             ToolTip.visible: hovered
             ToolTip.delay: Theme.toolTipDelay
             ToolTip.text: Accessible.name + "   " + Theme.keys("Ctrl+I")
+        }
+
+        ToolButton {
+            id: resetButton
+            objectName: "resetButton"
+            visible: header.controller !== null
+            icon.source: Theme.icon("reset")
+            onClicked: header.resetRequested()
+            Accessible.name: qsTr("Reset %1 to Defaults…").arg(header.title)
+            ToolTip.visible: hovered
+            ToolTip.delay: Theme.toolTipDelay
+            ToolTip.text: Accessible.name
         }
 
         ToolButton {

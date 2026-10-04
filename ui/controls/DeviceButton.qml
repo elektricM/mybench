@@ -2,14 +2,27 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import MyBench.Framework
 
 // The toolbar's device button (docs/UI.md §7): a state dot and the device name ("Simulated myDAQ",
 // "myDAQ 036CD1C6", "Disconnected — waiting for device"); its DeviceMenu lists the devices and
 // the device commands. Switching while instruments run and resetting ask first.
 //     DeviceButton { onDeviceInfoRequested: deviceInfo.show(); onSimulatorSettingsRequested: ... }
-ToolButton {
+// Built on the template (own content and background), so platform styles never have to accept
+// customized parts; it looks like a MyBench tool button everywhere.
+T.ToolButton {
     id: control
+
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding)
+    padding: 0
+    horizontalPadding: Theme.spacingS
+    hoverEnabled: true
+    focusPolicy: Qt.TabFocus
+    font.pixelSize: Theme.fontSizeBody
 
     // Name only, no state word (narrow toolbars).
     property bool compact: false
@@ -82,6 +95,14 @@ ToolButton {
             size: 12
             color: Theme.textSecondary
         }
+    }
+
+    background: Rectangle {
+        implicitWidth: Theme.controlHeight
+        implicitHeight: Theme.controlHeight
+        radius: Theme.radiusControl
+        color: control.down ? Theme.pressedFill : control.hovered ? Theme.hoverFill : "transparent"
+        FocusRing { shown: control.visualFocus }
     }
 
     DeviceMenu {

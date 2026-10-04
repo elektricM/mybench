@@ -101,13 +101,6 @@ Rectangle {
                 ToolTip.text: enabled ? qsTr("DIO %1: HI (up) / LO (down) — key %1").arg(root.line)
                                       : qsTr("Switch to the Manual pattern to set the lines by hand")
             }
-            Text {
-                anchors.centerIn: parent
-                visible: !root.isOut
-                text: root.isIn ? qsTr("read") : qsTr("unused")
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeXs
-            }
         }
         // Owner of the line (another instrument).
         Badge {

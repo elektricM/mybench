@@ -102,8 +102,9 @@ Item {
     }
     ConfirmDialog {
         id: resetAllConfirm
+        objectName: "resetAllConfirm"
         title: qsTr("Reset all instruments?")
-        text: qsTr("Every instrument goes back to its default settings and running instruments stop. The layout is kept.")
+        text: qsTr("Running instruments stop and every setting goes back to its default. The layout is kept.")
         acceptText: qsTr("Reset All")
         destructive: true
         onAccepted: SessionManager.revertAllToDefaults()

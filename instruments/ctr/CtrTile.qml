@@ -4,8 +4,9 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Dashboard tile of the Counter/Timer: the measured value (with a mini trend), or the pulse
-// train / FREQOUT frequency, and the terminals in use.
+// Overview tile of the Counter/Timer (content only; the shell draws title, state and Run/Stop):
+// a bare mini trend of the measured value on the display surface and the value (or the pulse
+// train / FREQOUT frequency). Neutral text; the channel color only draws the trace.
 Item {
     id: root
 
@@ -14,56 +15,52 @@ Item {
     readonly property bool measuring: controller.counterFunction === CtrController.Measure
     readonly property bool pulsing: controller.counterFunction === CtrController.PulseTrain
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
-        spacing: Theme.spacingXs
+        spacing: Theme.spacingM
 
-        Readout {
-            Layout.fillWidth: true
-            alignment: Qt.AlignLeft
-            label: root.controller.functionTitle
-            valueText: root.measuring ? root.controller.valueText : ""
-            value: root.pulsing ? (root.controller.outputFrequency > 0 ? root.controller.outputFrequency : root.controller.coercedPulseFrequency)
-                                : root.controller.freqOutEnabled ? root.controller.coercedFreqOut : NaN
-            unit: root.measuring ? root.controller.unit : "Hz"
-            digits: 5
-            fontSize: 28
-            color: root.measuring ? Theme.ch0 : root.pulsing ? Theme.math : Theme.ch1
-            stale: !root.controller.running
-        }
         Rectangle {
             visible: root.measuring
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Theme.radiusM
+            Layout.preferredWidth: 3
             color: Theme.display
-            border.width: 1
-            border.color: Theme.displayBorder
+            radius: Theme.radiusControl
+            border.width: Theme.borderWidth
+            border.color: Theme.separator
             clip: true
+
             BenchPlot {
                 anchors.fill: parent
-                anchors.margins: 1
+                anchors.margins: Theme.spacingXs
                 bare: true
-                xAxis { labelFormat: PlotAxis.Time; follow: true; gridVisible: false }
-                yAxis { autoScale: true; gridVisible: false }
+                placeholderText: ""
+                xAxis { labelFormat: PlotAxis.Time; follow: true; labelsVisible: false; gridVisible: false }
+                yAxis { autoScale: true; labelsVisible: false; gridVisible: false }
                 Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 30, Date.now() / 1000)
-                PlotTrace { buffer: root.controller.trend; color: Theme.ch0; width: 1.2 }
+                PlotTrace { buffer: root.controller.trend; color: Theme.signalCh0; width: 1.2 }
             }
         }
-        Item { visible: !root.measuring; Layout.fillHeight: true }
-        Text {
+
+        ColumnLayout {
             Layout.fillWidth: true
-            text: {
-                const parts = [root.controller.plannedLines !== 0 ? root.controller.terminals : qsTr("No terminals")]
-                if (root.pulsing)
-                    parts.push(qsTr("duty %1 %").arg((root.controller.coercedDutyCycle * 100).toFixed(1)))
-                if (root.controller.freqOutEnabled && root.controller.counterFunction !== CtrController.CounterOff)
-                    parts.push(qsTr("FREQOUT %1").arg(Units.format(root.controller.coercedFreqOut, "Hz", 4)))
-                return parts.join(" · ")
+            Layout.fillHeight: true
+            Layout.preferredWidth: 2
+            spacing: Theme.spacingXs
+
+            Readout {
+                Layout.fillWidth: true
+                size: "m"
+                alignment: Qt.AlignLeft
+                label: root.measuring ? root.controller.functionTitle : root.pulsing ? qsTr("Pulse train") : qsTr("FREQOUT")
+                valueText: root.measuring ? root.controller.valueText : ""
+                value: root.pulsing ? (root.controller.outputFrequency > 0 ? root.controller.outputFrequency : root.controller.coercedPulseFrequency)
+                                    : root.controller.freqOutEnabled ? root.controller.coercedFreqOut : NaN
+                unit: root.measuring ? root.controller.unit : "Hz"
+                digits: 5
+                stale: !root.controller.running
             }
-            color: Theme.textMuted
-            font.pixelSize: Theme.fontSizeS
-            elide: Text.ElideRight
+            Item { Layout.fillHeight: true }
         }
     }
 }

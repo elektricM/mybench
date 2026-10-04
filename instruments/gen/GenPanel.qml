@@ -25,43 +25,6 @@ Item {
     property string tool: ""
     readonly property var channels: [controller.channel0, controller.channel1]
 
-    function channelColor(index: int): color {
-        return index === 0 ? Theme.signalAo0 : Theme.signalAo1
-    }
-    function shapeName(channel: GenChannel): string {
-        switch (channel.shape) {
-        case GenChannel.Square: return qsTr("square")
-        case GenChannel.Triangle: return qsTr("triangle")
-        default: return qsTr("sine")
-        }
-    }
-    // "AO 0 · 1.000 kHz sine · 2.00 Vpp · 0 V offset"
-    function readoutLine(channel: GenChannel): string {
-        let parts = [channel.name]
-        switch (channel.mode) {
-        case GenChannel.Function:
-            parts.push(Units.format(channel.frequency, "Hz", 4) + " " + shapeName(channel))
-            parts.push(Units.fixed(channel.amplitude, "Vpp", 2))
-            parts.push(qsTr("%1 offset").arg(Units.fixed(channel.offset, "V", 2)))
-            if (channel.shape === GenChannel.Square)
-                parts.push(qsTr("%1 % duty").arg(Math.round(channel.dutyCycle)))
-            break
-        case GenChannel.Dc:
-            parts.push(qsTr("DC %1").arg(Units.fixed(channel.dcLevel, "V", 2)))
-            break
-        case GenChannel.Arbitrary:
-            parts.push(channel.hasWaveform ? channel.waveformName : qsTr("no waveform"))
-            parts.push(Units.format(channel.updateRate, "S/s", 4))
-            parts.push(qsTr("gain %1").arg(channel.gain.toFixed(2)))
-            break
-        default:
-            parts.push(qsTr("off"))
-        }
-        if (!channel.outputOn && channel.mode !== GenChannel.Off)
-            parts.push(qsTr("output off"))
-        return parts.join(" · ")
-    }
-
     InstrumentPanel {
         id: panel
         objectName: "genPane"
@@ -182,7 +145,7 @@ Item {
                     anchors.fill: parent
                     spacing: 0
 
-                    // Display: one readout line and one preview per channel that is not Off.
+                    // Display: one preview per channel that is not Off; values live in the channel cards.
                     ColumnLayout {
                         id: displayColumn
                         Layout.fillWidth: true
@@ -214,42 +177,13 @@ Item {
 
                         Repeater {
                             model: root.channels
-                            delegate: RowLayout {
-                                id: readoutRow
-                                required property GenChannel modelData
-                                Layout.fillWidth: true
-                                spacing: Theme.spacingS
-                                Rectangle {
-                                    implicitWidth: 4
-                                    implicitHeight: readoutText.implicitHeight
-                                    radius: 2
-                                    color: readoutRow.modelData.outputOn ? root.channelColor(readoutRow.modelData.index)
-                                                                         : Theme.alpha(root.channelColor(readoutRow.modelData.index), 0.35)
-                                }
-                                Text {
-                                    id: readoutText
-                                    objectName: "readoutLine" + readoutRow.modelData.index
-                                    Layout.fillWidth: true
-                                    text: root.readoutLine(readoutRow.modelData)
-                                    color: readoutRow.modelData.outputOn ? Theme.displayText : Theme.displayTextSecondary
-                                    elide: Text.ElideRight
-                                    wrapMode: Text.Wrap
-                                    maximumLineCount: 2
-                                    font.pixelSize: root.compact ? Theme.fontSizeTitle : Theme.fontSizeReadoutM
-                                    font.weight: Font.DemiBold
-                                    font.features: { "tnum": 1 }
-                                }
-                            }
-                        }
-
-                        Repeater {
-                            model: root.channels
                             delegate: ChannelPreview {
                                 required property GenChannel modelData
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
                                 visible: modelData.mode !== GenChannel.Off || displayColumn.offCount === 2
                                 Layout.minimumHeight: 60
+                                objectName: "genPreview" + modelData.index
                                 controller: root.controller
                                 channel: modelData
                             }

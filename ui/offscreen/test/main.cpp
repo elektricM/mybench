@@ -65,9 +65,12 @@ int main(int argc, char *argv[])
     bool check = false;
     bool windowRoot = false;
     QString shot;
+    QString expectStyle;   // --expect-style <name>: the style runQmlApp() must have selected
     for (int i = 1; i < argc; ++i) {
         const QByteArray a(argv[i]);
-        if (a == "--self-check")
+        if (a == "--expect-style" && i + 1 < argc)
+            expectStyle = QString::fromLocal8Bit(argv[i + 1]);
+        else if (a == "--self-check")
             check = true;
         else if (a == "--window")
             windowRoot = true;
@@ -83,6 +86,10 @@ int main(int argc, char *argv[])
                 std::fprintf(stderr, "extra arguments: %s\n", qPrintable(options.arguments.join(u' ')));
         },
     });
+    if (code == 0 && !expectStyle.isEmpty() && mybench::quickStyle() != expectStyle) {
+        std::fprintf(stderr, "style: expected %s, got %s\n", qPrintable(expectStyle), qPrintable(mybench::quickStyle()));
+        return 1;
+    }
     if (code != 0 || !check || shot.isEmpty())
         return code;
     return selfCheck(shot);

@@ -132,7 +132,6 @@ Item {
                 Button {
                     objectName: "confirmCancelButton"
                     Layout.bottomMargin: Theme.spacingL
-                    implicitHeight: Theme.controlHeightL
                     text: qsTr("Cancel")
                     onClicked: dialog.reject()
                     // Return is always the default button (the verb).
@@ -144,20 +143,9 @@ Item {
                     objectName: "confirmAcceptButton"
                     Layout.bottomMargin: Theme.spacingL
                     Layout.rightMargin: Theme.spacingL
-                    implicitHeight: Theme.controlHeightL
                     text: root.acceptText
-                    // A destructive verb is not the accent primary: neutral button, negative text.
+                    // A destructive verb is not the accent primary: a plain button (native styles).
                     highlighted: !root.destructive
-                    contentItem: Text {
-                        text: acceptButton.text
-                        font: acceptButton.font
-                        color: !acceptButton.enabled ? Theme.textDisabled
-                             : acceptButton.highlighted ? Theme.accentText
-                             : root.destructive ? Theme.negative : Theme.text
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                    }
                     onClicked: dialog.accept()
                     Keys.onReturnPressed: dialog.accept()
                     Keys.onEnterPressed: dialog.accept()

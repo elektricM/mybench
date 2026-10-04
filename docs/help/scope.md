@@ -41,9 +41,9 @@ channel moves the other channel to an audio input too (and back to AI when you c
   (colored like its source channel, with source and slope) and the trigger mode **Auto / Normal /
   None**, the view **YT / XY / FFT**, **Autoscale** and **⋯** (Export Data…, Export Image…, Print…,
   Trace Style…, Show Measurements, Center Cursors, Reset Settings…, Help).
-- **Display**: the graph has 10 × 10 divisions and no axis numbers. The line at the top left sums up
-  the timebase and the trigger (`5 ms/div · Edge ↑ CH0 0.00 V`), the legend under the graph the scale
-  of every shown trace (`CH0 1 V/div`).
+- **Display**: the graph has 10 × 10 divisions and no axis numbers. The timebase and the trigger are
+  read on their knobs; the line at the top left only appears for Roll, averaging (`Avg ×4`) or
+  persistence. The legend under the graph gives the scale of every shown trace (`CH0 1 V/div`).
 - **Right column**: a card per channel (switch, **Scale** and **Position** knobs, source, input
   range, and what is in effect: coupling, range, differential), the **Math** and **References**
   cards, and the tool palette — **Measure, Cursors, Math, FFT, Refs, Display, Trigger, Export**. A

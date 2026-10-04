@@ -71,25 +71,16 @@ Item {
         tool = tool === id ? "" : id
     }
 
-    // The display's read-only summary: the horizontal and trigger settings (the vertical scales
-    // are the legend under the graph).
+    // The display's status: only what the bar does not show (timebase and trigger live in their
+    // knobs). Empty in the usual case, so the display keeps the whole height.
     readonly property string summary: {
         const parts = []
-        if (controller.displayMode === ScopeController.XY)
-            parts.push(qsTr("XY"))
-        parts.push(controller.timeDivLabel + "/div")
         if (controller.rolling)
             parts.push(qsTr("Roll"))
-        else if (!edge)
-            parts.push(qsTr("Immediate"))
-        else
-            parts.push(qsTr("Edge %1 CH%2 %3").arg(controller.triggerSlope === ScopeController.Rising ? "↑" : "↓")
-                                              .arg(triggerChannel)
-                                              .arg(controller.formatMeasurement(controller.triggerLevel, "V")))
         if (controller.averaging > 1)
-            parts.push(qsTr("Average of %1").arg(controller.averaging))
+            parts.push(qsTr("Avg ×%1").arg(controller.averaging))
         if (controller.persistence > 0)
-            parts.push(qsTr("Persistence %1").arg(Units.format(controller.persistence / 1000, "s", 2)))
+            parts.push(qsTr("Persist %1").arg(Units.format(controller.persistence / 1000, "s", 2)))
         return parts.join("  ·  ")
     }
     // The traces a cursor or the level cursors can follow (index 0, 1, 2 = math).

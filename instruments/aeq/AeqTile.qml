@@ -4,7 +4,8 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Dashboard tile of the Audio Equalizer: band gains, output meters and the tone response.
+// Overview tile of the Audio Equalizer (content only; the shell draws title, state and Run/Stop):
+// the band gains, the bare tone response on the display surface and the output meters.
 Item {
     id: root
 
@@ -35,25 +36,21 @@ Item {
                 font.weight: Font.DemiBold
                 font.features: Theme.tabularFigures
             }
-            Text {
-                text: qsTr("Volume %1 %").arg(Math.round(root.controller.volume * 100))
-                color: Theme.textMuted
-                font.pixelSize: Theme.fontSizeS
-            }
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                radius: Theme.radiusM
+                radius: Theme.radiusControl
                 color: Theme.display
-                border.width: 1
-                border.color: Theme.displayBorder
+                border.width: Theme.borderWidth
+                border.color: Theme.separator
                 clip: true
                 BenchPlot {
                     anchors.fill: parent
-                    anchors.margins: 1
+                    anchors.margins: Theme.spacingXs
                     bare: true
-                    xAxis { scale: PlotAxis.Log; min: 20; max: 20000; gridVisible: false }
-                    yAxis { min: -15; max: 15; gridVisible: false }
+                    placeholderText: ""
+                    xAxis { scale: PlotAxis.Log; min: 20; max: 20000; labelsVisible: false; gridVisible: false }
+                    yAxis { min: -15; max: 15; labelsVisible: false; gridVisible: false }
                     PlotTrace { buffer: root.controller.response; color: Theme.accent; width: 1.5 }
                 }
             }

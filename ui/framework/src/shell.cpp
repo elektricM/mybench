@@ -122,6 +122,10 @@ const char* const kShellHelp =
     "  --fresh                  temporary empty settings (implied by --screenshot unless --keep-settings)\n"
     "  --no-animations          disable animations\n"
     "  --no-unified-titlebar    macOS: keep the system title bar above the toolbar\n"
+    "  --style native|mybench|<name>  controls style for this run (default: the preference\n"
+    "                           Appearance > Controls, Native; screenshots use Fusion)\n"
+    "  --grab <file.png>        show the real window (transparent, no focus) and grab it after --delay;\n"
+    "                           never opens USB, fresh settings like --screenshot\n"
     "  --version                print the version\n";
 
 }  // namespace
@@ -146,7 +150,24 @@ int runShell(int argc, char* argv[], const ShellConfig& config)
     app.type = config.type;
     app.applicationName = QStringLiteral(MYBENCH_APP_NAME);
     app.organizationName = QStringLiteral(MYBENCH_APP_NAME);
-    app.style = u"MyBench.Style"_s;
+    // Controls style: "native" (the platform's own style; Fusion offscreen) unless the preference
+    // Appearance > Controls is "mybench". Screenshot and fresh runs ignore the stored preference.
+    app.style = u"native"_s;
+    {
+        bool fresh = false;
+        for (int i = 1; i < argc; ++i) {
+            const QByteArray argument(argv[i]);
+            if (argument == "--fresh" || argument.startsWith("--screenshot") || argument.startsWith("--grab"))
+                fresh = true;
+            else if (argument == "--keep-settings")
+                fresh = false;
+        }
+        if (!fresh) {
+            const QSettings settings(QSettings::UserScope, QStringLiteral(MYBENCH_APP_NAME), QStringLiteral(MYBENCH_APP_NAME));
+            if (settings.value(u"appearance/controls"_s).toString() == u"mybench"_s)
+                app.style = u"mybench"_s;
+        }
+    }
     app.defaultSize = config.defaultSize;
     app.setup = [config](QQmlEngine& engine, const LaunchOptions& options, QVariantMap&) {
         QCoreApplication::setApplicationVersion(QStringLiteral(MYBENCH_VERSION));
@@ -166,7 +187,7 @@ int runShell(int argc, char* argv[], const ShellConfig& config)
 
         AppInfo* info = AppInfo::instance();
         info->setLaunch(options.arguments, options.screenshot(), options.theme);
-        const bool fresh = info->flag(u"fresh"_s) || (options.screenshot() && !info->flag(u"keep-settings"_s));
+        const bool fresh = info->flag(u"fresh"_s) || (options.capture() && !info->flag(u"keep-settings"_s));
         if (fresh)
             useTemporarySettings();
         // Preference "Restore last session on start" (default on).
@@ -189,7 +210,7 @@ int runShell(int argc, char* argv[], const ShellConfig& config)
         // Screenshots and --simulated never touch real hardware (deterministic, and a myDAQ may be
         // in use by another program), unless a USB device is asked for explicitly.
         const bool wantsUsb = info->value(u"device"_s).startsWith(u"usb"_s);
-        if ((options.screenshot() || info->flag(u"simulated"_s)) && !wantsUsb && !qEnvironmentVariableIsSet("MYBENCH_NO_USB"))
+        if ((options.capture() || info->flag(u"simulated"_s)) && !wantsUsb && !qEnvironmentVariableIsSet("MYBENCH_NO_USB"))
             qputenv("MYBENCH_NO_USB", "1");
         DeviceHub* hub = DeviceHub::instance();
         const QString device = info->flag(u"simulated"_s) ? u"sim:0"_s : info->value(u"device"_s);

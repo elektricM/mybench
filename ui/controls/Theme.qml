@@ -26,6 +26,10 @@ QtObject {
     // Screenshot and test mode (docs/UI.md §13.9): ComboBox lists, menus and context menus stay
     // in-window popups (Popup.Item); otherwise menus are native and lists are popup windows.
     property bool inlinePopups: AppInfo.offscreen || AppInfo.screenshot || Qt.platform.pluginName === "offscreen"
+    // Standard controls are drawn by a platform style (macOS, FluentWinUI3, Fusion, KDE) rather than
+    // MyBench.Style (Preferences > Appearance > Controls, --style). Custom parts (knobs, cards,
+    // picture buttons) then take their colors from the system palette, like the native controls.
+    readonly property bool nativeControls: AppInfo.nativeControls
 
     // The platform palette (QPalette through SystemPalette). Overridable, so tests and
     // `--system-palette` can play any platform. `platformProvided` is false where Qt reports no

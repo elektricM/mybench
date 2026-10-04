@@ -197,6 +197,7 @@ bool SessionManager::fromJson(const QJsonObject& session)
 void SessionManager::revertAllToDefaults()
 {
     InstrumentRegistry* registry = InstrumentRegistry::instance();
+    registry->resetAllForSession();   // stop, outputs to their safe state (DIO to inputs...)
     for (InstrumentController* controller : registry->controllers())
         controller->resetSettings();
     Notifications::instance()->show(Notifications::Info, tr("Every instrument is back to its defaults"));

@@ -6,7 +6,8 @@ import MyBench.Controls
 
 // One input channel in the right column (PicoScope style), on the shared ChannelCard: colored
 // header with the on/off switch (the only place to switch a channel), Scale (1-2-5 V/div knob),
-// Position knob, Source and Input range, and the facts in effect (coupling, range, differential).
+// Position knob, Source and Input range, and one fact: the range in effect (coupling and wiring are
+// in the Source tooltip).
 ChannelCard {
     id: card
 
@@ -19,12 +20,11 @@ ChannelCard {
 
     objectName: "channelCard" + channel.index
     title: "CH " + channel.index
-    subtitle: sourceNames[channel.source] ?? ""
+    // The source shows once: in the Source box while on, here while the card is collapsed.
+    subtitle: channel.enabled ? "" : sourceNames[channel.source] ?? ""
     color: channelColor
     checked: channel.enabled
-    facts: [channel.audio ? qsTr("AC") : qsTr("DC"),
-            qsTr("±%1 V range").arg(channel.effectiveRange),
-            channel.audio ? qsTr("Single-ended") : qsTr("Differential")]
+    facts: [qsTr("±%1 V").arg(channel.effectiveRange)]
     // The controller refuses to switch off the last channel while running.
     onToggled: on => {
         if (!controller.setChannelEnabled(channel.index, on))
@@ -74,6 +74,10 @@ ChannelCard {
             model: card.sourceNames
             currentIndex: card.channel.source
             Accessible.name: qsTr("Channel %1 source").arg(card.channel.index)
+            ToolTip.visible: hovered
+            ToolTip.delay: 600
+            ToolTip.text: card.channel.audio ? qsTr("Audio input: AC coupled, single-ended")
+                                             : qsTr("Analog input: DC coupled, differential")
             // AI and audio inputs cannot be mixed: the other channel follows (toast).
             onActivated: index => {
                 card.controller.setChannelSource(card.channel.index, index)

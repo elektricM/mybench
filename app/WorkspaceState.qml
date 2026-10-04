@@ -153,6 +153,52 @@ QtObject {
         ratio = 1 - ratio
         changed()
     }
+    // Drag and drop (docs/UI.md §8). `zone` is "left", "right" or "center" of the workspace;
+    // `fromPane` = a pane header was dragged (only the other half does something: swap).
+    // An instrument row or tile dropped on a half shows it there beside the other pane; on the
+    // center it replaces the focused pane. Never stops an instrument.
+    function dropPane(paneId: string, zone: string, fromPane: bool) {
+        if (!isPane(paneId))
+            return
+        if (fromPane) {
+            if (split && ((zone === "left" && paneId === beside) || (zone === "right" && paneId === selected)))
+                swapPanes()
+            return
+        }
+        if (overview || zone === "center") {
+            show(paneId)
+            return
+        }
+        const other = split ? (zone === "left" ? beside : selected) : selected
+        if (paneId === other && split) {
+            swapPanes()
+            focus(paneId)
+            return
+        }
+        if (paneId === other) {          // the only pane dropped on itself
+            focus(paneId)
+            return
+        }
+        markOpened(paneId)
+        if (zone === "left") {
+            beside = other
+            selected = paneId
+        } else {
+            selected = other
+            beside = paneId
+        }
+        focused = paneId
+        changed()
+    }
+    // A pane header dropped on the sidebar: closes that pane (Overview when it was the only one).
+    function dropOnSidebar(paneId: string) {
+        if (!isShown(paneId))
+            return
+        if (split)
+            closePane(paneId)
+        else
+            showOverview()
+    }
     function showOverview() {
         selected = ""
         beside = ""

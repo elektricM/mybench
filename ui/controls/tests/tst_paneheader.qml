@@ -226,7 +226,6 @@ Item {
             const accept = findChild(styled.footer, "confirmAcceptButton")
             compare(accept.text, "Quit")
             verify(!accept.highlighted)                     // destructive: not the accent primary
-            compare(accept.contentItem.color, Theme.negative)
             const spy = createTemporaryObject(spyComponent, root, { target: dialog, signalName: "accepted" })
             tryVerify(() => accept.activeFocus)             // the verb is the default button
             keyClick(Qt.Key_Return)
@@ -259,6 +258,23 @@ Item {
             verify(findChild(panel, "ownBanner"))
             compare(panel.paneId, "gamma")
             compare(panel.paneTitle, "gamma")
+        }
+
+        // The header's reset button (before ⋯) asks "Reset" first, like the ⋯ entry.
+        function test_resetButtonConfirms() {
+            const panel = createTemporaryObject(compatPanel, root)
+            const button = findChild(panel.paneHeader, "resetButton")
+            verify(button)
+            verify(button.visible)
+            compare(button.Accessible.name, "Reset gamma to Defaults…")
+            const more = findChild(panel.paneHeader, "moreButton")
+            verify(button.mapToItem(panel.paneHeader, 0, 0).x < more.mapToItem(panel.paneHeader, 0, 0).x)
+            mouseClick(button)
+            let dialog = null
+            tryVerify(() => (dialog = findChild(panel, "confirmDialog")) !== null && dialog.opened)
+            compare(findChild(dialog.footer, "confirmAcceptButton").text, "Reset")
+            mouseClick(findChild(dialog.footer, "confirmCancelButton"))
+            tryCompare(dialog, "visible", false)
         }
 
         // Reset Settings… asks first (ConfirmDialog, in the window offscreen), then resets.

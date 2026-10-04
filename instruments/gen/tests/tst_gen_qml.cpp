@@ -102,7 +102,7 @@ private slots:
         const QRectF pane(0, 0, item->width(), item->height());
         QHash<QString, QRectF> rects;
         for (const auto* name : {"genControls", "genChannelCard0", "genChannelCard1", "genTools", "genRunButton",
-                                 "readoutLine0", "readoutLine1"}) {
+                                 "genPreview0", "previewLegend0"}) {   // AO 1 is Off by default
             auto* child = findItem(item, QString::fromLatin1(name));
             QVERIFY2(child, name);
             QVERIFY2(child->isVisible(), name);
@@ -114,7 +114,10 @@ private slots:
             rects.insert(QString::fromLatin1(name), r);
         }
         const QRectF controls = rects.value(u"genControls"_s);
-        QVERIFY(rects.value(u"readoutLine0"_s).right() <= controls.left() + 0.5);
+        QVERIFY(rects.value(u"genPreview0"_s).right() <= controls.left() + 0.5);
+        // No sentence summaries on the display: values are shown once, in the channel cards.
+        QVERIFY(!findItem(item, u"readoutLine0"_s));
+        QVERIFY(!findItem(item, u"readoutLine1"_s));
         QVERIFY(rects.value(u"genChannelCard0"_s).left() >= controls.left() - 0.5);
         auto* pane2 = p.root->findChild<QObject*>(u"genPane"_s);
         QVERIFY(pane2);

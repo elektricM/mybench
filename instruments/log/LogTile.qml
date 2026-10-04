@@ -4,8 +4,9 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Dashboard tile of the Data Logger: recording state and time, the latest values and the last
-// minute of the chart.
+// Overview tile of the Data Logger (content only; the shell draws title, state and Run/Stop): the
+// last minute of the chart on the display surface, the latest value of each logged channel (its
+// swatch is the legend) and the recording time while a file is written. Neutral text.
 Item {
     id: root
 
@@ -21,7 +22,7 @@ Item {
     }
     function valueOf(key: string, unit: string): string {
         const e = root.entry(key)
-        return e && e.count > 0 ? Units.format(e.last, unit, 4) : "— " + unit
+        return e && e.count > 0 ? Units.format(e.last, unit, 4) : "—"
     }
     function duration(seconds: real): string {
         const s = Math.floor(seconds)
@@ -29,71 +30,76 @@ Item {
         return (hh > 0 ? hh + ":" : "") + String(Math.floor(s / 60) % 60).padStart(hh > 0 ? 2 : 1, "0") + ":" + String(s % 60).padStart(2, "0")
     }
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
-        spacing: Theme.spacingXs
+        spacing: Theme.spacingM
 
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingS
-            Rectangle {
-                implicitWidth: 8
-                implicitHeight: 8
-                radius: 4
-                color: root.controller.recording ? (root.controller.recordPaused ? Theme.warning : Theme.danger) : Theme.textMuted
-            }
-            Text {
-                text: root.controller.recording ? (root.controller.recordPaused ? qsTr("PAUSED") : qsTr("REC"))
-                                                  + "  " + root.duration(root.controller.recordSeconds)
-                                                : root.controller.running ? qsTr("Monitoring") : qsTr("Not recording")
-                color: root.controller.recording ? Theme.text : Theme.textMuted
-                font.pixelSize: Theme.fontSizeM
-                font.weight: Font.DemiBold
-                font.features: Theme.tabularFigures
-            }
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingM
-            Text {
-                visible: root.controller.ai0Enabled
-                text: root.valueOf("ai0", "V")
-                color: Theme.ch0
-                font.pixelSize: Theme.fontSizeXl
-                font.features: Theme.tabularFigures
-            }
-            Text {
-                visible: root.controller.ai1Enabled
-                text: root.valueOf("ai1", "V")
-                color: Theme.ch1
-                font.pixelSize: Theme.fontSizeXl
-                font.features: Theme.tabularFigures
-            }
-            Text {
-                visible: root.controller.dmmEnabled
-                text: root.valueOf("dmm", root.controller.dmmUnit)
-                color: Theme.math
-                font.pixelSize: Theme.fontSizeXl
-                font.features: Theme.tabularFigures
-            }
-        }
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            radius: Theme.radiusM
+            Layout.preferredWidth: 3
             color: Theme.display
-            border.width: 1
-            border.color: Theme.displayBorder
+            radius: Theme.radiusControl
+            border.width: Theme.borderWidth
+            border.color: Theme.separator
             clip: true
+
             BenchPlot {
                 anchors.fill: parent
-                anchors.margins: 1
+                anchors.margins: Theme.spacingXs
                 bare: true
-                xAxis { labelFormat: PlotAxis.Time; follow: true; gridVisible: false }
-                yAxis { autoScale: true; gridVisible: false }
+                placeholderText: ""
+                xAxis { labelFormat: PlotAxis.Time; follow: true; labelsVisible: false; gridVisible: false }
+                yAxis { autoScale: true; labelsVisible: false; gridVisible: false }
                 Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
-                PlotTrace { visible: root.controller.ai0Enabled; buffer: root.controller.ai0; color: Theme.ch0; width: 1.2 }
-                PlotTrace { visible: root.controller.ai1Enabled; buffer: root.controller.ai1; color: Theme.ch1; width: 1.2 }
+                PlotTrace { visible: root.controller.ai0Enabled; buffer: root.controller.ai0; color: Theme.signalCh0; width: 1.2 }
+                PlotTrace { visible: root.controller.ai1Enabled; buffer: root.controller.ai1; color: Theme.signalCh1; width: 1.2 }
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: 2
+            spacing: Theme.spacingXs
+
+            Readout {
+                visible: root.controller.ai0Enabled
+                Layout.fillWidth: true
+                size: "s"
+                alignment: Qt.AlignLeft
+                swatchColor: Theme.signalCh0
+                label: "AI 0"
+                valueText: root.valueOf("ai0", "V")
+                stale: !root.controller.running
+            }
+            Readout {
+                visible: root.controller.ai1Enabled
+                Layout.fillWidth: true
+                size: "s"
+                alignment: Qt.AlignLeft
+                swatchColor: Theme.signalCh1
+                label: "AI 1"
+                valueText: root.valueOf("ai1", "V")
+                stale: !root.controller.running
+            }
+            Readout {
+                visible: root.controller.dmmEnabled
+                Layout.fillWidth: true
+                size: "s"
+                alignment: Qt.AlignLeft
+                label: qsTr("DMM")
+                valueText: root.valueOf("dmm", root.controller.dmmUnit)
+                stale: !root.controller.running
+            }
+            Item { Layout.fillHeight: true }
+            // The one fact that matters: a file is being written.
+            Text {
+                visible: root.controller.recording
+                text: (root.controller.recordPaused ? qsTr("Paused") : qsTr("Rec")) + "  " + root.duration(root.controller.recordSeconds)
+                color: Theme.textSecondary
+                font.pixelSize: Theme.fontSizeS
+                font.features: Theme.tabularFigures
             }
         }
     }

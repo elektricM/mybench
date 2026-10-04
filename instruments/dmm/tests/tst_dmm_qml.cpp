@@ -109,6 +109,18 @@ private slots:
         QCOMPARE(dmm.selectedFunction(), DmmController::Resistance);
         QVERIFY2(buttons.at(4)->property("checked").toBool(), "clicking the selected function unchecked it");
 
+        // The status line repeats no control: a fixed range is in the Range buttons, so it is empty
+        // and hidden; the display has no function-name title (the function button says it).
+        dmm.setAutoRange(false);
+        offscreen.renderFrame();
+        auto* status = root->findChild<QQuickItem*>(u"dmmStatusLine"_s);
+        QVERIFY(status);
+        QCOMPARE(status->property("text").toString(), QString());
+        QVERIFY(!status->isVisible());
+        auto* dmmPane = root->findChild<QQuickItem*>(u"dmmPane"_s);
+        QVERIFY(dmmPane);
+        QCOMPARE(dmmPane->property("displayTitle").toString(), QString());
+
         // A tool opens a panel floating over the display, next to the column (never under it).
         auto* connections = root->findChild<QQuickItem*>(u"connectionsPanel"_s);
         QVERIFY(connections);

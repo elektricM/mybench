@@ -20,3 +20,18 @@ set_target_properties(mybench-controls-gallery PROPERTIES MACOSX_BUNDLE FALSE WI
 if(NOT MSVC)
     target_compile_options(mybench-controls-gallery PRIVATE -Wall -Wextra)
 endif()
+
+# Native look (round 3): every gallery page under the macOS style must load without "The current
+# style does not support customization" (a component that overrides background/contentItem/
+# indicator of a natively drawn control). Offscreen still evaluates the style, so it runs in CI.
+if(APPLE)
+    foreach(page foundations buttons forms readouts indicators plots instrument)
+        add_test(NAME controls_gallery_macos_style_${page}
+            COMMAND mybench-controls-gallery ${page} --style macOS --delay 200 --size 1440x1000
+                    --screenshot ${CMAKE_CURRENT_BINARY_DIR}/gallery-macos-style-${page}.png)
+        set_tests_properties(controls_gallery_macos_style_${page} PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MYBENCH_NO_USB=1"
+            FAIL_REGULAR_EXPRESSION "does not support customization"
+            TIMEOUT 60)
+    endforeach()
+endif()

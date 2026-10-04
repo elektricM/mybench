@@ -23,8 +23,8 @@ same time, and you can start, stop or change one without disturbing the other.
 1. On the **AO 0** card, pick **Sine**, **Square** or **Triangle**.
 2. Turn the **Frequency**, **Amplitude** (peak to peak) and **Offset** knobs, or click a value and
    type it (`1.5k` means 1500 Hz); **−** / **+** step it.
-3. Press **Run**. The line above the preview reads, for example,
-   `AO 0 · 1 kHz sine · 2.00 Vpp · 0.00 V offset`.
+3. Press **Run**. The preview of the channel shows the output samples; its legend (`AO 0`) has a
+   filled swatch while the output is on.
 4. Press **Stop**: the output returns to 0 V.
 
 ## Quick start: arbitrary waveform

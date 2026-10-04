@@ -1,87 +1,87 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
+import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Dashboard tile of the Waveform Generator: per channel its mode icon, the readout (OFF / frequency
-// / update rate / DC level), the output LED, and a mini preview of both outputs.
+// Overview tile of the Waveform Generator (content only; the shell draws title, state and
+// Run/Stop): bare mini previews of the outputs on the display surface and one readout per channel
+// (frequency / update rate / DC level; its swatch is the legend). Neutral text; the channel colors
+// only draw the traces and swatches. A channel that does not output is dimmed.
 Item {
     id: root
 
     required property GenController controller
 
-    component ChannelRow: RowLayout {
-        id: row
-        required property GenChannel channel
-        readonly property color channelColor: channel.index === 0 ? Theme.ch0 : Theme.ch1
-        readonly property bool live: channel.state === GenChannel.Running || channel.state === GenChannel.Sweeping
-        readonly property var icons: ["power", "wave-sine-line", "wave-arbitrary-line", "wave-dc-line"]
-        spacing: Theme.spacingS
-        Rectangle {
-            Layout.preferredWidth: 3
-            Layout.fillHeight: true
-            radius: 1.5
-            color: row.channelColor
-            opacity: row.live ? 1 : 0.35
-        }
-        Text {
-            Layout.preferredWidth: 34
-            text: row.channel.audio ? (row.channel.index === 0 ? "L" : "R") : row.channel.name.replace(" ", "")
-            color: Theme.textSecondary
-            font.pixelSize: Theme.fontSizeS
-            font.weight: Font.DemiBold
-        }
-        Icon {
-            name: row.icons[row.channel.mode]
-            size: Theme.iconSizeS
-            color: row.live ? row.channelColor : Theme.textMuted
-        }
-        Text {
-            Layout.fillWidth: true
-            text: row.channel.readoutText
-            color: row.live ? Theme.text : row.channel.state === GenChannel.Done ? Theme.warning : Theme.textMuted
-            font.pixelSize: 16
-            font.weight: Font.DemiBold
-            font.features: Theme.tabularFigures
-            elide: Text.ElideRight
-        }
-        Led {
-            on: row.live || row.channel.state === GenChannel.Done || row.channel.state === GenChannel.Paused
-            color: row.live ? Theme.success : Theme.warning
-            size: 7
-        }
+    function channelColor(channel: GenChannel): color {
+        return channel.index === 0 ? Theme.signalCh0 : Theme.signalCh1
+    }
+    function live(channel: GenChannel): bool {
+        return channel.state === GenChannel.Running || channel.state === GenChannel.Sweeping
     }
 
-    ColumnLayout {
+    RowLayout {
         anchors.fill: parent
-        spacing: 4
-        ChannelRow { Layout.fillWidth: true; Layout.preferredHeight: 22; channel: root.controller.channel0 }
-        ChannelRow { Layout.fillWidth: true; Layout.preferredHeight: 22; channel: root.controller.channel1 }
-        RowLayout {
+        spacing: Theme.spacingM
+
+        Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumHeight: 24
-            spacing: Theme.spacingS
-            Repeater {
-                model: [root.controller.channel0, root.controller.channel1]
-                delegate: BenchPlot {
-                    id: mini
-                    required property GenChannel modelData
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    visible: modelData.mode !== GenChannel.Off
-                    bare: true
-                    xAxis { min: 0; max: mini.modelData.previewSpan }
-                    yAxis { min: mini.modelData.previewMin; max: mini.modelData.previewMax }
-                    PlotTrace {
-                        buffer: mini.modelData.preview
-                        color: mini.modelData.index === 0 ? Theme.ch0 : Theme.ch1
-                        width: 1.3
-                        step: mini.modelData.previewStep
+            Layout.preferredWidth: 3
+            color: Theme.display
+            radius: Theme.radiusControl
+            border.width: Theme.borderWidth
+            border.color: Theme.separator
+            clip: true
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingXs
+                spacing: Theme.spacingXs
+                Repeater {
+                    model: [root.controller.channel0, root.controller.channel1]
+                    delegate: BenchPlot {
+                        id: mini
+                        required property GenChannel modelData
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: modelData.mode !== GenChannel.Off
+                        bare: true
+                        placeholderText: ""
+                        xAxis { min: 0; max: mini.modelData.previewSpan; labelsVisible: false; gridVisible: false }
+                        yAxis { min: mini.modelData.previewMin; max: mini.modelData.previewMax; labelsVisible: false; gridVisible: false }
+                        PlotTrace {
+                            buffer: mini.modelData.preview
+                            color: root.channelColor(mini.modelData)
+                            width: 1.3
+                            step: mini.modelData.previewStep
+                        }
                     }
                 }
             }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.preferredWidth: 2
+            spacing: Theme.spacingXs
+
+            Repeater {
+                model: [root.controller.channel0, root.controller.channel1]
+                delegate: Readout {
+                    required property GenChannel modelData
+                    Layout.fillWidth: true
+                    size: "s"
+                    alignment: Qt.AlignLeft
+                    swatchColor: root.channelColor(modelData)
+                    label: modelData.audio ? (modelData.index === 0 ? qsTr("Left") : qsTr("Right")) : modelData.name
+                    valueText: modelData.readoutText
+                    stale: !root.live(modelData)
+                }
+            }
+            Item { Layout.fillHeight: true }
         }
     }
 }

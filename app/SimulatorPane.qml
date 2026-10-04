@@ -75,12 +75,12 @@ Rectangle {
 
             Hairline {}
             Heading { text: qsTr("Analog Inputs") }
-            Text {
+            SimWiring {
+                Layout.maximumWidth: 360
                 Layout.fillWidth: true
-                text: qsTr("An input that no output drives shows its test signal. AO 0 drives AI 0 directly and AI 1 through an RC low-pass; Audio Out drives Audio In.")
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeSmall
-                wrapMode: Text.WordWrap
+                Layout.bottomMargin: Theme.spacingS
+                showAudio: true
+                background: Theme.window
             }
             RowLayout {
                 Layout.fillWidth: true

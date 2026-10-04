@@ -20,13 +20,34 @@ QtObject {
     readonly property bool paletteDark: hasPalette && Theme.luminance(paletteColors[0]) < 0.5
     readonly property bool writesColorScheme: Qt.platform.pluginName !== "offscreen" && !AppInfo.screenshot
 
+    // Offscreen (screenshots, tests) the platform provides no dark palette: with a platform style
+    // (Fusion there) the application palette is set from the theme so the standard controls match.
+    readonly property bool pushesPalette: Theme.nativeControls
+                                          && (Qt.platform.pluginName === "offscreen" || Qt.platform.pluginName === "minimal")
+    readonly property var themePalette: ({
+        window: Theme.window, windowText: Theme.text, base: Theme.base, alternateBase: Theme.mix(Theme.base, Theme.text, 0.04),
+        text: Theme.text, button: Theme.controlFill, buttonText: Theme.text,
+        highlight: Theme.selection, highlightedText: Theme.paletteHighlightedText, accent: Theme.accent,
+        placeholderText: Theme.textSecondary, toolTipBase: Theme.base, toolTipText: Theme.text,
+        light: Theme.mix(Theme.controlFill, "#FFFFFF", Theme.dark ? 0.12 : 0.6),
+        midlight: Theme.mix(Theme.controlFill, "#FFFFFF", Theme.dark ? 0.06 : 0.3),
+        mid: Theme.mix(Theme.controlFill, "#000000", Theme.dark ? 0.25 : 0.2),
+        dark: Theme.mix(Theme.controlFill, "#000000", Theme.dark ? 0.45 : 0.35),
+        shadow: "#000000", disabledText: Theme.textDisabled
+    })
+    function applyPalette() {
+        if (pushesPalette)
+            AppInfo.setApplicationPalette(themePalette)
+    }
+    onThemePaletteChanged: applyPalette()
+
     function applyColorScheme() {
         if (!writesColorScheme)
             return
         Application.styleHints.colorScheme = mode === "dark" ? Qt.Dark : mode === "light" ? Qt.Light : Qt.Unknown
     }
     onModeChanged: applyColorScheme()
-    Component.onCompleted: applyColorScheme()
+    Component.onCompleted: { applyColorScheme(); applyPalette() }
 
     property QtObject modeBinding: Binding { target: Theme; property: "mode"; value: sync.mode }
     property QtObject darkDisplaysBinding: Binding { target: Theme; property: "alwaysDarkDisplays"; value: sync.alwaysDarkDisplays }

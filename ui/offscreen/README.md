@@ -34,7 +34,8 @@ int main(int argc, char *argv[])
 ```
 
 `QmlApp` fields: `module`+`type` or `url`; `applicationName`, `organizationName`,
-`organizationDomain`; `style` (Qt Quick Controls style, default `"Basic"`, empty = untouched);
+`organizationDomain`; `style` (Qt Quick Controls style, default `"Basic"`, empty = untouched;
+`"native"` and `"mybench"` are resolved as described under *Controls style*);
 `defaultSize` (1280×800); `setup` callback (engine, options, initial properties).
 
 The root may be an **Item** (put in a window that it fills) or a **Window/ApplicationWindow**
@@ -54,6 +55,8 @@ Static QML modules linked into the executable still need their plugin imported, 
 | `--theme dark\|light` | sets `QStyleHints::colorScheme` and `mybench::launchOptions().theme` |
 | `--dpr <ratio>` | device pixel ratio of the PNG (2 = retina-sharp; image is W·dpr × H·dpr) |
 | `--samples <n>` | MSAA samples of the offscreen target (default 1, like a normal window) |
+| `--style <name>` | Qt Quick Controls style for this run, overriding `QmlApp::style`: `native`, `mybench`, or any style name (`Fusion`, `Basic`, `macOS`, …) |
+| `--grab <file.png>` | show the **real** window on the real platform (cocoa, windows, xcb/wayland) and grab it after `--delay`, write the PNG, exit |
 | `--help-launch` | print the options |
 
 Every other argument is passed through in `LaunchOptions::arguments` (e.g. an instrument id).
@@ -68,6 +71,40 @@ Environment: `QSG_RHI_BACKEND=metal|vulkan|opengl|d3d11|d3d12` forces the graphi
 `QT_QPA_PLATFORM` (or `-platform`) given explicitly is respected (e.g. `cocoa` also works and still
 shows no window). On headless Linux CI use a platform with GL (EGL/`QT_QPA_PLATFORM=offscreen`
 with Mesa) or `QSG_RHI_BACKEND=vulkan` with a software Vulkan driver (lavapipe).
+
+### Controls style
+
+`style` / `--style` accept two aliases besides plain style names:
+
+| Value | Real window | Offscreen (`--screenshot`, `QT_QPA_PLATFORM=offscreen`/`minimal`) |
+|---|---|---|
+| `native` | the platform style: `macOS`, `FluentWinUI3` (Windows), `org.kde.desktop` (Linux, when its QML module is installed), else `Fusion` | `Fusion` (the macOS and Windows styles draw no bezels without a real window) |
+| `mybench` | `MyBench.Style` | `MyBench.Style` |
+| any other (`Fusion`, `macOS`, …) | that style | that style (forcing `macOS` offscreen is allowed, for debugging) |
+
+`mybench::nativeQuickStyle()` and `mybench::resolveQuickStyle(name, offscreen)` expose the rule,
+`mybench::quickStyle()` returns the style `runQmlApp()` selected. The MYBENCH executables default
+to `native`; the preference *Appearance > Controls* (`appearance/controls` = `mybench`) selects
+MyBench.Style. `--fresh`, `--screenshot` and `--grab` ignore the stored preference.
+
+### Real-window grab (`--grab`)
+
+`--screenshot` cannot show the platform look (offscreen there is no macOS/Windows style). `--grab`
+runs on the real platform instead: the window is shown fully transparent, without taking focus
+and transparent for mouse input (clicks and hover reach the windows below, so a grab never opens
+a tooltip or changes the session; on macOS the window may flash for a frame), renders for `--delay` ms and
+is captured with `QQuickWindow::grabWindow()` (the scene graph, at the screen's device pixel
+ratio of the screen it lands on: 1x or 2x), then the program exits (0 ok, 1 error). The window is
+never the key window, so native controls draw their inactive-window state (macOS: no focus ring,
+default buttons not tinted). Use it to verify what the native style really draws:
+
+```sh
+MYBENCH_NO_USB=1 build/app/MYBENCH.app/Contents/MacOS/MYBENCH --simulated --panel scope --split gen \
+    --run scope,gen --size 1440x900 --delay 2500 --grab /tmp/scope-native.png
+```
+
+The MYBENCH shell treats `--grab` like `--screenshot` for settings (fresh, temporary) and USB
+(never opened unless `--device usb…` is given). Do not set `QT_QPA_PLATFORM=offscreen` for a grab.
 
 ### Theme
 

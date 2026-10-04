@@ -65,13 +65,6 @@ Item {
             spacing: Theme.spacingXs
         }
     }
-    component Hint: Text {
-        Layout.fillWidth: true
-        color: Theme.textSecondary
-        font.pixelSize: Theme.fontSizeCaption
-        font.features: Theme.tabularFigures
-        wrapMode: Text.WordWrap
-    }
 
     InstrumentPanel {
         id: panel
@@ -80,13 +73,8 @@ Item {
         showRunControls: false
         runBar.showTimeout: false
         inspector: []
-        displayTitle: root.octave
-                      ? qsTr("1/3 Octave · %1").arg(root.controller.sourceName)
-                      : qsTr("%1 · %2 · %3 window · %4")
-                            .arg(root.controller.spectrumDisplay === DsaController.PowerSpectralDensityDisplay ? qsTr("PSD") : qsTr("Power Spectrum"))
-                            .arg(root.controller.sourceName)
-                            .arg(root.controller.windowLabels[root.controller.windowIndex])
-                            .arg(root.controller.averagingText)
+        // No display title: the analysis, source, window and averaging are shown once, in their
+        // controls; the axis title names the unit (power or density).
 
         headerContent: [
             RowLayout {
@@ -209,11 +197,10 @@ Item {
                             objectName: "inputCard"
                             Layout.fillWidth: true
                             title: qsTr("Input")
-                            subtitle: root.controller.sourceName
                             color: root.sourceColor
                             checkable: false
                             compact: root.narrow
-                            facts: root.controller.audioSource ? [qsTr("Fixed ±2 V range")] : []
+                            facts: root.controller.audioSource ? [qsTr("±2 V fixed")] : []
                             GridLayout {
                                 Layout.fillWidth: true
                                 columns: 2
@@ -295,7 +282,6 @@ Item {
                             }
                         }
                     }
-                    Hint { text: qsTr("Hann suits most signals; Flat Top gives the most accurate amplitudes, Uniform only for signals that fit the record exactly.") }
                 }
 
                 ToolPanel {
@@ -348,7 +334,6 @@ Item {
                         formatter: v => String(Math.round(v))
                         onValueModified: v => root.controller.averages = Math.round(v)
                     }
-                    Hint { text: root.controller.averagingText }
                 }
 
                 ToolPanel {
@@ -559,10 +544,6 @@ Item {
                             currentIndex: root.controller.octaveWeighting
                             onActivated: index => root.controller.octaveWeighting = index
                         }
-                    }
-                    Hint {
-                        text: qsTr("50 kS/s, blocks of 1000 samples. The lowest band needs about %1 to settle.")
-                              .arg(Units.format(root.controller.octaveSettlingTime, "s", 2))
                     }
                 }
 

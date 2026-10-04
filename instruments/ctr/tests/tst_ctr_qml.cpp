@@ -77,6 +77,23 @@ class TestCtrQml : public QObject
         return true;
     }
 
+
+    // Every object with a display title (the InstrumentPanel and its pane parts) shows none:
+    // the values are in their controls ("less text, more instrument").
+    static void verifyNoDisplayText(QObject* root)
+    {
+        int panels = 0;
+        for (QObject* o : root->findChildren<QObject*>()) {
+            if (o->metaObject()->indexOfProperty("displayTitle") < 0)
+                continue;
+            ++panels;
+            QCOMPARE(o->property("displayTitle").toString(), QString());
+            if (o->metaObject()->indexOfProperty("displayInfo") >= 0)
+                QCOMPARE(o->property("displayInfo").toString(), QString());
+        }
+        QVERIFY(panels > 0);
+    }
+
 private slots:
     void initTestCase()
     {
@@ -130,6 +147,25 @@ private slots:
         QVERIFY(period->property("checked").toBool());
         QVERIFY(!pulse->property("checked").toBool());
         QVERIFY(shown(u"ctrSettingsCard"_s));
+    }
+
+    void lessText()
+    {
+        CtrController& ctr = controller();
+        if (!createPanel(ctr))
+            QSKIP("no graphics device");
+        // The mode shows once (its checked button): no display title or info line, no readout
+        // label, and the settings card is the "Input" (its subtitle the terminals).
+        verifyNoDisplayText(m_root.get());
+        if (QTest::currentTestFailed())
+            return;
+        QObject* value = find(u"ctrValue"_s);
+        QVERIFY(value);
+        QCOMPARE(value->property("label").toString(), QString());
+        QObject* settings = find(u"ctrSettingsCard"_s);
+        QVERIFY(settings);
+        QCOMPARE(settings->property("title").toString(), u"Input"_s);
+        QCOMPARE(settings->property("subtitle").toString(), ctr.terminals());
     }
 
     void freqOutKnobSelectsTableEntries()
