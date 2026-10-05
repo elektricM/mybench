@@ -68,7 +68,8 @@ Overview (top of the sidebar) is the starting page and replaces the ELVISmx Inst
   Defaults…*) stops every instrument, returns the outputs to their safe state and restores every
   setting; the layout is kept.
 - **Instruments**: every instrument as a live tile; click to show it, or **Run**/**Stop** from the
-  tile. The context menu of a tile has **Show Beside** and **Pin to Top**.
+  tile (on hover). A stopped instrument that has not measured yet shows a **Run** button over its
+  preview. The context menu of a tile has **Show Beside** and **Pin to Top**.
 - **Recent Sessions**: the last saved `.mybench` files; click one to open it.
 
 ## Device
