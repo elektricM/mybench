@@ -30,8 +30,9 @@ meter.
 - **Right column**: the **Input** card (source and range) and the tools — **Window**, **Averaging**,
   **Display**, **Cursors**, **Export** (in Octave mode: **Octave**, **Export**). A tool opens a
   panel that floats over the display; click the tool again or × to close it.
-- **Measurement cards** (bottom): Fundamental, Fundamental power, THD, SINAD, Peak, and the cursors
-  while they are shown.
+- **Measurement cards** (bottom): Fundamental, Fundamental power, THD, SINAD, SNR, Peak, and the
+  cursors while they are shown. The result cards show min / max / mean / σ over the last 100 results
+  of the run.
 
 Settings that do not apply are hidden (for example *RMS / Peak* with dBm, the weighting without
 RMS or Vector averaging, Minimum / Maximum with an automatic scale).
@@ -110,6 +111,7 @@ The cursor card at the bottom shows the difference between the cursors.
   power, in Vrms² (Vpk² when Mode is Peak), and does not follow the Units setting.
 - **THD** – total harmonic distortion: power of harmonics 2 to 10 relative to the fundamental.
 - **SINAD** – signal to noise-and-distortion ratio.
+- **SNR** – signal to noise ratio: like SINAD, but harmonics 2 to 10 are not counted as noise.
 - **Peak** (Vpk) – half the difference between the highest and the lowest sample of the latest record.
 
 ## 1/3 Octave

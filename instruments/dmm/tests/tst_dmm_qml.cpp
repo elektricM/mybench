@@ -85,6 +85,23 @@ private slots:
         QVERIFY2(!rects.value(u"trendPlot"_s).intersects(controls), qPrintable(describe(rects.value(u"trendPlot"_s))));
         QVERIFY(rects.value(u"trendPlot"_s).right() <= controls.left() + 0.5);
         QVERIFY(!rects.value(u"dmmReadout"_s).intersects(rects.value(u"trendPlot"_s)));
+        // No dead space: the readout block is as tall as its content and the trend starts right
+        // under it; the tools close the right column at its bottom when it has room.
+        auto* block = root->findChild<QQuickItem*>(u"dmmReadoutBlock"_s);
+        auto* trendView = root->findChild<QQuickItem*>(u"trendView"_s);
+        QVERIFY(block && trendView);
+        const double gap = rectOf(trendView).top() - rectOf(block).bottom();
+        QVERIFY2(gap >= -0.5 && gap <= 2 * 8 + 0.5, qPrintable(QString::number(gap)));
+        QVERIFY(!block->childItems().isEmpty());
+        const double content = block->childItems().first()->implicitHeight();   // the readout column
+        QVERIFY2(block->height() <= content + 8.5,
+                 qPrintable(u"readout block %1 for %2 of content"_s.arg(block->height()).arg(content)));
+        if (size.height() >= 900) {
+            auto* tools = root->findChild<QQuickItem*>(u"dmmTools"_s);
+            QVERIFY(tools);
+            const double tail = controls.bottom() - rectOf(tools).bottom();
+            QVERIFY2(tail >= 0 && tail <= 3 * 8, qPrintable(QString::number(tail)));
+        }
 
         // Function buttons stay in step with the controller after clicks (one checked button).
         auto* grid = root->findChild<QQuickItem*>(u"functionGrid"_s);

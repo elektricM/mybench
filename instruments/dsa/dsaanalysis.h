@@ -53,6 +53,7 @@ struct Measurements {
     size_t fundamentalBin = 0;
     double thdPercent = 0;            // 100 × sqrt(sum harmonics 2..10 / fundamental)
     double sinadDb = 0;               // 10 log10(total / (total - fundamental))
+    double snrDb = 0;                 // 10 log10(fundamental / noise), harmonics 2..10 excluded
     double vpk = 0;                   // (max - min) / 2 of the record
     std::vector<Harmonic> harmonics;  // [0] = fundamental, then orders 2..10 below the last bin
 };

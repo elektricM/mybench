@@ -6,6 +6,9 @@
 //                                             // where there are none (other platforms, offscreen)
 //     WindowChrome.setTitleHidden(window, true)   // keep the title (Mission Control, Window menu)
 //                                                 // but do not draw it
+//     WindowChrome.centerButtons(window, 52)      // traffic lights centred on the top 52 px (the
+//                                                 // toolbar), as far as the title bar view allows;
+//                                                 // AppKit re-lays them out on resize: call again
 #pragma once
 
 #include <QObject>
@@ -24,4 +27,5 @@ public:
 
     Q_INVOKABLE QRectF buttonsRect(QWindow* window) const;
     Q_INVOKABLE void setTitleHidden(QWindow* window, bool hidden) const;
+    Q_INVOKABLE void centerButtons(QWindow* window, qreal barHeight) const;
 };

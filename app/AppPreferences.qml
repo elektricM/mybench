@@ -20,6 +20,9 @@ QtObject {
         category: "appearance"
         property string themeMode: "dark"            // "system" | "light" | "dark"; dark by default
         property bool alwaysDarkDisplays: false
+        // "native" (the platform's Qt style) | "mybench" (MyBench.Style); read by the shell at
+        // start (shell.cpp storedControlsStyle), so a change applies after a restart.
+        property string controls: "native"
     }
     component BehaviourSettings: Settings {
         category: "preferences"
@@ -45,6 +48,23 @@ QtObject {
         appearance.alwaysDarkDisplays = on
         darkDisplaysFromCommandLine = false
     }
+    // The controls style of this run: "mybench" for MyBench.Style, else "native".
+    readonly property string controlsInUse: AppInfo.nativeControls ? "native" : "mybench"
+    readonly property bool controlsRestartNeeded: appearance.controls !== controlsInUse
+    function setControls(style: string) {
+        appearance.controls = style === "mybench" ? "mybench" : "native"
+    }
+
+    // General ▸ Reset Window Layout: the layout settings go back to their defaults here; the
+    // window (Main.qml) resets its size, split and sidebar/inspector toggles on the signal.
+    signal windowLayoutResetRequested()
+    function resetWindowLayout() {
+        view.inspectorWidth = Theme.inspectorWidth
+        view.statusBarShown = true
+        view.menuBarShown = true
+        windowLayoutResetRequested()
+    }
+
     function setInspectorWidth(width: real) {
         view.inspectorWidth = Math.round(Math.max(Theme.inspectorMinWidth, Math.min(Theme.inspectorMaxWidth, width)))
     }

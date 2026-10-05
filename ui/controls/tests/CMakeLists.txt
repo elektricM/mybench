@@ -10,3 +10,10 @@ if(NOT MSVC)
 endif()
 add_test(NAME controls_qml COMMAND tst_controls_qml -input ${CMAKE_CURRENT_SOURCE_DIR})
 set_tests_properties(controls_qml PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MYBENCH_NO_USB=1")
+# Theme metrics under the native macOS style (controls follow its 24 px control height).
+if(APPLE)
+    add_test(NAME controls_qml_macos_metrics
+             COMMAND tst_controls_qml -input ${CMAKE_CURRENT_SOURCE_DIR}/tst_nativemetrics.qml)
+    set_tests_properties(controls_qml_macos_metrics PROPERTIES
+                         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MYBENCH_NO_USB=1;MYBENCH_TEST_STYLE=macOS")
+endif()

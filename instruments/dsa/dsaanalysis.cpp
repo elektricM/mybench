@@ -50,6 +50,7 @@ Measurements measure(const dsp::PowerSpectrum& spectrum, std::span<const double>
     m.fundamentalPower = finiteOrZero(estimate.power);
     m.thdPercent = finiteOrZero(100.0 * h.thd);
     m.sinadDb = finiteOrZero(h.sinad);
+    m.snrDb = finiteOrZero(h.snr);   // noise = total - fundamental - harmonics 2..10
     m.harmonics.reserve(h.harmonicPower.size());
     for (size_t i = 0; i < h.harmonicPower.size() && i < h.harmonicFrequency.size(); ++i)
         m.harmonics.push_back({int(i) + 1, h.harmonicFrequency[i], finiteOrZero(h.harmonicPower[i])});

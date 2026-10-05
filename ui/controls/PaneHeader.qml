@@ -40,6 +40,12 @@ Rectangle {
     property alias titleDrag: titleDragHandler
     // Narrow pane: Single and Release lose their labels, the state detail is hidden.
     property bool compact: width < 640
+    // Split-size pane (< 700): the ↺ button folds into ⋯ (which has Reset Settings…).
+    readonly property bool narrow: width < 700
+    // What the row lacks at preferred widths, and what the title can give before the instrument
+    // items are clipped: in a narrow pane the title elides first.
+    readonly property real rowDeficit: Math.max(0, row.implicitWidth - row.width)
+    readonly property real titleSlack: Math.max(0, titleArea.implicitWidth - titleArea.Layout.minimumWidth)
 
     // Run options (the names of the v1 RunBar).
     property string runText: qsTr("Run")
@@ -180,7 +186,13 @@ Rectangle {
             objectName: "paneTitleArea"
             spacing: Theme.spacingS
             Layout.fillHeight: true
+            // Shrinkable down to the icon and a few letters; never wider than the title.
+            Layout.fillWidth: true
+            Layout.maximumWidth: implicitWidth
+            Layout.minimumWidth: (titleIcon.visible ? titleIcon.implicitWidth + spacing : 0)
+                                 + Math.min(titleLabel.implicitWidth, 40)
             Icon {
+                id: titleIcon
                 visible: header.iconName.length > 0
                 name: header.iconName
                 size: Theme.iconSize
@@ -188,11 +200,14 @@ Rectangle {
             }
             Text {
                 id: titleLabel
+                objectName: "paneTitle"
                 text: header.title
                 color: Theme.text
                 font.pixelSize: Theme.fontSizeHeading
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
+                Layout.fillWidth: true
+                Layout.minimumWidth: Math.min(implicitWidth, 40)
                 Layout.maximumWidth: Math.max(80, header.width * 0.3)
             }
             DragHandler {
@@ -390,7 +405,9 @@ Rectangle {
             Layout.fillWidth: true                    // shrinkable (a non-filling item is fixed)
             Layout.preferredWidth: implicitWidth
             Layout.maximumWidth: implicitWidth
-            Layout.minimumWidth: Math.min(implicitWidth, 120)
+            // Clipped only once the title is down to its minimum (then down to 120).
+            Layout.minimumWidth: Math.min(implicitWidth,
+                                          Math.max(120, implicitWidth - Math.max(0, header.rowDeficit - header.titleSlack)))
             Layout.preferredHeight: implicitHeight
 
             Row {
@@ -419,7 +436,7 @@ Rectangle {
         ToolButton {
             id: resetButton
             objectName: "resetButton"
-            visible: header.controller !== null
+            visible: header.controller !== null && !header.narrow
             icon.source: Theme.icon("reset")
             onClicked: header.resetRequested()
             Accessible.name: qsTr("Reset %1 to Defaults…").arg(header.title)

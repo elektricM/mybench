@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import MyBench.Framework
 import MyBench.Controls
 
@@ -26,7 +27,8 @@ Rectangle {
         { id: "tools", title: qsTr("Tools"), icon: "grid" }
     ]
     readonly property int pageIndex: Math.max(0, pages.findIndex(p => p.id === page))
-    readonly property InstrumentController generator: InstrumentRegistry.controller("gen")
+    // The generator's controller (its own type, with engineMode), when the build has one.
+    readonly property var generator: InstrumentRegistry.controller("gen")
 
     implicitWidth: 680
     implicitHeight: 460
@@ -104,13 +106,17 @@ Rectangle {
                     if (currentIndex >= 0 && currentIndex !== pane.pageIndex)
                         pane.page = pane.pages[currentIndex].id
                 }
-                delegate: ItemDelegate {
+                // Template delegates (the source-list look is ours, not a native control's).
+                delegate: T.ItemDelegate {
                     id: category
                     required property var modelData
                     required property int index
                     objectName: "preferencesPage-" + modelData.id
                     width: ListView.view.width
                     height: Theme.controlHeight + Theme.spacingXs
+                    hoverEnabled: true
+                    leftPadding: Theme.spacingS
+                    rightPadding: Theme.spacingS
                     onClicked: categories.currentIndex = index
                     background: Rectangle {
                         x: Theme.spacingS
@@ -175,6 +181,21 @@ Rectangle {
                     checked: pane.preferences.behaviour.confirmQuit
                     onToggled: checked => pane.preferences.behaviour.confirmQuit = checked
                 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingL
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Window layout")
+                        color: Theme.text
+                        font.pixelSize: Theme.fontSizeBody
+                    }
+                    Button {
+                        objectName: "resetWindowLayoutButton"
+                        text: qsTr("Reset Window Layout")
+                        onClicked: pane.preferences.resetWindowLayout()
+                    }
+                }
                 Item { Layout.fillHeight: true }
             }
 
@@ -198,6 +219,34 @@ Rectangle {
                         model: [qsTr("System"), qsTr("Light"), qsTr("Dark")]
                         currentIndex: Math.max(0, modes.indexOf(pane.preferences.themeMode))
                         onActivated: index => pane.preferences.setThemeMode(modes[index])
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingL
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Controls")
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSizeBody
+                        }
+                        Hint {
+                            objectName: "controlsRestartNote"
+                            visible: pane.preferences.controlsRestartNeeded
+                            text: qsTr("Restart %1 to apply").arg(AppInfo.name)
+                            color: Theme.caution
+                        }
+                    }
+                    SegmentedControl {
+                        objectName: "controlsStyleControl"
+                        Layout.alignment: Qt.AlignTop
+                        readonly property var styles: ["native", "mybench"]
+                        model: [qsTr("Native"), qsTr("MYBENCH")]
+                        currentIndex: Math.max(0, styles.indexOf(pane.preferences.appearance.controls))
+                        onActivated: index => pane.preferences.setControls(styles[index])
                     }
                 }
                 SwitchRow {
@@ -301,12 +350,21 @@ Rectangle {
                         currentIndex: count > 0 ? 0 : -1
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: ScrollBar {}
-                        delegate: ItemDelegate {
+                        delegate: T.ItemDelegate {
                             id: tool
                             required property var modelData
                             required property int index
                             width: ListView.view.width
+                            implicitHeight: implicitContentHeight + topPadding + bottomPadding
+                            padding: Theme.spacingXs
+                            leftPadding: Theme.spacingS
+                            rightPadding: Theme.spacingS
+                            hoverEnabled: true
                             highlighted: ListView.isCurrentItem
+                            background: Rectangle {
+                                color: tool.highlighted ? Theme.selection
+                                       : tool.hovered ? Theme.hoverFill : "transparent"
+                            }
                             onClicked: tools.currentIndex = index
                             onDoubleClicked: toolDialog.edit(index)
                             contentItem: ColumnLayout {

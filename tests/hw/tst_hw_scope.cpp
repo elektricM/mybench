@@ -38,6 +38,7 @@ private slots:
     {
         m_scope = std::make_unique<ScopeController>();
         m_scope->initialize();
+        m_scope->setTriggerType(ScopeController::Immediate);   // new sessions start in Auto/Edge
     }
     void cleanup()
     {

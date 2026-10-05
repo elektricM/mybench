@@ -193,6 +193,43 @@ private slots:
         QCOMPARE(knob->property("currentIndex").toInt(), last);
     }
 
+    // Round 4: the trend is a TrendView with a time-window selector; the expected range is one
+    // button per counter timebase, writing min and max together.
+    void trendWindowAndRangeButtons()
+    {
+        CtrController& ctr = controller();
+        if (!createPanel(ctr))
+            QSKIP("no graphics device");
+        QObject* trend = find(u"ctrTrend"_s);
+        QVERIFY(trend);
+        QCOMPARE(trend->property("windows").toList().size(), 4);
+        QMetaObject::invokeMethod(trend, "windowActivated", Q_ARG(int, 0));
+        render();
+        QCOMPARE(trend->property("windowIndex").toInt(), 0);
+        QCOMPARE(m_root->property("trendWindow").toInt(), 0);
+
+        QCOMPARE(ctr.measurement(), CtrController::Frequency);
+        QCOMPARE(m_root->property("expectedRangeIndex").toInt(), 0);   // 1 Hz – 1 MHz default
+        QObject* slow = find(u"expectedRange1"_s);
+        QVERIFY(slow);
+        QVERIFY(QMetaObject::invokeMethod(slow, "click"));
+        render();
+        QCOMPARE(ctr.frequencyMin(), 0.01);
+        QCOMPARE(ctr.frequencyMax(), 1e6);
+        QVERIFY(slow->property("checked").toBool());
+        QVERIFY(!find(u"expectedRange0"_s)->property("checked").toBool());
+
+        ctr.setMeasurement(CtrController::Period);
+        render();
+        QObject* longest = find(u"expectedRange2"_s);
+        QVERIFY(longest);
+        QVERIFY(QMetaObject::invokeMethod(longest, "click"));
+        render();
+        QCOMPARE(ctr.timeMin(), 100e-6);
+        QCOMPARE(ctr.timeMax(), 1e4);
+        QCOMPARE(m_root->property("expectedRangeIndex").toInt(), 2);
+    }
+
     // Review aid: MYBENCH_SHOT_DIR=<dir> saves the Pulse Train + FREQOUT view (dark theme default).
     void pulseTrainShot()
     {

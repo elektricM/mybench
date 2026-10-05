@@ -21,8 +21,8 @@ FocusScope {
 
     signal closeRequested()
 
-    width: 280
-    implicitWidth: 280
+    width: Theme.toolPanelWidth
+    implicitWidth: Theme.toolPanelWidth
     implicitHeight: Math.min(maximumHeight, header.height + 1 + body.implicitHeight + 2 * Theme.spacingM + 2)
     Accessible.role: Accessible.Dialog
     Accessible.name: title

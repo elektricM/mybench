@@ -32,8 +32,12 @@ Item {
     // --scope-tool=<id> opens one at start (screenshots of the panels).
     property string tool: AppInfo.value("scope-tool")
     // Split screen / small windows: knobs give way to the fields, the palette shows icons only.
-    readonly property bool narrow: width < 1000
+    readonly property bool narrow: width < Theme.instrumentCompactWidth
     readonly property bool barCompact: width < 1320
+    // The right column fits its widest fixed-width row (the view buttons when compact): native
+    // styles size the buttons differently, and a ColumnLayout never shrinks such a row.
+    readonly property real columnWidth: narrow ? Math.max(Theme.instrumentColumnCompactWidth, narrowViewControls.implicitWidth + 2 * Theme.spacingS + 1)
+                                               : Theme.instrumentColumnWidth
     // Pictograms of the measurement types (SVG paths on 32×18).
     readonly property var measurementGlyphs: ({
         [ScopeChannel.Rms]: "M2 9 C6 1 10 1 14 9 S22 17 26 9 30 5 30 5",
@@ -320,7 +324,7 @@ Item {
             Rectangle {
                 id: column
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.narrow ? 212 : 262
+                width: root.columnWidth
                 color: Theme.window
                 Rectangle { width: 1; height: parent.height; color: Theme.separator }
 
@@ -330,16 +334,19 @@ Item {
                     contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { }
+                    ScrollBar.vertical: ScrollBar { id: columnBar }
 
                     ColumnLayout {
                         id: columnLayout
                         x: Theme.spacingS
                         y: Theme.spacingS
+                        // Room for the scroll bar when it shows (macOS draws it over the content).
                         width: columnFlick.width - 2 * Theme.spacingS
+                               - (columnFlick.contentHeight > columnFlick.height ? columnBar.implicitWidth : 0)
                         spacing: Theme.spacingS
 
                         Loader {
+                            id: narrowViewControls
                             Layout.alignment: Qt.AlignHCenter
                             active: root.narrow
                             visible: active
@@ -462,7 +469,7 @@ Item {
             Item {
                 id: toolArea
                 anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
-                width: 280
+                width: Theme.toolPanelWidth
                 z: 10
 
                 // Measure: which cards, the measurement types (picture buttons), statistics.
@@ -500,7 +507,6 @@ Item {
                                     objectName: "measureType" + modelData.flag
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    checkable: true
                                     checked: shown
                                     text: root.measurementShortLabels[modelData.flag] ?? modelData.label
                                     glyph: root.measurementGlyphs[modelData.flag] ?? ""
@@ -512,7 +518,6 @@ Item {
                                             measurementModel.remove("m" + modelData.flag)
                                         else
                                             measurementModel.add("m" + modelData.flag)
-                                        checked = Qt.binding(() => typeButton.shown)
                                     }
                                 }
                             }

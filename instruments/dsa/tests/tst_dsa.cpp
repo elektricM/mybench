@@ -145,6 +145,28 @@ private slots:
         const dsa::Measurements none = dsa::measure(dsp::PowerSpectrum{}, {});
         QVERIFY(!none.valid);
         QCOMPARE(none.thdPercent, 0.0);
+        QCOMPARE(none.snrDb, 0.0);
+    }
+
+    // SNR = SINAD without the harmonics: a 1 % third harmonic sets SINAD to 40 dB but leaves SNR
+    // at the level of the (here: one interharmonic, -60 dB) noise.
+    void snrExcludesHarmonics()
+    {
+        std::vector<double> x = sine(1000, 1.0, 80000, 800, 0.01);
+        const std::vector<double> noise = sine(1500, 0.001, 80000, 800);
+        for (size_t k = 0; k < x.size(); ++k)
+            x[k] += noise[k];
+        const dsa::Measurements m = dsa::measure(dsp::powerSpectrum(x, 80000, dsp::WindowType::None), x);
+        QVERIFY(m.valid);
+        QVERIFY2(near(m.sinadDb, 40.0, 0.05), qPrintable(QString::number(m.sinadDb)));
+        QVERIFY2(near(m.snrDb, 60.0, 0.05), qPrintable(QString::number(m.snrDb)));
+        // Without harmonics SNR and SINAD agree.
+        const std::vector<double> clean = sine(1000, 1.0, 80000, 800);
+        std::vector<double> y = clean;
+        for (size_t k = 0; k < y.size(); ++k)
+            y[k] += noise[k];
+        const dsa::Measurements c = dsa::measure(dsp::powerSpectrum(y, 80000, dsp::WindowType::None), y);
+        QVERIFY2(near(c.snrDb, c.sinadDb, 0.01), qPrintable(QString::number(c.snrDb - c.sinadDb)));
     }
 
     void windowedTime()
@@ -277,6 +299,7 @@ private slots:
         QCOMPARE(c->powerUnit(), u"Vrms^2"_s);
         QVERIFY2(near(c->thd(), 1.0, 0.1), qPrintable(QString::number(c->thd())));
         QVERIFY2(c->sinad() > 38 && c->sinad() < 41, qPrintable(QString::number(c->sinad())));
+        QVERIFY2(c->snr() > c->sinad() + 10, qPrintable(QString::number(c->snr())));   // harmonics excluded
         QVERIFY2(near(c->vpk(), 1.0, 0.02), qPrintable(QString::number(c->vpk())));
         QCOMPARE(c->spectrum()->count(), 401);
         QVERIFY(!c->harmonics().isEmpty());

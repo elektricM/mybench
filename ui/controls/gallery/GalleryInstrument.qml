@@ -21,7 +21,7 @@ GalleryPage {
     property real position0: 0
     property real position1: -1
     property bool ch0: true
-    property bool ch1: true
+    property bool ch1: false      // off: the card keeps its body, dimmed (collapseWhenOff false)
     property bool math: false
     property string tool: "measure"
     property var picks: ["rms", "freq", "vpp"]
@@ -94,9 +94,9 @@ GalleryPage {
                                 text: modelData.text
                                 glyph: modelData.glyph
                                 checked: page.picks.indexOf(modelData.id) >= 0
-                                onClicked: {
+                                onClicked: {      // no auto-toggle: `checked` stays bound to picks
                                     const list = page.picks.filter(p => p !== modelData.id)
-                                    if (checked)
+                                    if (!checked)
                                         list.push(modelData.id)
                                     page.picks = list
                                 }
@@ -134,9 +134,10 @@ GalleryPage {
                         title: "CH 0 · RMS"; color: Theme.signalCh0; value: "707.1 mV"
                         stats: ({ min: "706.4", max: "708.0", mean: "707.2", stdDev: "0.31" })
                     }
-                    MeasurementCard {
-                        title: "CH 0 · Frequency"; color: Theme.signalCh0; value: "1.000 kHz"
-                        stats: ({ min: "999.8", max: "1.000k", mean: "1.000k", stdDev: "0.05" })
+                    MeasurementCard {      // numeric API: Units.format, 4 digits (σ 3)
+                        title: "CH 0 · Frequency"; color: Theme.signalCh0
+                        numericValue: 1000.0137; unit: "Hz"
+                        stats: ({ min: 999.8123, max: 1000.214, mean: 1000.0071, stdDev: 0.0501234 })
                     }
                     MeasurementCard {
                         title: "CH 1 · Peak"; color: Theme.signalCh1; value: "1.001 V"
@@ -149,7 +150,7 @@ GalleryPage {
                 id: controls
                 x: parent.width - width - 1
                 y: 1
-                width: 300
+                width: Theme.instrumentColumnWidth
                 height: parent.height - 2
                 color: Theme.window
                 Rectangle { width: 1; height: parent.height; color: Theme.separator }

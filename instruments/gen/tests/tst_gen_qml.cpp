@@ -126,7 +126,7 @@ private slots:
     }
 
     // Waveform pictures set the channel mode/shape; the matching knob fields show; the Editor tool
-    // opens the Waveform Editor view, which brings its inspector back.
+    // opens the Waveform Editor view (no inspector there either).
     void picturesAndTools()
     {
         GenController gen;
@@ -176,8 +176,143 @@ private slots:
         QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"editor"_s));
         QCOMPARE(gen.activeTab(), 1);
         QCOMPARE(p.root->property("tool").toString(), QString());
-        QCOMPARE(p.root->findChild<QObject*>(u"genPane"_s)->property("hasInspector").toBool(), true);
+        QCOMPARE(p.root->findChild<QObject*>(u"genPane"_s)->property("hasInspector").toBool(), false);
         gen.setActiveTab(0);
+        offscreen.setRootItem(nullptr);
+    }
+
+    // The header switch follows the channel after a click, also when the request is refused
+    // (an Arbitrary channel without a waveform cannot be switched on).
+    void outputSwitchKeepsItsBinding()
+    {
+        GenController gen;
+        gen.initialize();
+        mybench::OffscreenWindow offscreen(QSize(1440, 900));
+        if (!offscreen.isValid())
+            QSKIP("no graphics device");
+        Panel p;
+        create(p, &gen);
+        QVERIFY2(p.root, qPrintable(p.error));
+        auto* item = qobject_cast<QQuickItem*>(p.root.get());
+        offscreen.setRootItem(item);
+        offscreen.renderFrame();
+
+        gen.channel0()->setMode(GenChannel::Arbitrary);
+        offscreen.renderFrame();
+        auto* card = findItem(item, u"genChannelCard0"_s);
+        QVERIFY(card);
+        auto* sw = findItem(card, u"channelSwitch"_s);   // ChannelCard's header switch
+        QVERIFY(sw);
+        QVERIFY(!gen.channel0()->outputOn());
+        // A click: the control flips `checked`, then emits toggled().
+        sw->setProperty("checked", true);
+        QMetaObject::invokeMethod(sw, "toggled");
+        QVERIFY(!gen.channel0()->outputOn());           // refused: no waveform loaded
+        QCOMPARE(sw->property("checked").toBool(), false);
+
+        // Function mode: the click switches the output on; the controller switches it off again.
+        gen.channel0()->setMode(GenChannel::Function);
+        offscreen.renderFrame();
+        sw->setProperty("checked", true);
+        QMetaObject::invokeMethod(sw, "toggled");
+        QVERIFY(gen.channel0()->outputOn());
+        QCOMPARE(sw->property("checked").toBool(), true);
+        gen.setOutput(0, false);
+        QCOMPARE(sw->property("checked").toBool(), false);
+        offscreen.setRootItem(nullptr);
+    }
+
+    // Waveform Editor view: no inspector; the waveform display is the largest item, left of the
+    // right column (Document and Segment cards, tool palette); tools open the floating panel;
+    // Draw starts drawing a sketch; Back returns to the Generator.
+    void editorView_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("1440") << QSize(1440, 900);
+        QTest::newRow("1024") << QSize(1024, 700);
+        QTest::newRow("split") << QSize(900, 700);   // compact column
+    }
+    void editorView()
+    {
+        QFETCH(QSize, size);
+        GenController gen;
+        gen.initialize();
+        mybench::OffscreenWindow offscreen(size);
+        if (!offscreen.isValid())
+            QSKIP("no graphics device");
+        Panel p;
+        create(p, &gen);
+        QVERIFY2(p.root, qPrintable(p.error));
+        auto* item = qobject_cast<QQuickItem*>(p.root.get());
+        offscreen.setRootItem(item);
+        gen.setActiveTab(1);
+        offscreen.renderFrame();
+        offscreen.renderFrame();
+        QCOMPARE(p.root->findChild<QObject*>(u"genPane"_s)->property("hasInspector").toBool(), false);
+
+        const auto rectOf = [](QQuickItem* i) {
+            return QRectF(i->mapToScene(QPointF(0, 0)), QSizeF(i->width(), i->height()));
+        };
+        const QRectF pane(0, 0, item->width(), item->height());
+        auto* plot = findItem(item, u"editorPlot"_s);
+        QVERIFY(plot);
+        QVERIFY(plot->isVisible());
+        const QRectF plotRect = rectOf(plot);
+        QVERIFY(pane.adjusted(-0.5, -0.5, 0.5, 0.5).contains(plotRect));
+        for (const auto* name : {"editorTopBar", "editorControls", "editorDocumentCard", "editorSegmentCard",
+                                 "editorTools", "backToGenerator"}) {
+            auto* child = findItem(item, QString::fromLatin1(name));
+            QVERIFY2(child, name);
+            QVERIFY2(child->isVisible(), name);
+            const QRectF r = rectOf(child);
+            QVERIFY2(r.width() > 0 && r.height() > 0, name);
+            QVERIFY2(plotRect.width() * plotRect.height() > r.width() * r.height(), name);
+        }
+        const QRectF controls = rectOf(findItem(item, u"editorControls"_s));
+        QVERIFY(plotRect.right() <= controls.left() + 0.5);
+        QVERIFY2(pane.adjusted(-0.5, -0.5, 0.5, 0.5).contains(controls), "controls column outside the pane");
+        for (const auto* name : {"editorDocumentCard", "editorSegmentCard", "documentRateField"}) {
+            const QRectF r = rectOf(findItem(item, QString::fromLatin1(name)));
+            QVERIFY2(r.left() >= controls.left() - 0.5 && r.right() <= controls.right() + 0.5,
+                     qPrintable(u"%1 wider than the column"_s.arg(QLatin1StringView(name))));
+        }
+        // No in-display menu bar (File / Edit / Help) and no menu item overrides.
+        QVERIFY(!findItem(item, u"editorFileMenu"_s));
+
+        auto* tools = findItem(item, u"editorTools"_s);
+        QVERIFY(tools);
+        auto* panel = findItem(item, u"editorToolPanel"_s);
+        QVERIFY(panel);
+        QVERIFY(!panel->isVisible());
+        for (const auto* id : {"functions", "import", "export", "display", "scale", "info"}) {
+            QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, QString::fromLatin1(id)));
+            offscreen.renderFrame();
+            QVERIFY2(panel->isVisible(), id);
+            QVERIFY2(!panel->property("title").toString().isEmpty(), id);
+        }
+        QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"info"_s));   // second click closes
+        QVERIFY(!panel->isVisible());
+
+        // Functions: picking a library function makes the selection a component of that function.
+        QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"functions"_s));
+        auto* view = findItem(item, u"editorView"_s);
+        QVERIFY(view);
+        QVERIFY(QMetaObject::invokeMethod(view, "applyFunction", Q_ARG(int, 0), Q_ARG(int, 2)));
+        QCOMPARE(gen.editor()->selectionKind(), 2);
+        QCOMPARE(gen.editor()->componentType(), 0);
+        QCOMPARE(gen.editor()->libraryFunction(), 2);
+
+        // Draw: a sketch component, drawing on.
+        QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"draw"_s));
+        QVERIFY(gen.editor()->drawMode());
+        QCOMPARE(gen.editor()->componentType(), 2);
+        QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"draw"_s));
+        QVERIFY(!gen.editor()->drawMode());
+
+        auto* back = findItem(item, u"backToGenerator"_s);
+        QVERIFY(back);
+        QMetaObject::invokeMethod(back, "clicked");
+        QCOMPARE(gen.activeTab(), 0);
         offscreen.setRootItem(nullptr);
     }
 };

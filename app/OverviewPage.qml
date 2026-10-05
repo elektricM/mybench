@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import MyBench.Framework
 import MyBench.Controls
 
@@ -77,7 +78,14 @@ Rectangle {
                     Layout.alignment: Qt.AlignTop
                     spacing: Theme.spacingXs
 
-                    Heading { text: qsTr("Device") }
+                    // As tall as the Recent Sessions heading row (its Open… button), so both
+                    // headings sit on one line.
+                    Heading {
+                        objectName: "overviewDeviceHeading"
+                        text: qsTr("Device")
+                        Layout.preferredHeight: sessionsHeader.implicitHeight
+                        verticalAlignment: Text.AlignVCenter
+                    }
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: Theme.spacingXs
@@ -171,9 +179,14 @@ Rectangle {
                     spacing: 0
 
                     RowLayout {
+                        id: sessionsHeader
                         Layout.fillWidth: true
                         Layout.bottomMargin: Theme.spacingXs
-                        Heading { Layout.fillWidth: true; text: qsTr("Recent Sessions") }
+                        Heading {
+                            objectName: "overviewSessionsHeading"
+                            Layout.fillWidth: true
+                            text: qsTr("Recent Sessions")
+                        }
                         Button { flat: true; action: page.actions.openSession }
                     }
                     Secondary {
@@ -188,13 +201,26 @@ Rectangle {
                     }
                     Repeater {
                         model: SessionManager.recentSessions.slice(0, 5)
-                        delegate: ItemDelegate {
+                        // A template delegate: the row look is ours (hover fill below).
+                        delegate: T.ItemDelegate {
                             id: sessionRow
                             required property var modelData
                             Layout.fillWidth: true
                             Layout.leftMargin: -Theme.spacingS
                             Layout.rightMargin: -Theme.spacingS
+                            implicitWidth: implicitContentWidth + leftPadding + rightPadding
+                            implicitHeight: Math.max(Theme.controlHeight, implicitContentHeight + topPadding + bottomPadding)
+                            padding: Theme.spacingXs
+                            leftPadding: Theme.spacingS
+                            rightPadding: Theme.spacingS
+                            hoverEnabled: true
                             enabled: modelData.exists
+                            opacity: enabled ? 1 : 0.5
+                            background: Rectangle {
+                                radius: Theme.radiusControl
+                                color: sessionRow.down ? Theme.pressedFill
+                                       : sessionRow.hovered ? Theme.hoverFill : "transparent"
+                            }
                             onClicked: page.actions.dialogs.openRecent(modelData.file)
                             ToolTip.visible: hovered
                             ToolTip.delay: Theme.toolTipDelay

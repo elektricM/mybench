@@ -59,8 +59,10 @@ Item {
         : Math.max(0, Math.round((Math.min(firstControlHeight, Theme.controlHeight) - Theme.lineHeight) / 2))
 
     Layout.fillWidth: true
-    implicitWidth: labelOnTop || !hasLabel ? Math.max(hasLabel ? captionText.implicitWidth : 0, body.implicitWidth)
-                                           : 120 + spacing + body.implicitWidth
+    // From the requested label position only, never from the width-driven move (that would loop
+    // through the parent layout: implicitWidth -> width -> labelOnTop -> implicitWidth).
+    implicitWidth: labelPosition === "top" || !hasLabel ? Math.max(hasLabel ? captionText.implicitWidth : 0, body.implicitWidth)
+                                                        : 120 + spacing + body.implicitWidth
     implicitHeight: !hasLabel ? body.implicitHeight
                   : labelOnTop ? labelBlock.height + Theme.spacingXs + body.implicitHeight
                   : Math.max(labelTopMargin + labelBlock.height, body.implicitHeight)
@@ -73,10 +75,17 @@ Item {
         height: root.labelOnTop ? Math.max(captionText.height, trailingText.visible ? trailingText.height : 0)
                                 : captionText.height + (trailingText.visible ? trailingText.height : 0)
 
+        // Natural label width, independent of the Text's own width (no loop through implicitWidth
+        // while the wrap mode switches).
+        TextMetrics {
+            id: captionMetrics
+            font: captionText.font
+            text: root.label
+        }
         Text {
             id: captionText
             visible: root.label.length > 0
-            width: root.labelOnTop ? Math.min(implicitWidth, parent.width - (trailingText.visible ? trailingText.implicitWidth + Theme.spacingS : 0))
+            width: root.labelOnTop ? Math.min(Math.ceil(captionMetrics.advanceWidth), parent.width - (trailingText.visible ? trailingText.implicitWidth + Theme.spacingS : 0))
                                    : parent.width
             text: root.label
             color: root.disabled ? Theme.textDisabled : Theme.textSecondary

@@ -112,8 +112,9 @@ const char* const kShellHelp =
     "  --inspector shown|hidden         inspector for this run\n"
     "  --show-help              show the help page of the inspector\n"
     "  --palette, --log         open the command palette / the event log\n"
-    "  --preferences, --about, --device-info, --simulator-settings\n"
-    "                           open that window (offscreen: shown inside the main window)\n"
+    "  --preferences[=page], --about, --device-info, --simulator-settings\n"
+    "                           open that window (offscreen: shown inside the main window);\n"
+    "                           page: general, appearance, instruments, device, tools\n"
     "  --dark-displays          plots and readouts stay dark in the light theme\n"
     "  --system-palette <w,b,t,a>  play a platform palette (window, base, text, accent colors) for the\n"
     "                           system-follow theme, e.g. \"#31363b,#1b1e20,#fcfcfc,#3daee9\" (KDE Breeze dark)\n"
@@ -129,6 +130,12 @@ const char* const kShellHelp =
     "  --version                print the version\n";
 
 }  // namespace
+
+QString storedControlsStyle()
+{
+    const QSettings settings;
+    return settings.value(u"appearance/controls"_s).toString() == u"mybench"_s ? u"mybench"_s : u"native"_s;
+}
 
 int runShell(int argc, char* argv[], const ShellConfig& config)
 {
@@ -163,9 +170,11 @@ int runShell(int argc, char* argv[], const ShellConfig& config)
                 fresh = false;
         }
         if (!fresh) {
-            const QSettings settings(QSettings::UserScope, QStringLiteral(MYBENCH_APP_NAME), QStringLiteral(MYBENCH_APP_NAME));
-            if (settings.value(u"appearance/controls"_s).toString() == u"mybench"_s)
-                app.style = u"mybench"_s;
+            // The names QmlApp gives the application, set early so QSettings() below opens the
+            // store AppPreferences writes (QtCore Settings uses QSettings() too).
+            QCoreApplication::setOrganizationName(app.organizationName);
+            QCoreApplication::setApplicationName(app.applicationName);
+            app.style = storedControlsStyle();
         }
     }
     app.defaultSize = config.defaultSize;

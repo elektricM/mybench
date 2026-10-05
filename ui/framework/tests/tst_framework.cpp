@@ -428,6 +428,29 @@ private slots:
         QVERIFY(!info->animations());
     }
 
+    // Preferences ▸ Appearance ▸ Controls: the shell reads the key from the store AppPreferences
+    // writes (QtCore Settings { category: "appearance" } = QSettings() group "appearance").
+    void storedControlsStyleReadsThePreference()
+    {
+        {
+            QSettings settings;
+            settings.remove(u"appearance/controls"_s);
+        }
+        QCOMPARE(storedControlsStyle(), u"native"_s);
+        {
+            QSettings settings;
+            settings.beginGroup(u"appearance"_s);
+            settings.setValue(u"controls"_s, u"mybench"_s);
+        }
+        QCOMPARE(storedControlsStyle(), u"mybench"_s);
+        {
+            QSettings settings;
+            settings.setValue(u"appearance/controls"_s, u"native"_s);
+        }
+        QCOMPARE(storedControlsStyle(), u"native"_s);
+        QSettings().remove(u"appearance/controls"_s);
+    }
+
 private:
     QTemporaryDir m_settingsDir;
 };

@@ -61,7 +61,7 @@ Item {
 
     Popup {
         id: popup
-        parent: Overlay.overlay
+        parent: root.Overlay.overlay      // attached to the Item: on the Popup it resolves to null
         x: Math.round(((parent ? parent.width : 0) - width) / 2)
         y: Math.round(((parent ? parent.height : 0) - height) / 3)
         padding: 0

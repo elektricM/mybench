@@ -40,4 +40,10 @@ struct ShellConfig {
 
 int runShell(int argc, char* argv[], const ShellConfig& config);
 
+// The controls style a normal start uses: "mybench" when the preference Appearance ▸ Controls
+// (QSettings key `appearance/controls`, written by AppPreferences through QtCore's Settings) is
+// "mybench", else "native". Reads QSettings() of the current organization/application names, i.e.
+// the same store as QML Settings without a `location`.
+QString storedControlsStyle();
+
 }  // namespace mybench

@@ -6,9 +6,12 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Audio Equalizer panel (docs/instruments/aeq.md): tone response of the three bands, the
-// input/output spectrum in 1/24-octave bands (or the waveforms), and a console with the band
-// faders, volume and level meters.
+// Audio Equalizer panel (docs/instruments/aeq.md), PicoScope-7 pattern: Run, Bypass and Flat on
+// top; the display holds the tone response, the before/after spectrum (1/24 octave) or the
+// waveforms with the band regions, and the console (band faders, volume, level meters) — the
+// faders are the only place to edit the bands and the volume. The right column holds the Routing
+// card (one input kind and one output kind, so the shared converters can never be mixed) and the
+// Streaming / Display tools.
 Item {
     id: root
 
@@ -18,104 +21,129 @@ Item {
     readonly property color midColor: Theme.math
     readonly property color trebleColor: Theme.cursor2
     readonly property real topFrequency: Math.min(25000, 0.49 * controller.streamRate)
-    readonly property bool wide: width >= 980
+    readonly property bool narrow: width < 1100
+    readonly property bool wide: width - column.width >= 760    // console beside the plots
+    property string tool                                       // the open tool panel ("" = none)
+
+    // Short labels of the routing choices (controller order: AI 0, AI 1, audio L, audio R, none).
+    readonly property var sourceShort: [qsTr("AI 0"), qsTr("AI 1"), qsTr("Left"), qsTr("Right"), qsTr("Off")]
+    readonly property var sinkShort: [qsTr("AO 0"), qsTr("AO 1"), qsTr("Left"), qsTr("Right"), qsTr("Off")]
+    function isAudioSource(s: int): bool { return s === AeqController.SourceAudioInLeft || s === AeqController.SourceAudioInRight }
+    function isAudioSink(s: int): bool { return s === AeqController.SinkAudioOutLeft || s === AeqController.SinkAudioOutRight }
+    readonly property bool audioIn: isAudioSource(controller.inputLeft) || isAudioSource(controller.inputRight)
+    readonly property bool audioOut: isAudioSink(controller.outputLeft) || isAudioSink(controller.outputRight)
+    readonly property var sourceChoices: audioIn ? [AeqController.SourceAudioInLeft, AeqController.SourceAudioInRight, AeqController.SourceNone]
+                                                 : [AeqController.SourceAI0, AeqController.SourceAI1, AeqController.SourceNone]
+    readonly property var sinkChoices: audioOut ? [AeqController.SinkAudioOutLeft, AeqController.SinkAudioOutRight, AeqController.SinkNone]
+                                                : [AeqController.SinkAO0, AeqController.SinkAO1, AeqController.SinkNone]
+    // Switching the kind never passes through a mixed routing: the right side is off meanwhile.
+    function setInputKind(audio: bool) {
+        controller.inputRight = AeqController.SourceNone
+        controller.inputLeft = audio ? AeqController.SourceAudioInLeft : AeqController.SourceAI0
+        controller.inputRight = audio ? AeqController.SourceAudioInRight : AeqController.SourceAI1
+    }
+    function setOutputKind(audio: bool) {
+        controller.outputRight = AeqController.SinkNone
+        controller.outputLeft = audio ? AeqController.SinkAudioOutLeft : AeqController.SinkAO0
+        controller.outputRight = audio ? AeqController.SinkAudioOutRight : AeqController.SinkAO1
+    }
 
     function meter(i: int): var {
         const m = root.controller.meters
         return i < m.length ? m[i] : { name: "", peak: -120, rms: -120, hold: -120, active: false }
     }
-    function signedDb(v: real): string {
-        return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(v % 1 === 0 ? 0 : 1) + " dB"
+    function toggleTool(id: string) { tool = tool === id ? "" : id }
+
+    // A labelled row inside a tool panel or card: the label above the control.
+    component ToolRow: ColumnLayout {
+        id: toolRow
+        property string label
+        default property alias content: rowBody.data
+        Layout.fillWidth: true
+        spacing: Theme.spacingXs
+        Text {
+            text: toolRow.label
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSizeCaption
+        }
+        ColumnLayout {
+            id: rowBody
+            Layout.fillWidth: true
+            spacing: Theme.spacingXs
+        }
+    }
+    // One side (L or R) of the routing: its label and the choices of the selected kind.
+    component SideChoices: RowLayout {
+        id: side
+        property string sideName
+        property var choices: []
+        property var names: []
+        property int current: 0
+        readonly property string choiceText: choices.map(c => names[c]).join("|")   // for tests
+        signal chosen(int choice)
+        Layout.fillWidth: true
+        spacing: Theme.spacingS
+        Text {
+            Layout.preferredWidth: 10
+            text: side.sideName
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSizeS
+            font.weight: Font.DemiBold
+        }
+        SegmentedControl {
+            Layout.fillWidth: true
+            model: side.choices.map(c => side.names[c])
+            currentIndex: side.choices.indexOf(side.current)
+            onActivated: index => side.chosen(side.choices[index])
+        }
     }
 
     InstrumentPanel {
         id: panel
         anchors.fill: parent
         controller: root.controller
-        displayTitle: root.controller.bypass ? qsTr("Bypass") : qsTr("Bass %1 · Mid %2 · Treble %3")
-                                                                 .arg(root.signedDb(root.controller.bass))
-                                                                 .arg(root.signedDb(root.controller.midtone))
-                                                                 .arg(root.signedDb(root.controller.treble))
-        displayInfo: qsTr("%1 · latency %2").arg(Units.format(root.controller.streamRate, "S/s", 3))
-                                            .arg(Units.format(root.controller.latencySeconds + root.controller.blockSeconds, "s", 3))
-                     + (root.controller.dropouts > 0 ? "  ·  " + qsTr("%n dropout(s)", "", root.controller.dropouts) : "")
-        displayTools: [
-            SegmentedControl {
-                compact: true
-                model: [qsTr("Spectrum"), qsTr("Time")]
-                currentIndex: root.controller.view
-                onActivated: index => root.controller.view = index
-            },
-            SegmentedControl {
-                compact: true
-                model: [{ text: "L", toolTip: qsTr("Left channel") }, { text: "R", toolTip: qsTr("Right channel") }]
-                currentIndex: root.controller.displayChannel
-                onActivated: index => root.controller.displayChannel = index
-            }
-        ]
-        runBarControls: [
-            ActionButton {
-                text: qsTr("Bypass")
-                compact: true
-                tone: root.controller.bypass ? "subtle" : "neutral"
-                color: Theme.warning
-                toolTip: qsTr("Pass the input through without equalization (volume still applies)")
-                onClicked: root.controller.bypass = !root.controller.bypass
-            },
-            ActionButton {
-                text: qsTr("Flat")
-                compact: true
-                iconName: "reset"
-                toolTip: qsTr("Bass, Midtone and Treble to 0 dB")
-                onClicked: root.controller.flat()
-            }
-        ]
+        showRunControls: false
+        runBar.showTimeout: false
+        inspector: []
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: Theme.spacingS
-            spacing: Theme.spacingS
-
-            // Hints: invalid routing, simulator feedback path.
-            Rectangle {
-                id: hint
-                visible: root.controller.routingError.length > 0 || root.controller.feedbackInSimulator
-                Layout.fillWidth: true
-                implicitHeight: hintRow.implicitHeight + 2 * Theme.spacingS
-                radius: Theme.radiusM
-                readonly property color tone: root.controller.routingError.length > 0 ? Theme.danger : Theme.simulated
-                color: Theme.alpha(tone, Theme.dark ? 0.10 : 0.07)
-                border.color: Theme.alpha(tone, 0.5)
-                RowLayout {
-                    id: hintRow
-                    anchors.fill: parent
-                    anchors.margins: Theme.spacingS
-                    anchors.leftMargin: Theme.spacingM
-                    spacing: Theme.spacingS
-                    Icon {
-                        name: root.controller.routingError.length > 0 ? "error" : "info"
-                        color: hint.tone
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: root.controller.routingError.length > 0 ? root.controller.routingError
-                              : qsTr("Simulator: the outputs are wired back to the chosen inputs, so the equalizer hears its own output (silence). Use AI 0 / AI 1, which carry test signals.")
-                        color: Theme.text
-                        font.pixelSize: Theme.fontSizeM
-                        wrapMode: Text.WordWrap
-                    }
-                    ActionButton {
-                        visible: root.controller.routingError.length === 0
-                        text: qsTr("Use AI 0 / AI 1")
-                        compact: true
-                        onClicked: root.controller.useAnalogInputs()
-                    }
+        headerContent: [
+            RowLayout {
+                objectName: "aeqBar"
+                spacing: Theme.spacingM
+                RunButton {
+                    objectName: "aeqRunButton"
+                    running: root.controller.running
+                    stateText: panel.paneHeader.statusText
+                    busy: root.controller.state === InstrumentController.Stopping
+                    enabled: root.controller.running || root.controller.canRun
+                    onToggled: root.controller.toggle()
+                }
+                Button {
+                    objectName: "bypassButton"
+                    text: qsTr("Bypass")
+                    highlighted: root.controller.bypass
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Input passed through without equalization (volume still applies)")
+                    onClicked: root.controller.bypass = !root.controller.bypass
+                }
+                Button {
+                    objectName: "flatButton"
+                    text: qsTr("Flat")
+                    icon.source: Theme.icon("reset")
+                    enabled: !root.controller.bypass
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Bass, Midtone and Treble to 0 dB")
+                    onClicked: root.controller.flat()
                 }
             }
+        ]
+
+        Item {
+            anchors.fill: parent
 
             GridLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                id: display
+                anchors { left: parent.left; top: parent.top; bottom: parent.bottom; right: column.left; margins: Theme.spacingS }
                 columns: root.wide ? 2 : 1
                 columnSpacing: Theme.spacingM
                 rowSpacing: Theme.spacingS
@@ -124,6 +152,22 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     spacing: Theme.spacingS
+
+                    // Simulator: the outputs loop back to the audio inputs (silence in, silence out).
+                    RowLayout {
+                        visible: root.controller.feedbackInSimulator
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingS
+                        Banner {
+                            Layout.fillWidth: true
+                            tone: "info"
+                            text: qsTr("Simulator: the outputs loop back to these inputs")
+                        }
+                        Button {
+                            text: qsTr("Use AI 0 / AI 1")
+                            onClicked: root.controller.useAnalogInputs()
+                        }
+                    }
 
                     // Tone response of the equalizer and its bands.
                     BenchPlot {
@@ -154,12 +198,16 @@ Item {
                         leftMargin: responsePlot.leftMargin
                         hoverReadout: true
                         legendVisible: true
-                        placeholderText: root.controller.running ? qsTr("Collecting…") : qsTr("Press Run to stream the input to the output")
+                        placeholderText: ""
                         xAxis { scale: PlotAxis.Log; min: 20; max: root.topFrequency; unit: "Hz"; unitInLabels: true; lowerLimit: 10; upperLimit: root.topFrequency * 1.5 }
                         yAxis { autoScale: root.controller.autoScaleSpectrum; min: -110; max: 10; unit: "dBV"; unitInLabels: true; limitToData: true; limitMargin: 0.5; minimumSpan: 3 }
+                        // Band markers: the three equalizer bands behind the before/after spectrum.
+                        PlotRegion { from: 20; to: 320; color: Theme.alpha(root.bassColor, root.controller.bypass ? 0.02 : 0.06) }
+                        PlotRegion { from: 320; to: 2560; color: Theme.alpha(root.midColor, root.controller.bypass ? 0.02 : 0.06) }
+                        PlotRegion { from: 2560; to: Math.min(20840, root.topFrequency); color: Theme.alpha(root.trebleColor, root.controller.bypass ? 0.02 : 0.06) }
                         PlotTrace {
                             visible: root.controller.showInput
-                            name: qsTr("Input")
+                            name: qsTr("Before")
                             unit: "dBV"
                             buffer: root.controller.spectrumIn
                             color: Theme.alpha(Theme.textSecondary, 0.8)
@@ -169,7 +217,7 @@ Item {
                             fillOpacity: 0.12
                         }
                         PlotTrace {
-                            name: qsTr("Output")
+                            name: qsTr("After")
                             unit: "dBV"
                             buffer: root.controller.spectrumOut
                             color: Theme.accent
@@ -187,7 +235,7 @@ Item {
                         leftMargin: responsePlot.leftMargin
                         hoverReadout: true
                         legendVisible: true
-                        placeholderText: root.controller.running ? qsTr("Collecting…") : qsTr("Press Run to stream the input to the output")
+                        placeholderText: ""
                         xAxis { min: 0; max: root.controller.timeSpan; unit: "s"; unitInLabels: true }
                         yAxis { autoScale: root.controller.autoScaleTime; min: -2; max: 2; unit: "V"; unitInLabels: true }
                         PlotTrace { visible: root.controller.showInput; name: qsTr("Input"); unit: "V"; buffer: root.controller.timeIn; color: Theme.alpha(Theme.textSecondary, 0.9); width: 1.2 }
@@ -195,12 +243,13 @@ Item {
                     }
                 }
 
-                // Console: band faders, volume, meters.
+                // Console: band faders, volume, meters (the only editors of the EQ).
                 Rectangle {
+                    objectName: "console"
                     Layout.fillHeight: root.wide
                     Layout.fillWidth: !root.wide
                     Layout.preferredWidth: consoleRow.implicitWidth + 2 * Theme.spacingM
-                    Layout.preferredHeight: root.wide ? -1 : 210
+                    Layout.preferredHeight: root.wide ? -1 : 200
                     radius: Theme.radiusL
                     color: "transparent"
                     border.color: Theme.displayBorder
@@ -212,6 +261,7 @@ Item {
                         spacing: Theme.spacingXs
 
                         AeqFader {
+                            objectName: "fader_bass"
                             Layout.fillHeight: true
                             label: qsTr("Bass")
                             accent: root.bassColor
@@ -220,6 +270,7 @@ Item {
                             onMoved: v => root.controller.bass = v
                         }
                         AeqFader {
+                            objectName: "fader_mid"
                             Layout.fillHeight: true
                             label: qsTr("Midtone")
                             accent: root.midColor
@@ -228,6 +279,7 @@ Item {
                             onMoved: v => root.controller.midtone = v
                         }
                         AeqFader {
+                            objectName: "fader_treble"
                             Layout.fillHeight: true
                             label: qsTr("Treble")
                             accent: root.trebleColor
@@ -237,6 +289,7 @@ Item {
                         }
                         Rectangle { Layout.fillHeight: true; Layout.topMargin: 20; Layout.bottomMargin: 20; Layout.leftMargin: 2; Layout.rightMargin: 2; implicitWidth: 1; color: Theme.displayBorder }
                         AeqFader {
+                            objectName: "fader_volume"
                             Layout.fillHeight: true
                             label: qsTr("Volume")
                             from: 0
@@ -244,6 +297,7 @@ Item {
                             stepSize: 0.01
                             resetValue: 0.5
                             centered: false
+                            inputScale: 100
                             accent: Theme.accent
                             value: root.controller.volume
                             valueText: Math.round(value * 100) + " %"
@@ -302,228 +356,244 @@ Item {
                     }
                 }
             }
-        }
 
-        inspector: [
-            Section {
-                title: qsTr("Input")
-                summary: root.controller.sourceNames[root.controller.inputLeft] + " · " + root.controller.sourceNames[root.controller.inputRight]
-                FieldRow {
-                    Field {
-                        label: qsTr("Input (L)")
-                        ComboBox {
+            // Right column: the Routing card, then the tool palette.
+            Rectangle {
+                id: column
+                anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
+                color: Theme.window
+                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+
+                Flickable {
+                    id: columnFlick
+                    anchors { fill: parent; leftMargin: 1 }
+                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { }
+
+                    ColumnLayout {
+                        id: columnLayout
+                        x: Theme.spacingS
+                        y: Theme.spacingS
+                        width: columnFlick.width - 2 * Theme.spacingS
+                        spacing: Theme.spacingS
+
+                        ChannelCard {
+                            objectName: "routingCard"
                             Layout.fillWidth: true
-                            model: root.controller.sourceNames
-                            currentIndex: root.controller.inputLeft
-                            onActivated: index => root.controller.chooseInput(0, index)
+                            title: qsTr("Routing")
+                            color: Theme.signalColor(root.audioIn ? "audioInL" : "ai0")
+                            checkable: false
+                            compact: root.narrow
+                            facts: [qsTr("±2 V")]
+
+                            ToolRow {
+                                label: qsTr("Input")
+                                SegmentedControl {
+                                    objectName: "inputKind"
+                                    Layout.fillWidth: true
+                                    model: [qsTr("Audio in"), qsTr("AI 0 / AI 1")]
+                                    currentIndex: root.audioIn ? 0 : 1
+                                    onActivated: index => root.setInputKind(index === 0)
+                                }
+                                SideChoices {
+                                    objectName: "inputLeft"
+                                    sideName: "L"
+                                    choices: root.sourceChoices
+                                    names: root.sourceShort
+                                    current: root.controller.inputLeft
+                                    onChosen: choice => root.controller.inputLeft = choice
+                                }
+                                SideChoices {
+                                    objectName: "inputRight"
+                                    sideName: "R"
+                                    choices: root.sourceChoices
+                                    names: root.sourceShort
+                                    current: root.controller.inputRight
+                                    onChosen: choice => root.controller.inputRight = choice
+                                }
+                            }
+                            ToolRow {
+                                label: qsTr("Output")
+                                SegmentedControl {
+                                    objectName: "outputKind"
+                                    Layout.fillWidth: true
+                                    model: [qsTr("Audio out"), qsTr("AO 0 / AO 1")]
+                                    currentIndex: root.audioOut ? 0 : 1
+                                    onActivated: index => root.setOutputKind(index === 0)
+                                }
+                                SideChoices {
+                                    objectName: "outputLeft"
+                                    sideName: "L"
+                                    choices: root.sinkChoices
+                                    names: root.sinkShort
+                                    current: root.controller.outputLeft
+                                    onChosen: choice => root.controller.outputLeft = choice
+                                }
+                                SideChoices {
+                                    objectName: "outputRight"
+                                    sideName: "R"
+                                    choices: root.sinkChoices
+                                    names: root.sinkShort
+                                    current: root.controller.outputRight
+                                    onChosen: choice => root.controller.outputRight = choice
+                                }
+                            }
+                        }
+
+                        ToolPalette {
+                            objectName: "aeqTools"
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.spacingXs
+                            columns: 3
+                            cellHeight: root.narrow ? 40 : 52
+                            currentId: root.tool
+                            model: [{ id: "streaming", text: qsTr("Streaming"), icon: "activity" },
+                                    { id: "display", text: qsTr("Display"), icon: "grid" }]
+                            onActivated: id => root.toggleTool(id)
                         }
                     }
-                    Field {
-                        label: qsTr("Input (R)")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: root.controller.sourceNames
-                            currentIndex: root.controller.inputRight
-                            onActivated: index => root.controller.chooseInput(1, index)
-                        }
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("±2 V inputs. With one input, it feeds both outputs. AI 0/1 and the audio inputs share the converters: choosing one kind moves the other side to it.")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-            },
-            Section {
-                title: qsTr("Output")
-                summary: root.controller.sinkNames[root.controller.outputLeft] + " · " + root.controller.sinkNames[root.controller.outputRight]
-                FieldRow {
-                    Field {
-                        label: qsTr("Output (L)")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: root.controller.sinkNames
-                            currentIndex: root.controller.outputLeft
-                            onActivated: index => root.controller.chooseOutput(0, index)
-                        }
-                    }
-                    Field {
-                        label: qsTr("Output (R)")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: root.controller.sinkNames
-                            currentIndex: root.controller.outputRight
-                            onActivated: index => root.controller.chooseOutput(1, index)
-                        }
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("AO 0/1 and the audio outputs share the converters too: both sides follow the same kind.")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-                Text {
-                    visible: root.controller.routingError.length > 0
-                    Layout.fillWidth: true
-                    text: root.controller.routingError
-                    color: Theme.danger
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-            },
-            Section {
-                title: qsTr("Equalizer")
-                summary: root.controller.bypass ? qsTr("Bypass") : qsTr("Volume %1 %").arg(Math.round(root.controller.volume * 100))
-                FieldRow {
-                    Field {
-                        label: qsTr("Bass")
-                        trailing: "< 320 Hz"
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "dB"
-                            engineering: false
-                            decimals: 1
-                            stepSize: 1
-                            from: -12
-                            to: 12
-                            accentColor: root.bassColor
-                            value: root.controller.bass
-                            onValueModified: v => root.controller.bass = v
-                        }
-                    }
-                    Field {
-                        label: qsTr("Midtone")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "dB"
-                            engineering: false
-                            decimals: 1
-                            stepSize: 1
-                            from: -12
-                            to: 12
-                            accentColor: root.midColor
-                            value: root.controller.midtone
-                            onValueModified: v => root.controller.midtone = v
-                        }
-                    }
-                    Field {
-                        label: qsTr("Treble")
-                        SiField {
-                            Layout.fillWidth: true
-                            unit: "dB"
-                            engineering: false
-                            decimals: 1
-                            stepSize: 1
-                            from: -12
-                            to: 12
-                            accentColor: root.trebleColor
-                            value: root.controller.treble
-                            onValueModified: v => root.controller.treble = v
-                        }
-                    }
-                }
-                Field {
-                    label: qsTr("Volume")
-                    trailing: Math.round(root.controller.volume * 100) + " %"
-                    Slider {
-                        Layout.fillWidth: true
-                        from: 0
-                        to: 1
-                        stepSize: 0.01
-                        value: root.controller.volume
-                        onMoved: root.controller.volume = value
-                    }
-                }
-                ToggleSwitch {
-                    text: qsTr("Bypass")
-                    checked: root.controller.bypass
-                    onToggled: root.controller.bypass = checked
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("4th-order Bessel bands: Bass below 320 Hz, Midtone 320 Hz – 2.56 kHz, Treble 2.56 – 20.84 kHz, ±12 dB each.")
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-            },
-            Section {
-                title: qsTr("Streaming")
-                summary: Units.format(root.controller.streamRate, "S/s", 3)
-                FieldRow {
-                    Field {
-                        label: qsTr("Sample Rate")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: root.controller.rateNames
-                            currentIndex: root.controller.rateIndex
-                            onActivated: index => root.controller.rateIndex = index
-                        }
-                    }
-                    Field {
-                        label: qsTr("Output Buffer")
-                        hint: qsTr("Silence queued before the first block: longer is safer, shorter answers faster")
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: root.controller.latencyNames
-                            currentIndex: root.controller.latencyIndex
-                            onActivated: index => root.controller.latencyIndex = index
-                        }
-                    }
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Input to output delay ≈ %1 (buffer + %2 blocks). Input and output run at the same rate.")
-                              .arg(Units.format(root.controller.latencySeconds + root.controller.blockSeconds, "s", 3))
-                              .arg(Units.format(root.controller.blockSeconds, "s", 2))
-                    color: Theme.textMuted
-                    font.pixelSize: Theme.fontSizeS
-                    wrapMode: Text.WordWrap
-                }
-            },
-            Section {
-                title: qsTr("Display")
-                collapsed: true
-                summary: root.controller.view === AeqController.SpectrumView ? qsTr("1/24 octave") : qsTr("Time")
-                Field {
-                    label: qsTr("Spectrum Averaging")
-                    ComboBox {
-                        Layout.fillWidth: true
-                        model: root.controller.averagingNames
-                        currentIndex: root.controller.averagingIndex
-                        onActivated: index => root.controller.averagingIndex = index
-                    }
-                }
-                Field {
-                    label: qsTr("Time Span")
-                    hint: qsTr("20 ms is triggered on a rising zero crossing; 100 ms shows the latest block")
-                    SegmentedControl {
-                        Layout.fillWidth: true
-                        model: root.controller.timeSpanNames
-                        currentIndex: root.controller.timeSpanIndex
-                        onActivated: index => root.controller.timeSpanIndex = index
-                    }
-                }
-                ToggleSwitch {
-                    text: qsTr("Auto-scale spectrum graph")
-                    checked: root.controller.autoScaleSpectrum
-                    onToggled: root.controller.autoScaleSpectrum = checked
-                }
-                ToggleSwitch {
-                    text: qsTr("Auto-scale time graph")
-                    checked: root.controller.autoScaleTime
-                    onToggled: root.controller.autoScaleTime = checked
-                }
-                ToggleSwitch {
-                    text: qsTr("Show input")
-                    checked: root.controller.showInput
-                    onToggled: root.controller.showInput = checked
                 }
             }
-        ]
+
+            // The open tool panel floats over the right part of the display, next to the column.
+            Item {
+                id: toolArea
+                anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
+                width: Math.min(Theme.toolPanelWidth, Math.max(230, (parent.width - column.width) * 0.4))
+                z: 10
+
+                ToolPanel {
+                    objectName: "streamingPanel"
+                    visible: root.tool === "streaming"
+                    width: parent.width
+                    maximumHeight: parent.height
+                    title: qsTr("Streaming")
+                    onCloseRequested: root.tool = ""
+                    ToolRow {
+                        label: qsTr("Sample rate")
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            rowSpacing: 4
+                            columnSpacing: 4
+                            Repeater {
+                                model: root.controller.rateNames
+                                delegate: PictureButton {
+                                    required property string modelData
+                                    required property int index
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                    checked: root.controller.rateIndex === index
+                                    onClicked: root.controller.rateIndex = index
+                                }
+                            }
+                        }
+                    }
+                    ToolRow {
+                        label: qsTr("Output buffer · delay ≈ %1")
+                                   .arg(Units.format(root.controller.latencySeconds + root.controller.blockSeconds, "s", 3))
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            rowSpacing: 4
+                            columnSpacing: 4
+                            Repeater {
+                                model: root.controller.latencyNames
+                                delegate: PictureButton {
+                                    required property string modelData
+                                    required property int index
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                    checked: root.controller.latencyIndex === index
+                                    onClicked: root.controller.latencyIndex = index
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        visible: root.controller.dropouts > 0
+                        text: qsTr("Dropouts: %1").arg(root.controller.dropouts)
+                        color: Theme.warning
+                        font.pixelSize: Theme.fontSizeS
+                    }
+                }
+
+                ToolPanel {
+                    objectName: "displayPanel"
+                    visible: root.tool === "display"
+                    width: parent.width
+                    maximumHeight: parent.height
+                    title: qsTr("Display")
+                    onCloseRequested: root.tool = ""
+                    ToolRow {
+                        label: qsTr("View")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [qsTr("Spectrum"), qsTr("Time")]
+                            currentIndex: root.controller.view
+                            onActivated: index => root.controller.view = index
+                        }
+                    }
+                    ToolRow {
+                        label: qsTr("Channel")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [qsTr("L"), qsTr("R")]
+                            currentIndex: root.controller.displayChannel
+                            onActivated: index => root.controller.displayChannel = index
+                        }
+                    }
+                    ToolRow {
+                        visible: root.controller.view === AeqController.SpectrumView
+                        label: qsTr("Averaging")
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            rowSpacing: 4
+                            columnSpacing: 4
+                            Repeater {
+                                model: root.controller.averagingNames
+                                delegate: PictureButton {
+                                    required property string modelData
+                                    required property int index
+                                    Layout.fillWidth: true
+                                    text: modelData
+                                    checked: root.controller.averagingIndex === index
+                                    onClicked: root.controller.averagingIndex = index
+                                }
+                            }
+                        }
+                    }
+                    ToolRow {
+                        visible: root.controller.view === AeqController.TimeView
+                        label: qsTr("Time span")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: root.controller.timeSpanNames
+                            currentIndex: root.controller.timeSpanIndex
+                            onActivated: index => root.controller.timeSpanIndex = index
+                        }
+                    }
+                    CheckBox {
+                        text: qsTr("Autoscale")
+                        checked: root.controller.view === AeqController.SpectrumView ? root.controller.autoScaleSpectrum : root.controller.autoScaleTime
+                        onToggled: {
+                            if (root.controller.view === AeqController.SpectrumView)
+                                root.controller.autoScaleSpectrum = checked
+                            else
+                                root.controller.autoScaleTime = checked
+                        }
+                    }
+                    CheckBox {
+                        text: qsTr("Show input")
+                        checked: root.controller.showInput
+                        onToggled: root.controller.showInput = checked
+                    }
+                }
+            }
+        }
     }
 }

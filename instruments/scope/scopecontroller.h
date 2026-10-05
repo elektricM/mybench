@@ -358,13 +358,15 @@ private:
     double m_timePerDiv = 5e-3;
     SamplingMode m_samplingMode = Standard;
     bool m_rollMode = false;
-    TriggerType m_triggerType = Immediate;
+    // New sessions start in Auto (Edge, CH 0, rising, 0 V, untriggered record after the timeout)
+    // so the trigger level is live; a stored session keeps its own trigger settings.
+    TriggerType m_triggerType = Edge;
     TriggerSource m_triggerSource = Chan0Source;
     Slope m_triggerSlope = Rising;
     double m_triggerLevel = 0.0;
     double m_horizontalPosition = 50.0;
     double m_triggerHysteresis = 0.0;
-    NoTriggerMode m_noTriggerMode = KeepLastTrace;   // "Normal": the last triggered trace stays
+    NoTriggerMode m_noTriggerMode = ShowUntriggered;   // "Auto" ("Normal" keeps the last triggered trace)
     int m_averaging = 1;
     FftSource m_fftSource = FftOff;
     bool m_levelCursorsOn = false;

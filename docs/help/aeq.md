@@ -9,9 +9,19 @@ and shape the sound with the Bass, Midtone and Treble faders. It is MYBENCH's ve
 
 1. Connect the source to AUDIO IN and the headphones to AUDIO OUT (3.5 mm jacks).
 2. Press **Run**. The meters show the input and output levels.
-3. Move **Bass**, **Midtone** and **Treble** (±12 dB each) and **Volume**. Double-click a fader to
-   reset it; **Flat** sets the three bands to 0 dB, **Bypass** compares with the unprocessed
-   sound.
+3. Move **Bass**, **Midtone** and **Treble** (±12 dB each) and **Volume** — drag, scroll, use the
+   arrow keys, or click the value above a fader and type a number (dB, or % for the volume).
+   Double-click a fader to reset it; **Flat** sets the three bands to 0 dB, **Bypass** (highlighted
+   while on) compares with the unprocessed sound.
+
+## Layout
+
+- **Bar**: Run / Stop (with the stream state), **Bypass**, **Flat**.
+- **Display**: the tone response (top), the spectrum or the waveforms with the three band regions,
+  and the console — the faders are the only place where the bands and the volume are set — with the
+  IN and OUT level meters and the Clip light.
+- **Right column**: the **Routing** card, then the tools **Streaming** and **Display**, which open a
+  small panel over the display (click again to close).
 
 ## Bands
 
@@ -27,26 +37,28 @@ is not perfectly flat around the band edges, like the original.
 
 ## Inputs and outputs
 
-- **Input (L/R)**: AI 0, AI 1, AudioInput Left/Right or None; **Output (L/R)**: AO 0, AO 1,
-  AudioOutput Left/Right or None. Inputs must be both analog inputs or both audio inputs (they
-  share the converters); the same holds for the outputs. Choosing one kind for a side moves the
-  other side to the same kind (AI 0 ↔ AudioInput Left, AI 1 ↔ AudioInput Right, and likewise for the
-  outputs) with a short notice, as the Oscilloscope does, so a mixed setting can never be run. With a
-  single input, both outputs play it. If another instrument holds the analog input or output, it is
-  paused with a reason and can be resumed afterwards.
+- **Routing** card: first pick the input kind, **Audio in** or **AI 0 / AI 1**, then for each side
+  (**L**, **R**) one of that kind's channels or **Off**; the same for the output (**Audio out** or
+  **AO 0 / AO 1**). The two inputs (and the two outputs) share the converters, so they are always
+  of one kind: a mixed setting cannot be chosen. Switching the kind sets L and R to the kind's two
+  channels. With a single input, both outputs play it. If another instrument holds the analog inputs
+  or outputs, the arbiter banner says which one; the equalizer pauses and can be resumed afterwards.
 - Levels are limited to ±2 V; louder output is clipped and the **Clip** light turns red: lower
   the volume or the gains.
-- **Sample Rate** 50 kS/s (as the original), 100 or 200 kS/s. **Output Buffer** is the silence
-  queued before the first sound: the delay between input and output is about the buffer plus
-  10 ms. Short buffers react faster but may drop out on a busy computer (a dropout restarts the
-  stream and is counted in the display header).
+- **Streaming** tool: **Sample rate** 50 kS/s (as the original), 100 or 200 kS/s. **Output buffer**
+  is the silence queued before the first sound: the delay between input and output (shown next to
+  the title) is about the buffer plus 10 ms. Short buffers react faster but may drop out on a busy
+  computer (a dropout restarts the stream; the count appears in this tool).
 
 ## Displays
 
-- **Spectrum**: input (gray) and output (blue) in 1/24-octave bands, in dBV, for the **L** or
-  **R** channel. *Spectrum Averaging* (Display card) smooths it (10 ms, 125 ms, 1 s). The analysis window grows
+The **Display** tool chooses the view (**Spectrum | Time**), the channel (**L | R**), the spectrum
+**Averaging** or the **Time span**, **Autoscale** for the current view (on by default) and
+**Show input**.
+
+- **Spectrum**: before (input, gray) and after (output, blue) in 1/24-octave bands, in dBV, over
+  the Bass / Midtone / Treble regions. Averaging smooths it (10 ms, 125 ms, 1 s). The analysis window grows
   from 0.3 s to about 1 s (at most 65536 points, so it stays shorter at 200 kS/s) as the history builds up, so the lowest bands sharpen a second after Run.
-  *Auto-scale* switches for both graphs are in the Display card (on by default).
 - **Time**: the input and output waveforms over 100 ms (as the NI app) or, with *Time Span* set to
   20 ms, steadied on the input's rising zero crossings.
 - **Meters**: RMS bar, peak line and held peak in dB below full scale (2 V); amber from −12 dB,
@@ -55,7 +67,7 @@ is not perfectly flat around the band edges, like the original.
 ## With the simulated device
 
 The simulator wires the audio outputs back to the audio inputs (and AO 0 to AI 0/AI 1), so the
-equalizer would only hear its own output. Click **Use AI 0 / AI 1** in the hint to process the
+equalizer would only hear its own output. Click **Use AI 0 / AI 1** next to the simulator note to process the
 simulator's test signals (a 1 kHz sine and a 200 Hz square wave) instead.
 
 **Export ▸ Export data** saves the current spectrum and tone response with the settings.

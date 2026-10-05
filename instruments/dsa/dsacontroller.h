@@ -127,6 +127,7 @@ class DsaController : public InstrumentController
     Q_PROPERTY(QString fundamentalPowerValueText READ fundamentalPowerValueText NOTIFY resultsChanged)   // number only
     Q_PROPERTY(double thd READ thd NOTIFY resultsChanged)         // %
     Q_PROPERTY(double sinad READ sinad NOTIFY resultsChanged)     // dB
+    Q_PROPERTY(double snr READ snr NOTIFY resultsChanged)         // dB, SINAD without the harmonics
     Q_PROPERTY(double vpk READ vpk NOTIFY resultsChanged)         // V
     Q_PROPERTY(double resultLineSpacing READ resultLineSpacing NOTIFY resultsChanged)   // df of the result
     Q_PROPERTY(double resultSampleRate READ resultSampleRate NOTIFY resultsChanged)
@@ -299,6 +300,7 @@ public:
     QString fundamentalPowerValueText() const;
     double thd() const;
     double sinad() const;
+    double snr() const;
     double vpk() const;
     double resultLineSpacing() const;
     double resultSampleRate() const;

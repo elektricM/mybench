@@ -15,6 +15,19 @@
 using namespace Qt::StringLiterals;
 using mybench::instruments::DsaController;
 
+// Items by objectName through the visual tree (Repeater delegates have no QObject parent).
+static QQuickItem* findItem(QQuickItem* item, const QString& name)
+{
+    if (!item)
+        return nullptr;
+    if (item->objectName() == name)
+        return item;
+    for (QQuickItem* child : item->childItems())
+        if (QQuickItem* found = findItem(child, name))
+            return found;
+    return nullptr;
+}
+
 class TestDsaQml : public QObject
 {
     Q_OBJECT
@@ -61,6 +74,25 @@ private slots:
         auto* input = root->findChild<QObject*>(u"inputCard"_s);
         QVERIFY(input);
         QCOMPARE(input->property("subtitle").toString(), QString());
+
+        // Result cards: SNR next to THD / SINAD; every window button shows its shape.
+        auto* snr = root->findChild<QObject*>(u"cardSnr"_s);
+        QVERIFY(snr);
+        QCOMPARE(snr->property("title").toString(), u"SNR"_s);
+        QCOMPARE(snr->property("value").toString(), u"—"_s);   // no result yet
+        root->setProperty("tool", u"window"_s);   // the Window panel open
+        offscreen.renderFrame();
+        for (int i = 0; i < ctl.windowLabels().size(); ++i) {
+            QQuickItem* button = findItem(item, u"window"_s + QString::number(i));
+            QVERIFY2(button, qPrintable(QString::number(i)));
+            QVERIFY(!button->property("glyph").toString().isEmpty());
+        }
+
+        // A single spectrum on the simulator: the SNR card shows the controller's SNR, with
+        // statistics once there are two results.
+        ctl.runOnce();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.state() == mybench::InstrumentController::Idle && ctl.hasResult(), 10000);
+        QCOMPARE(snr->property("value").toString(), QString::number(ctl.snr(), 'f', 2) + u" dB"_s);
         offscreen.setRootItem(nullptr);
     }
 };

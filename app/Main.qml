@@ -42,6 +42,18 @@ ApplicationWindow {
             SessionManager.workspace = map
         }
     }
+    // Preferences ▸ General ▸ Reset Window Layout: default window size (centred, not maximized),
+    // equal split, default sidebar/inspector visibility; the shown instruments stay.
+    function resetWindowLayout() {
+        if (visibility === Window.Maximized || visibility === Window.FullScreen)
+            showNormal()
+        width = Math.min(1440, Math.round(Screen.desktopAvailableWidth * 0.9))
+        height = Math.min(900, Math.round(Screen.desktopAvailableHeight * 0.9))
+        x = Screen.virtualX + Math.round((Screen.desktopAvailableWidth - width) / 2)
+        y = Screen.virtualY + Math.round((Screen.desktopAvailableHeight - height) / 2)
+        windowGeometry.maximized = false
+        workspace.resetLayout()
+    }
     function toggleZoom() {
         visibility === Window.Maximized ? showNormal() : showMaximized()
     }
@@ -49,9 +61,15 @@ ApplicationWindow {
         if (!unifiedTitleBar)
             return
         WindowChrome.setTitleHidden(window, true)
+        // The traffic lights centred on the toolbar (AppKit puts them in its own title bar
+        // height and re-lays them out on resize and activation, hence the calls below).
+        WindowChrome.centerButtons(window, toolbar.height)
         const buttons = WindowChrome.buttonsRect(window)
         titleButtonsRight = buttons.width > 0 ? buttons.x + buttons.width : 0
     }
+    onWidthChanged: if (unifiedTitleBar) Qt.callLater(updateWindowChrome)
+    onHeightChanged: if (unifiedTitleBar) Qt.callLater(updateWindowChrome)
+    onActiveChanged: if (unifiedTitleBar) Qt.callLater(updateWindowChrome)
 
     // Default 1440 × 900, at most 90 % of a smaller screen; then the stored geometry.
     width: Math.min(1440, Math.round(Screen.desktopAvailableWidth * 0.9))
@@ -64,8 +82,8 @@ ApplicationWindow {
     color: Theme.window
 
     onVisibilityChanged: {
-        if (visibility === Window.Maximized || visibility === Window.Windowed)
-            windowGeometry.maximized = visibility === Window.Maximized
+        if (window.visibility === Window.Maximized || window.visibility === Window.Windowed)
+            windowGeometry.maximized = window.visibility === Window.Maximized
         Qt.callLater(updateWindowChrome)
     }
     onClosing: close => close.accepted = dialogs.mayClose()
@@ -78,7 +96,7 @@ ApplicationWindow {
         workspace: workspace
         width: window.width
         preferredInspectorWidth: prefs.view.inspectorWidth
-        panelInspectorEmpty: window.focusedPanel !== null && !window.focusedPanel.hasInspector
+        focusedPanel: window.focusedPanel
         onSidebarDrawerChanged: {
             if (!sidebarDrawer)
                 drawer.close()
@@ -146,6 +164,7 @@ ApplicationWindow {
     }
     Connections { target: ShellActions; function onEventLogRequested() { logPopup.open() } }
     Connections { target: Launcher; function onAboutRequested() { dialogs.showAbout() } }
+    Connections { target: prefs; function onWindowLayoutResetRequested() { window.resetWindowLayout() } }
 
     Component.onCompleted: {
         workspace.fromMap(SessionManager.workspace)
@@ -163,8 +182,8 @@ ApplicationWindow {
             workspace.showHelp(workspace.helpTopicOf(workspace.overview ? "" : workspace.focused))
         // The small windows once the main window is shown (offscreen: popups in it).
         Qt.callLater(() => {
-            if (AppInfo.flag("preferences"))
-                dialogs.showPreferences("")
+            if (AppInfo.flag("preferences") || AppInfo.value("preferences").length > 0)
+                dialogs.showPreferences(AppInfo.value("preferences"))      // --preferences[=page]
             if (AppInfo.flag("about"))
                 dialogs.showAbout()
             if (AppInfo.flag("device-info"))

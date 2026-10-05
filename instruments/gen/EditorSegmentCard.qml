@@ -7,7 +7,7 @@ import MyBench.Controls
 // Parameters of the selected segment or component (the ELVISmx editor's right-hand pane):
 // Segment Name/Duration/Gain; component Function (operator), type (Library / Expression / Sketch)
 // and the type's parameters; Select All summary.
-Section {
+ChannelCard {
     id: root
 
     required property WaveformEditor editor
@@ -17,7 +17,11 @@ Section {
     title: kind === 3 ? qsTr("Whole Waveform")
          : kind === 2 ? qsTr("Segment %1 · Component %2").arg(editor.segmentIndex + 1).arg(editor.componentIndex + 1)
          : qsTr("Segment %1").arg(editor.segmentIndex + 1)
-    iconName: "sliders"
+    objectName: "editorSegmentCard"
+    checkable: false
+    color: Theme.accent
+    // Library function picked (the picture of the selected component).
+    readonly property int libraryIndex: kind === 2 && type === 0 ? editor.libraryFunction : -1
 
     // --- Segment ---------------------------------------------------------------------------------
     Field {
@@ -33,25 +37,27 @@ Section {
             onEditingFinished: if (text !== root.editor.segmentName) root.editor.segmentName = text
         }
     }
+    KnobField {
+        id: durationKnob
+        visible: root.kind === 1
+        Layout.fillWidth: true
+        objectName: "segmentDurationField"
+        label: qsTr("Duration")
+        // In the document's time unit (s, ms or µs).
+        unit: root.editor.timeUnit
+        knobSize: 40
+        compact: root.compact
+        digits: 5
+        from: 0.0001
+        to: 100000
+        logarithmic: true
+        toolTip: qsTr("Duration of the segment, 0.0001 to 100 000 %1").arg(root.editor.timeUnit)
+        value: root.editor.segmentDuration * root.editor.displayScale
+        onValueModified: v => root.editor.segmentDuration = (durationKnob.knob.dragging ? Number(v.toPrecision(3)) : v) / root.editor.displayScale
+    }
     FieldRow {
         visible: root.kind === 1
         Layout.fillWidth: true
-        Field {
-            label: qsTr("Duration")
-            SiField {
-                // In the document's time unit (s, ms or µs).
-                Layout.fillWidth: true
-                unit: root.editor.timeUnit
-                engineering: false
-                decimals: 4
-                stepSize: 0.1
-                from: 0.0001
-                to: 100000
-                toolTip: qsTr("Duration of the segment, 0.0001 to 100 000 %1").arg(root.editor.timeUnit)
-                value: root.editor.segmentDuration * root.editor.displayScale
-                onValueModified: v => root.editor.segmentDuration = v / root.editor.displayScale
-            }
-        }
         Field {
             label: qsTr("Gain")
             hint: qsTr("Set by Scale Selection; multiplies the whole segment")
@@ -66,89 +72,95 @@ Section {
             }
         }
     }
-    Text {
-        visible: root.kind === 1
-        Layout.fillWidth: true
-        text: qsTr("Add components with New Component: library functions, expressions or sketches, combined with + − × / or FM.")
-        color: Theme.textMuted
-        font.pixelSize: Theme.fontSizeS
-        wrapMode: Text.WordWrap
-    }
 
     // --- Component --------------------------------------------------------------------------------
-    Field {
+    // Function pictures: the common library functions, a formula or a sketch (Functions tool:
+    // the whole library of 21).
+    GridLayout {
+        objectName: "editorFunctionPictures"
         visible: root.kind === 2
+        enabled: !root.editor.drawMode
         Layout.fillWidth: true
-        label: qsTr("Type")
-        SegmentedControl {
-            Layout.fillWidth: true
-            compact: true
-            enabled: !root.editor.drawMode
-            model: [ { text: qsTr("Library"), toolTip: qsTr("One of the 21 library functions") },
-                     { text: qsTr("Expression"), toolTip: qsTr("A formula of x") },
-                     { text: qsTr("Sketch"), toolTip: qsTr("Freehand values, drawn or imported") } ]
-            currentIndex: root.type
-            onActivated: index => root.editor.componentType = index
+        columns: 4
+        columnSpacing: 3
+        rowSpacing: 3
+        Repeater {
+            model: [
+                { id: "Sine", text: qsTr("Sine"), icon: "wave-sine", type: 0, fn: 1 },
+                { id: "Square", text: qsTr("Square"), icon: "wave-square", type: 0, fn: 2 },
+                { id: "Triangle", text: qsTr("Tri"), icon: "wave-triangle", type: 0, fn: 3 },
+                { id: "Ramp", text: qsTr("Ramp"), icon: "wave-sawtooth", type: 0, fn: 4 },
+                { id: "DC", text: qsTr("DC"), icon: "wave-dc", type: 0, fn: 0 },
+                { id: "Noise", text: qsTr("Noise"), icon: "wave-noise", type: 0, fn: 5 },
+                { id: "Formula", text: qsTr("f(x)"), icon: "edit", type: 1, fn: -1 },
+                { id: "Sketch", text: qsTr("Sketch"), icon: "wave-arbitrary", type: 2, fn: -1 }
+            ]
+            delegate: PictureButton {
+                required property var modelData
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                implicitWidth: 40
+                leftPadding: 2
+                rightPadding: 2
+                objectName: "fn" + modelData.id
+                text: modelData.text
+                iconName: modelData.icon
+                checked: root.type === modelData.type && (modelData.fn < 0 || root.libraryIndex === modelData.fn)
+                ToolTip.visible: hovered
+                ToolTip.text: modelData.type === 1 ? qsTr("Formula of x") : modelData.type === 2 ? qsTr("Sketch: drawn or imported values")
+                              : root.editor.functionNames[modelData.fn] ?? ""
+                onClicked: {
+                    if (modelData.type === 0)
+                        root.editor.libraryFunction = modelData.fn
+                    root.editor.componentType = modelData.type
+                }
+            }
         }
     }
     Field {
         visible: root.kind === 2
         Layout.fillWidth: true
-        label: qsTr("Function")
-        hint: qsTr("How this component combines with the result of the components above it (not for the first one)")
+        label: qsTr("Combine")
         disabled: !root.editor.operatorEnabled
-        ComboBox {
+        SegmentedControl {
+            objectName: "componentOperator"
             Layout.fillWidth: true
+            compact: true
             enabled: root.editor.operatorEnabled
-            model: [qsTr("+  add"), qsTr("−  subtract"), qsTr("×  multiply"), qsTr("/  divide"), qsTr("FM  modulate the frequency")]
+            model: [ { text: "+", toolTip: qsTr("Add") }, { text: "−", toolTip: qsTr("Subtract") },
+                     { text: "×", toolTip: qsTr("Multiply") }, { text: "/", toolTip: qsTr("Divide") },
+                     { text: "FM", toolTip: qsTr("Modulate the frequency") } ]
             currentIndex: root.editor.componentOperator
             onActivated: index => root.editor.componentOperator = index
         }
     }
 
-    // Library
-    Field {
-        visible: root.kind === 2 && root.type === 0
-        Layout.fillWidth: true
-        label: qsTr("Function Library")
-        ComboBox {
-            Layout.fillWidth: true
-            model: root.editor.functionNames
-            currentIndex: root.editor.libraryFunction
-            ToolTip.visible: hovered
-            ToolTip.text: qsTr("Library function (New Component uses the last one chosen)")
-            onActivated: index => root.editor.libraryFunction = index
-        }
-    }
     GridLayout {
         visible: root.kind === 2 && root.type === 0
         Layout.fillWidth: true
-        columns: 2
+        columns: 1
         columnSpacing: Theme.spacingS
         rowSpacing: Theme.spacingXs
         Repeater {
             model: root.kind === 2 && root.type === 0 ? root.editor.params : []
-            delegate: Field {
+            delegate: KnobField {
                 id: paramField
                 required property var modelData
                 Layout.fillWidth: true
-                Layout.preferredWidth: 1
+                objectName: "param" + modelData.index
                 label: modelData.label
-                trailing: modelData.alias ? "⚠" : ""
-                hint: modelData.alias ? qsTr("Above half the sample rate: the waveform will alias") : ""
-                SiField {
-                    Layout.fillWidth: true
-                    engineering: false
-                    decimals: paramField.modelData.decimals
-                    stepSize: paramField.modelData.stepSize
-                    unit: paramField.modelData.unit
-                    from: paramField.modelData.min
-                    to: paramField.modelData.max
-                    accentColor: paramField.modelData.alias ? Theme.warning : Theme.accent
-                    toolTip: paramField.modelData.label
-                    value: paramField.modelData.value
-                    onValueModified: v => root.editor.setParam(paramField.modelData.index, v)
-                }
+                unit: modelData.unit
+                caption: modelData.alias ? qsTr("Aliasing") : ""
+                accentColor: modelData.alias ? Theme.warning : Theme.accent
+                knobSize: 34
+                compact: root.compact
+                digits: 5
+                from: modelData.min
+                to: modelData.max
+                stepSize: modelData.stepSize
+                toolTip: modelData.alias ? qsTr("%1 · above half the sample rate").arg(modelData.label) : modelData.label
+                value: modelData.value
+                onValueModified: v => root.editor.setParam(paramField.modelData.index, v)
             }
         }
         Field {
@@ -289,17 +301,6 @@ Section {
             toolTip: qsTr("Draw one cycle of the sketch on the plot (freehand or with points)")
             onClicked: root.editor.drawMode = !root.editor.drawMode
         }
-    }
-
-    // --- Select All -----------------------------------------------------------------------------------
-    Text {
-        visible: root.kind === 3
-        Layout.fillWidth: true
-        text: qsTr("%1 samples, %2 %3. Copy copies the whole waveform, Scale Selection scales every segment, Clear resets the document.")
-              .arg(root.editor.totalSamples).arg(Number((root.editor.totalDuration * root.editor.displayScale).toPrecision(6))).arg(root.editor.timeUnit)
-        color: Theme.textSecondary
-        font.pixelSize: Theme.fontSizeS
-        wrapMode: Text.WordWrap
     }
 
     SketchImport { id: importFile; editor: root.editor }

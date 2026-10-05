@@ -48,8 +48,8 @@ channel moves the other channel to an audio input too (and back to AI when you c
   range, and what is in effect: coupling, range, differential), the **Math** and **References**
   cards, and the tool palette — **Measure, Cursors, Math, FFT, Refs, Display, Trigger, Export**. A
   tool opens a panel over the right part of the graph; click the tool again or × (Esc) to close it.
-- **Measurement cards** under the display: the value large, with min / max / mean / σ over the last
-  100 records (or all records, or none: Measure › Statistics). **+ Add** opens the Measure panel.
+- **Measurement cards** under the display: the value large, with min / max / mean / σ (4 significant
+  digits) over the last 100 records (or all records, or none: Measure › Statistics). **+ Add** opens the Measure panel.
 - Every knob can be turned (drag, wheel), stepped with − / +, or typed (`2m`, `500u`, `1.5k`).
   In a narrow pane (split screen) the knobs give way to their values, and the view and trigger mode
   move to the top of the right column.
@@ -104,6 +104,8 @@ Analysis → Frequency method in the Measure tool, Autoscale option in the Displ
 
 - **Type** – *Immediate*: every screen is shown as acquired. *Edge*: every screen is aligned on a
   crossing of the trigger level. With Immediate the other trigger settings are hidden.
+- A new session starts in **Auto** (Edge on CH0, rising, 0 V), so the trigger level knob works at
+  once; a saved session keeps its own trigger.
 - **Source** – *CH0* or *CH1*: the signal of that channel (a channel that is off cannot be chosen).
 - **Slope** – rising or falling edge.
 - **Level** – the voltage the signal must cross, −100 to 100 V (or drag the **T** marker).

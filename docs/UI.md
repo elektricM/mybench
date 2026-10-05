@@ -622,6 +622,14 @@ InstrumentPanel {
 | `MeasurementCard` | `title`, `color`, `value`, `stats {min, max, mean, stdDev}`, `removable` → `removeRequested()` |
 | `RunButton` | big Run/Stop with state line: `running`, `stateText`, `busy`, emits `toggled()` |
 
+Round 4 additions (G1): `Theme.nativeControlHeight` (24 under the macOS style, else 0; `controlHeight`
+follows it); layout tokens `instrumentColumnWidth` (260), `instrumentColumnCompactWidth` (220),
+`instrumentCompactWidth` (1000), `toolPanelWidth` (300); `PictureButton.autoToggle` (default false: a
+click emits `clicked()` and never breaks a `checked` binding); `ChannelCard.collapseWhenOff` (default false:
+an off channel keeps its dimmed body so it can be set up before switching it on) and readonly `active`;
+`MeasurementCard` numeric API `numericValue`, `unit`, `significantDigits` (4), `stdDevDigits`, `valueText`,
+`statText(key)`; SegmentedControl draws the macOS-like recessed track with a raised current segment.
+
 Panel pattern (round 2): `inspector: []` (the shell hides the empty dock); top bar = `RunButton`,
 Single and the primary `KnobField`s (via `InstrumentPanel.headerContent` + `showRunControls: false`);
 display left and largest; right column of `ChannelCard`s with knobs, then a `ToolPalette` whose tools

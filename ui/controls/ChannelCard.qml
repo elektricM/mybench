@@ -6,7 +6,9 @@ import QtQuick.Layouts
 // A channel's always-visible controls (PicoScope style): header with a color swatch, title
 // ("CH 0"), subtitle ("AI 0") and an on/off switch; body = the items declared inside (column,
 // 10 px gaps: KnobFields, segmented controls...), then a line of fact chips ("DC", "±10 V range").
-// Unchecked, the card collapses to its header. Controlled: bind `checked`, apply toggled().
+// Unchecked, the body stays (dimmed, still usable) so a channel can be set up before it is switched
+// on; `collapseWhenOff: true` folds it to its header instead. Controlled: bind `checked`, apply
+// toggled().
 //     ChannelCard { title: "CH 0"; subtitle: "AI 0"; color: Theme.signalCh0
 //                   checked: ch.enabled; onToggled: on => ch.enabled = on
 //                   facts: ["DC", "±10 V range"]
@@ -19,13 +21,15 @@ Item {
     property color color: Theme.accent           // the channel color: swatch and left edge
     property bool checked: true
     property bool checkable: true                // false: no switch (e.g. References)
+    property bool collapseWhenOff: false         // true: unchecked = header only
     property var facts: []
     property bool compact: false                 // tighter paddings
     property alias headerExtras: headerExtrasRow.data   // small items left of the switch
     default property alias content: body.data
 
     readonly property real padding: compact ? Theme.spacingS : Theme.spacingS + 2
-    readonly property bool expanded: checked || !checkable
+    readonly property bool active: checked || !checkable      // on (header wash, full-strength body)
+    readonly property bool expanded: active || !collapseWhenOff
 
     signal toggled(bool checked)
 
@@ -63,7 +67,7 @@ Item {
                 topRightRadius: card.radius - 1
                 bottomLeftRadius: card.expanded ? 0 : card.radius - 1
                 bottomRightRadius: card.expanded ? 0 : card.radius - 1
-                color: card.expanded ? Theme.alpha(card.color, Theme.dark ? 0.09 : 0.07) : "transparent"
+                color: card.active ? Theme.alpha(card.color, Theme.dark ? 0.09 : 0.07) : "transparent"
             }
             TapHandler {
                 enabled: card.checkable
@@ -81,11 +85,11 @@ Item {
                     implicitWidth: 10
                     implicitHeight: 10
                     radius: 3
-                    color: card.expanded ? card.color : Theme.alpha(card.color, 0.4)
+                    color: card.active ? card.color : Theme.alpha(card.color, 0.4)
                 }
                 Text {
                     text: card.title
-                    color: card.expanded ? Theme.text : Theme.textSecondary
+                    color: card.active ? Theme.text : Theme.textSecondary
                     font.pixelSize: Theme.fontSizeBody
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
@@ -131,10 +135,12 @@ Item {
         }
 
         ColumnLayout {
+            objectName: "channelBody"
             visible: card.expanded && (body.children.length > 0 || card.facts.length > 0)
             Layout.fillWidth: true
             Layout.margins: card.padding
             spacing: 10
+            opacity: card.active ? 1 : 0.55
 
             ColumnLayout {
                 id: body

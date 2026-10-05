@@ -311,6 +311,12 @@ private slots:
             QSKIP("no graphics device");
         panel.root->setProperty("tool", u"trigger"_s);   // the Trigger panel open
         panel.window->renderFrame();
+        // A new session opens in Auto: the trigger level knob is live from the start.
+        QCOMPARE(scope.triggerType(), ScopeController::Edge);
+        QVERIFY(panel.shown(u"triggerLevel"_s));
+        QVERIFY(panel.find(u"triggerLevel"_s)->property("enabled").toBool());
+        scope.setTriggerType(ScopeController::Immediate);
+        panel.window->renderFrame();
         const QStringList edgeOnly{u"triggerSource"_s, u"triggerSlope"_s,
                                    u"triggerTimeout"_s, u"triggerHoldoff"_s, u"triggerHysteresis"_s,
                                    u"horizontalPosition"_s};

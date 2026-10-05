@@ -218,6 +218,15 @@ QtObject {
         ratio = clamped
         changed()
     }
+    // Reset Window Layout: equal split, default sidebar/inspector visibility in every layout
+    // class, the inspector page. The shown instruments stay.
+    function resetLayout() {
+        ratio = 0.5
+        sidebarCollapsed = {}
+        inspectorVisible = {}
+        dockPage = "inspector"
+        changed()
+    }
     // Next (+1) or previous (-1) entry of the sidebar, Overview included, in the focused pane.
     function cycle(step: int) {
         const order = [""].concat(paneOrder())

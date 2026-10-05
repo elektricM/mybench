@@ -110,54 +110,50 @@ Popup {
         id: content
         spacing: 0
 
-        // The search field (or the argument prompt).
-        SearchField {
+        // The search field (or the argument prompt). Built from the template: a borderless field
+        // in the popup's header row (a native SearchField refuses a custom look).
+        T.TextField {
             id: field
             objectName: "paletteField"
             Layout.fillWidth: true
             implicitHeight: Theme.controlHeightL + Theme.spacingS
             leftPadding: Theme.spacingL + Theme.iconSize + Theme.spacingS
             rightPadding: Theme.spacingL
+            color: Theme.text
             font.pixelSize: Theme.fontSizeHeading
+            selectionColor: Theme.selection
+            selectedTextColor: Theme.selectionText
+            verticalAlignment: TextInput.AlignVCenter
+            placeholderText: palette.pending ? palette.pending.title + " — " + palette.pending.argumentLabel
+                                             : qsTr("Search commands and instruments")
+            Accessible.name: placeholderText
             onTextChanged: {
                 if (!palette.pending)
                     palette.refresh(text)
             }
-            searchIndicator.indicator: Icon {
+            Icon {
                 x: Theme.spacingL
                 y: Math.round((field.height - height) / 2)
                 name: palette.pending ? "chevron-right" : "search"
                 color: palette.pending ? Theme.accent : Theme.textSecondary
             }
-            clearIndicator.indicator: Item {}
-            contentItem: T.TextField {
-                id: input
-                text: field.text
-                onTextEdited: field.text = text
-                color: Theme.text
+            // The template draws no placeholder.
+            Text {
+                x: field.leftPadding
+                width: field.width - field.leftPadding - field.rightPadding
+                height: field.height
+                visible: field.text.length === 0 && !field.preeditText
+                text: field.placeholderText
+                color: Theme.textTertiary
                 font: field.font
-                selectionColor: Theme.selection
-                selectedTextColor: Theme.selectionText
-                verticalAlignment: TextInput.AlignVCenter
-                placeholderText: palette.pending ? palette.pending.title + " — " + palette.pending.argumentLabel
-                                                 : qsTr("Search commands and instruments")
-                // The template draws no placeholder.
-                Text {
-                    anchors.fill: parent
-                    visible: input.text.length === 0 && !input.preeditText
-                    text: input.placeholderText
-                    color: Theme.textTertiary
-                    font: input.font
-                    verticalAlignment: Text.AlignVCenter
-                    elide: Text.ElideRight
-                }
-                Keys.onDownPressed: palette.move(1)
-                Keys.onUpPressed: palette.move(-1)
-                Keys.onReturnPressed: palette.runCurrent()
-                Keys.onEnterPressed: palette.runCurrent()
-                Keys.onEscapePressed: palette.close()
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
             }
-            background: Item {}
+            Keys.onDownPressed: palette.move(1)
+            Keys.onUpPressed: palette.move(-1)
+            Keys.onReturnPressed: palette.runCurrent()
+            Keys.onEnterPressed: palette.runCurrent()
+            Keys.onEscapePressed: palette.close()
         }
         Rectangle {
             Layout.fillWidth: true

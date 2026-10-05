@@ -246,7 +246,7 @@ Item {
             SegmentedControl {
                 visible: root.showReadouts
                 compact: true
-                Layout.preferredWidth: 300
+                Layout.preferredWidth: Theme.toolPanelWidth
                 model: [qsTr("Power Spectrum"), qsTr("Power Spectral Density")]
                 currentIndex: root.controller.spectrumDisplay === DsaController.PowerSpectralDensityDisplay ? 1 : 0
                 onActivated: index => root.controller.spectrumDisplay = index === 1 ? DsaController.PowerSpectralDensityDisplay

@@ -20,7 +20,7 @@ Item {
     readonly property var presetNames: [qsTr("0-3"), qsTr("4-7"), qsTr("0-7"), qsTr("None")]
     readonly property bool hasInputs: root.controller.inputMask !== 0
     readonly property bool hasOutputs: root.controller.outputMask !== 0
-    readonly property bool narrow: width < 900
+    readonly property bool narrow: width < Theme.instrumentCompactWidth
     property string tool: ""
     // One radix for the panel (controller state): Inputs, Outputs, pattern number, cursor values.
     readonly property var radixChoices: [DioController.Hex, DioController.Binary, DioController.Decimal]
@@ -324,7 +324,7 @@ Item {
         Rectangle {
             id: column
             anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-            width: root.narrow ? 220 : 266
+            width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
             color: Theme.window
             Rectangle { width: 1; height: parent.height; color: Theme.separator }
 
@@ -475,7 +475,6 @@ Item {
                                     Layout.preferredWidth: 1
                                     text: root.patternShortNames[index]
                                     glyph: root.patternGlyphs[index]
-                                    checkable: false     // checked follows the controller
                                     checked: root.controller.pattern === index
                                     ToolTip.visible: hovered
                                     ToolTip.text: root.controller.patternNames[index] ?? ""
@@ -581,7 +580,7 @@ Item {
             objectName: "dioLabelsPanel"
             visible: root.tool === "labels"
             anchors { right: column.left; top: parent.top; margins: Theme.spacingS }
-            width: 280
+            width: Theme.toolPanelWidth
             z: 10
             title: qsTr("Line Labels")
             onCloseRequested: root.tool = ""

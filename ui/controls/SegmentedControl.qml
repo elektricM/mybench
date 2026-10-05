@@ -4,7 +4,8 @@ import QtQuick.Controls
 import QtQuick.Templates as T
 
 // One choice out of 2–4 short options (docs/UI.md §6): joined segments sized to their content on a
-// quiet track; the current segment is a raised control-colored chip. Wider than needed, it stays at
+// recessed track (radius 6, like the macOS segmented control); the current segment is a lighter,
+// raised chip with a soft shadow, colors from the palette (Theme). Wider than needed, it stays at
 // its natural width (left-aligned); narrower, the segments shrink and elide.
 // `model`: strings, or objects { text, icon, toolTip, enabled }. Controlled component: bind
 // currentIndex and apply activated(index).
@@ -30,6 +31,7 @@ T.Control {
     }
     readonly property real trackWidth: Math.min(availableWidth, naturalWidth + 2 * inset)
     readonly property int inset: 2
+    readonly property int radius: 6
 
     signal activated(int index)
 
@@ -63,8 +65,8 @@ T.Control {
         Rectangle {
             width: control.trackWidth
             height: parent.height
-            radius: Theme.radiusControl
-            color: Theme.alpha(Theme.text, Theme.dark ? 0.08 : 0.06)
+            radius: control.radius
+            color: Theme.alpha(Theme.text, Theme.dark ? 0.09 : 0.065)
             opacity: control.enabled ? 1 : 0.6
             FocusRing { shown: control.visualFocus }
         }
@@ -73,9 +75,21 @@ T.Control {
     contentItem: Item {
         id: track
 
+        // Soft shadow under the current segment (raised look).
+        Rectangle {
+            visible: chip.visible
+            x: chip.x
+            y: chip.y + 1
+            width: chip.width
+            height: chip.height
+            radius: chip.radius
+            color: Theme.alpha("#000000", Theme.dark ? 0.30 : 0.10)
+            opacity: chip.opacity
+        }
         // The current segment.
         Rectangle {
             id: chip
+            objectName: "segmentChip"
             readonly property Item target: segmentRepeater.count > 0 && control.currentIndex >= 0
                                            ? segmentRepeater.itemAt(Math.min(control.currentIndex, segmentRepeater.count - 1)) : null
             visible: target !== null
@@ -83,10 +97,10 @@ T.Control {
             y: control.inset
             width: target ? target.width : 0
             height: track.height - 2 * control.inset
-            radius: Theme.radiusControl - 1
-            color: Theme.dark ? Theme.mix(Theme.controlFill, "#FFFFFF", 0.06) : Theme.controlFill
+            radius: control.radius - 1
+            color: Theme.dark ? Theme.mix(Theme.controlFill, "#FFFFFF", 0.26) : Theme.mix(Theme.controlFill, "#FFFFFF", 0.6)
             border.width: Theme.borderWidth
-            border.color: Theme.alpha(Theme.text, Theme.dark ? 0.12 : 0.14)
+            border.color: Theme.dark ? Theme.alpha("#FFFFFF", 0.10) : Theme.alpha(Theme.text, 0.10)
             opacity: control.enabled ? 1 : 0.6
             Behavior on x {
                 enabled: Theme.animations && chip.width > 0

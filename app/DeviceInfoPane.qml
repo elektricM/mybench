@@ -26,7 +26,7 @@ Rectangle {
     }
 
     ResourceChips {
-        id: resources
+        id: resourceChips
         visible: false
         textForm: true
     }
@@ -67,6 +67,6 @@ Rectangle {
             font.features: Theme.tabularFigures
         }
         Label { text: qsTr("In use") }
-        Value { text: resources.summaryText.length > 0 ? resources.summaryText : qsTr("Nothing (device idle)") }
+        Value { text: resourceChips.summaryText.length > 0 ? resourceChips.summaryText : qsTr("Nothing (device idle)") }
     }
 }

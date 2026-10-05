@@ -16,7 +16,53 @@ Item {
 
     required property CtrController controller
 
-    readonly property bool narrow: width < 900
+    readonly property bool narrow: width < Theme.instrumentCompactWidth
+    // Trend time windows (view setting of this panel).
+    readonly property var trendWindows: [{ text: qsTr("10 s"), seconds: 10 }, { text: qsTr("1 min"), seconds: 60 },
+                                         { text: qsTr("10 min"), seconds: 600 }, { text: qsTr("All"), seconds: 0 }]
+    property int trendWindow: 1
+    // Expected range presets: the longest expected interval picks the counter timebase (100 MHz,
+    // 20 MHz, 100 kHz; docs/instruments/ctr.md), so one preset per timebase.
+    readonly property var frequencyRanges: [{ min: 1, max: 1e6 }, { min: 0.01, max: 1e6 }, { min: 1e-4, max: 1e3 }]
+    readonly property var timeRanges: [{ min: 100e-9, max: 10 }, { min: 1e-6, max: 100 }, { min: 100e-6, max: 1e4 }]
+    readonly property bool frequencyRange: measurement === CtrController.Frequency
+    readonly property var expectedRanges: frequencyRange ? frequencyRanges : timeRanges
+    readonly property int expectedRangeIndex: {
+        const lo = frequencyRange ? controller.frequencyMin : controller.timeMin
+        const hi = frequencyRange ? controller.frequencyMax : controller.timeMax
+        return expectedRanges.findIndex(r => Math.abs(r.min - lo) <= 1e-9 * r.min && Math.abs(r.max - hi) <= 1e-9 * r.max)
+    }
+    function expectedRangeText(r: var): string {
+        const unit = frequencyRange ? "Hz" : "s"
+        return Units.format(r.min, unit, 3) + " – " + Units.format(r.max, unit, 3)
+    }
+    function selectExpectedRange(index: int) {
+        const r = expectedRanges[index]
+        if (frequencyRange) {
+            controller.frequencyMin = r.min
+            controller.frequencyMax = r.max
+        } else {
+            controller.timeMin = r.min
+            controller.timeMax = r.max
+        }
+    }
+    function applyTrendWindow() {
+        const span = trendWindows[trendWindow]?.seconds ?? 60
+        const now = Date.now() / 1000
+        const axis = trendView.plot.xAxis
+        if (span > 0) {
+            axis.setRange(now - span, now)
+        } else {
+            const first = controller.trend.count > 0 ? controller.trend.xMinimum() : now - 60
+            axis.setRange(first, Math.max(now, first + 10))
+        }
+        axis.follow = true
+    }
+    Connections {
+        target: root.controller.trend
+        enabled: (root.trendWindows[root.trendWindow]?.seconds ?? 60) === 0
+        function onChanged() { root.applyTrendWindow() }
+    }
     property string tool: ""
 
     readonly property bool measuring: controller.counterFunction === CtrController.Measure
@@ -197,7 +243,7 @@ Item {
                     ColumnLayout {
                         id: readoutColumn
                         anchors.centerIn: parent
-                        width: Math.min(parent.width, 820)
+                        width: Math.min(parent.width, Theme.instrumentCompactWidth)   // readable line length
                         spacing: Theme.spacingS
 
                         Readout {
@@ -298,18 +344,26 @@ Item {
 
                 }
 
-                // Trend of the readings (Measure).
-                BenchPlot {
-                    id: trendPlot
+                // Trend of the readings (Measure), with its time window.
+                TrendView {
+                    id: trendView
+                    objectName: "ctrTrend"
                     visible: root.measuring
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 120
-                    placeholderText: root.controller.running ? qsTr("Waiting for the first measurement…") : qsTr("Trend of the readings")
-                    hoverReadout: true
-                    xAxis { labelFormat: PlotAxis.Time; follow: true }
-                    yAxis { autoScale: true; unit: root.controller.unit; unitInLabels: root.controller.unit.length > 0 }
-                    Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
+                    windows: root.trendWindows
+                    windowIndex: root.trendWindow
+                    onWindowActivated: index => { root.trendWindow = index; root.applyTrendWindow() }
+                    onClearRequested: root.controller.resetMeasurement()
+                    plot.placeholderText: root.controller.running ? qsTr("Waiting for the first measurement…") : qsTr("Trend of the readings")
+                    plot.hoverReadout: true
+                    plot.xAxis.labelFormat: PlotAxis.Time
+                    plot.xAxis.follow: true
+                    plot.yAxis.autoScale: true
+                    plot.yAxis.unit: root.controller.unit
+                    plot.yAxis.unitInLabels: root.controller.unit.length > 0
+                    Component.onCompleted: root.applyTrendWindow()
                     PlotTrace {
                         buffer: root.controller.trend
                         name: root.controller.functionTitle
@@ -400,7 +454,7 @@ Item {
             Rectangle {
                 id: column
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.narrow ? 220 : 266
+                width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
                 color: Theme.window
                 Rectangle { width: 1; height: parent.height; color: Theme.separator }
 
@@ -445,7 +499,6 @@ Item {
                                         glyph: modelData.glyph
                                         ToolTip.visible: hovered && root.narrow && modelData.short !== undefined
                                         ToolTip.text: modelData.text
-                                        checkable: false     // checked follows the controller
                                         checked: root.modeActive(modelData)
                                         onClicked: root.selectMode(modelData)
                                     }
@@ -631,40 +684,29 @@ Item {
                             LabeledRow {
                                 visible: root.interval
                                 label: qsTr("Expected range")
-                                GridLayout {
+                                // One button per counter timebase; the tooltip names it.
+                                ColumnLayout {
+                                    objectName: "ctrExpectedRange"
                                     Layout.fillWidth: true
-                                    columns: root.narrow ? 1 : 3
-                                    columnSpacing: 4
-                                    rowSpacing: 4
-                                    SiField {
-                                        Layout.fillWidth: true
-                                        Layout.preferredWidth: 1
-                                        unit: root.measurement === CtrController.Frequency ? "Hz" : "s"
-                                        from: root.measurement === CtrController.Frequency ? 0.01 : 10e-9
-                                        to: root.measurement === CtrController.Frequency ? 50e6 : 1000
-                                        value: root.measurement === CtrController.Frequency ? root.controller.frequencyMin : root.controller.timeMin
-                                        toolTip: qsTr("Minimum") + "\n" + root.controller.timebaseText
-                                        onValueModified: v => {
-                                            if (root.measurement === CtrController.Frequency)
-                                                root.controller.frequencyMin = v
-                                            else
-                                                root.controller.timeMin = v
-                                        }
-                                    }
-                                    Text { visible: !root.narrow; text: "–"; color: Theme.textSecondary }
-                                    SiField {
-                                        Layout.fillWidth: true
-                                        Layout.preferredWidth: 1
-                                        unit: root.measurement === CtrController.Frequency ? "Hz" : "s"
-                                        from: root.measurement === CtrController.Frequency ? 0.01 : 10e-9
-                                        to: root.measurement === CtrController.Frequency ? 50e6 : 1000
-                                        value: root.measurement === CtrController.Frequency ? root.controller.frequencyMax : root.controller.timeMax
-                                        toolTip: qsTr("Maximum") + "\n" + root.controller.timebaseText
-                                        onValueModified: v => {
-                                            if (root.measurement === CtrController.Frequency)
-                                                root.controller.frequencyMax = v
-                                            else
-                                                root.controller.timeMax = v
+                                    spacing: 4
+                                    Repeater {
+                                        model: root.expectedRanges
+                                        delegate: Button {
+                                            required property var modelData
+                                            required property int index
+                                            objectName: "expectedRange" + index
+                                            Layout.fillWidth: true
+                                            text: root.expectedRangeText(modelData)
+                                            checkable: true
+                                            highlighted: checked
+                                            checked: root.expectedRangeIndex === index
+                                            focusPolicy: Qt.TabFocus
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: root.controller.timebaseText
+                                            onClicked: {
+                                                root.selectExpectedRange(index)
+                                                checked = Qt.binding(() => root.expectedRangeIndex === index)
+                                            }
                                         }
                                     }
                                 }
@@ -850,6 +892,7 @@ Item {
                         ChannelCard {
                             objectName: "ctrFreqOutCard"
                             Layout.fillWidth: true
+                            collapseWhenOff: true      // off = header only: the column keeps its tools in view
                             title: qsTr("FREQOUT")
                             subtitle: "DIO 4"
                             color: Theme.signalCh1

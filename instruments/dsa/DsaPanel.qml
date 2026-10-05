@@ -18,7 +18,23 @@ Item {
 
     readonly property bool octave: controller.octave
     readonly property bool manualScale: controller.scaleMode === DsaController.ManualScale
-    readonly property bool narrow: width < 1240     // compact knobs keep the bar on one line
+    // Compact knobs keep the bar on one line: the bar needs the compact pane width plus the column.
+    readonly property bool narrow: width < Theme.instrumentCompactWidth + Theme.instrumentColumnWidth
+    // Window-shape pictograms (SVG paths on 32×18), in DsaController.windowLabels order: None,
+    // Hanning, Hamming, Blackman-Harris, Exact Blackman, Blackman, Flat Top, 4 and 7 Term
+    // B-Harris, Low Sidelobe. Narrower bells for the windows with lower side lobes.
+    readonly property var windowGlyphs: [
+        "M2 16 V3 H30 V16",
+        "M2 16 C9 16 10 2 16 2 S23 16 30 16",
+        "M2 16 V13 C9 13 10 2 16 2 S23 13 30 13 V16",
+        "M2 16 C11 16 12 2 16 2 S21 16 30 16",
+        "M2 16 C10 16 11 2 16 2 S22 16 30 16",
+        "M2 16 C10 16 11.5 2 16 2 S22 16 30 16",
+        "M2 15 C7 17 9 2 13 2 H19 C23 2 25 17 30 15",
+        "M2 16 C11.5 16 12.5 2 16 2 S20.5 16 30 16",
+        "M2 16 C12.5 16 13.5 2 16 2 S19.5 16 30 16",
+        "M2 16 C11 16 12 3 16 2 S21 16 30 16"
+    ]
     readonly property color sourceColor: Theme.signalColor(["ai0", "ai1", "audioInL", "audioInR"][controller.sourceChannel] ?? "ai0")
     // Open tool panel ("" = none) and the time record (a Display option, off by default).
     property string tool: ""
@@ -174,7 +190,7 @@ Item {
             Rectangle {
                 id: column
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.narrow ? 212 : 256
+                width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
                 color: Theme.window
                 Rectangle { width: 1; height: parent.height; color: Theme.separator }
 
@@ -255,7 +271,7 @@ Item {
             Item {
                 id: toolArea
                 anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
-                width: Math.min(300, Math.max(230, (parent.width - column.width) * 0.4))
+                width: Math.min(Theme.toolPanelWidth, Math.max(Theme.instrumentColumnCompactWidth, (parent.width - column.width) * 0.4))
                 z: 10
 
                 ToolPanel {
@@ -275,8 +291,10 @@ Item {
                             delegate: PictureButton {
                                 required property string modelData
                                 required property int index
+                                objectName: "window" + index
                                 Layout.fillWidth: true
                                 text: modelData
+                                glyph: root.windowGlyphs[index] ?? ""
                                 checked: root.controller.windowIndex === index
                                 onClicked: root.controller.windowIndex = index
                             }
@@ -572,15 +590,47 @@ Item {
                 width: parent ? parent.width : 0
                 spacing: Theme.spacingS
                 padding: Theme.spacingS
+                // A result card with min / max / mean / σ over the last 100 results of this run.
                 component Card: MeasurementCard {
+                    id: statCard
+                    property real sample: NaN                    // the numeric result, NaN = none
+                    property var format: v => Units.format(v, "", 4, false)
+                    property var statFormat: format                // the statistics (4 digits)
+                    property var samples: []
+                    function push() {
+                        if (root.controller.hasResult && isFinite(sample))
+                            samples = samples.concat([sample]).slice(-100)
+                    }
+                    function statsText(): var {
+                        const n = samples.length
+                        if (n < 2)
+                            return ({})
+                        const mean = samples.reduce((a, b) => a + b, 0) / n
+                        const variance = samples.reduce((a, b) => a + (b - mean) * (b - mean), 0) / n
+                        // SI units: numbers, formatted by the card (4 digits, σ 3); % and dB here.
+                        const f = unit.length > 0 ? v => v : statFormat
+                        return ({ min: f(Math.min(...samples)), max: f(Math.max(...samples)),
+                                  mean: f(mean), stdDev: f(Math.sqrt(variance)) })
+                    }
+                    // A new run starts new statistics (`running` notifies through stateChanged).
+                    readonly property bool runNow: root.controller.running
+                    onRunNowChanged: if (runNow) samples = []
+                    Connections {
+                        target: root.controller
+                        function onResultsChanged() { statCard.push() }
+                    }
                     removable: false
-                    width: root.narrow ? 160 : 190
+                    width: Math.max(implicitWidth, root.narrow ? 160 : 190)
+                    value: root.controller.hasResult && isFinite(sample) ? format(sample) : "—"
+                    stats: statsText()
                 }
                 Card {
                     objectName: "cardFundamental"
                     title: qsTr("Fundamental")
                     color: root.sourceColor
-                    value: root.controller.hasResult ? Units.format(root.controller.fundamentalFrequency, "Hz", 6) : "—"
+                    sample: root.controller.fundamentalFrequency
+                    unit: "Hz"
+                    format: v => Units.format(v, "Hz", 6)
                 }
                 Card {
                     objectName: "cardPower"
@@ -592,26 +642,38 @@ Item {
                     objectName: "cardThd"
                     title: qsTr("THD")
                     color: Theme.signalMath
-                    value: root.controller.hasResult ? root.controller.thd.toFixed(3) + " %" : "—"
+                    sample: root.controller.thd
+                    format: v => v.toPrecision(4) + " %"
+                    statFormat: v => v.toPrecision(3) + " %"
                 }
                 Card {
                     objectName: "cardSinad"
                     title: qsTr("SINAD")
                     color: Theme.signalMath
-                    value: root.controller.hasResult ? root.controller.sinad.toFixed(2) + " dB" : "—"
+                    sample: root.controller.sinad
+                    format: v => v.toFixed(2) + " dB"
+                }
+                Card {
+                    objectName: "cardSnr"
+                    title: qsTr("SNR")
+                    color: Theme.signalMath
+                    sample: root.controller.snr
+                    format: v => v.toFixed(2) + " dB"
                 }
                 Card {
                     objectName: "cardPeak"
                     title: qsTr("Peak")
                     color: root.sourceColor
-                    value: root.controller.hasResult ? Units.format(root.controller.vpk, "V", 4) + "pk" : "—"
+                    sample: root.controller.vpk
+                    unit: "V"
+                    format: v => Units.format(v, "V", 4) + "pk"
                 }
                 Card {
                     objectName: "cardCursors"
                     visible: root.controller.cursorsOn
                     title: root.controller.cursorDeltaText.length > 0 ? qsTr("Cursors · Δ") : qsTr("Cursors")
                     color: Theme.signalCursor
-                    width: root.narrow ? 220 : 300
+                    width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.toolPanelWidth
                     value: root.controller.cursorDeltaText.length > 0 ? root.controller.cursorDeltaText : root.controller.cursor1Text
                 }
             }

@@ -23,7 +23,7 @@ Item {
     readonly property string pauseIcon: "qrc:/qt/qml/MyBench/Instruments/Log/assets/pause.svg"
     readonly property bool analog: controller.ai0Enabled || controller.ai1Enabled
     readonly property bool elvismx: controller.fileLayout === LogController.ElvismxLayout
-    readonly property bool narrow: width < 820
+    readonly property bool narrow: width < Theme.instrumentCompactWidth
     readonly property string lockedText: qsTr("Stop the logger to change this")
     readonly property var spans: [10, 60, 600, 3600, 0]
     readonly property var rates: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
@@ -97,7 +97,8 @@ Item {
         const e = root.entry(key)
         if (!e || e.count <= 0)
             return null
-        const f = v => isNaN(v) ? "—" : Units.format(v, unit, 4)
+        // Numbers: the MeasurementCard formats them (4 significant digits, σ 3) in its `unit`.
+        const f = v => isFinite(v) ? v : ""
         return { min: f(e.minimum), max: f(e.maximum), mean: f(e.mean), stdDev: f(e.deviation) }
     }
     function cardValue(key: string, unit: string): string {
@@ -290,7 +291,8 @@ Item {
                 objectName: "logControls"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
                 // Split screen: the column shrinks with the pane so the display stays the larger part.
-                width: root.narrow ? Math.round(Math.max(150, Math.min(212, root.width * 0.42))) : 256
+                width: root.narrow ? Math.round(Math.max(150, Math.min(Theme.instrumentColumnCompactWidth, root.width * 0.42)))
+                                   : Theme.instrumentColumnWidth
                 color: Theme.window
                 Rectangle { width: 1; height: parent.height; color: Theme.separator }
 
@@ -481,7 +483,7 @@ Item {
             Item {
                 id: toolArea
                 anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
-                width: Math.min(320, Math.max(220, display.width * 0.5))
+                width: Math.min(Theme.toolPanelWidth, Math.max(Theme.instrumentColumnCompactWidth, display.width * 0.5))
                 z: 10
 
                 ToolPanel {
@@ -678,6 +680,7 @@ Item {
                     title: "AI 0"
                     color: Theme.signalCh0
                     removable: false
+                    unit: "V"
                     value: root.cardValue("ai0", "V")
                     stats: root.cardStats("ai0", "V")
                 }
@@ -688,6 +691,7 @@ Item {
                     title: "AI 1"
                     color: Theme.signalCh1
                     removable: false
+                    unit: "V"
                     value: root.cardValue("ai1", "V")
                     stats: root.cardStats("ai1", "V")
                 }
@@ -698,6 +702,7 @@ Item {
                     title: qsTr("DMM")
                     color: Theme.textSecondary
                     removable: false
+                    unit: root.controller.dmmUnit
                     value: root.cardValue("dmm", root.controller.dmmUnit)
                     stats: root.cardStats("dmm", root.controller.dmmUnit)
                 }

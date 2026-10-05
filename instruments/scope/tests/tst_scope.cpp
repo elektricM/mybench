@@ -636,7 +636,8 @@ void TestScope::triggerTimeoutModes()
     mybench::DeviceHub::instance()->select(u"sim:0"_s);
     ScopeController c;
     c.initialize();
-    QCOMPARE(c.noTriggerMode(), ScopeController::KeepLastTrace);   // Normal is the default
+    QCOMPARE(c.noTriggerMode(), ScopeController::ShowUntriggered);   // Auto is the default
+    c.setNoTriggerMode(ScopeController::KeepLastTrace);
     QCOMPARE(c.triggerTimeout(), 1.0);
     QCOMPARE(c.triggerHoldoff(), 0.0);
     c.setTriggerHoldoff(20.0);
@@ -852,7 +853,12 @@ void TestScope::controllerDefaultsAndPersistence()
     QVERIFY(!c.channel1()->enabled());
     QCOMPARE(c.channel0()->voltsPerDiv(), 1.0);
     QCOMPARE(c.timePerDiv(), 5e-3);
-    QCOMPARE(c.triggerType(), ScopeController::Immediate);
+    // MYBENCH starts in Auto (Edge, CH 0, rising, 0 V) so the trigger level knob is live.
+    QCOMPARE(c.triggerType(), ScopeController::Edge);
+    QCOMPARE(c.noTriggerMode(), ScopeController::ShowUntriggered);
+    QCOMPARE(c.triggerSource(), ScopeController::Chan0Source);
+    QCOMPARE(c.triggerSlope(), ScopeController::Rising);
+    QCOMPARE(c.triggerLevel(), 0.0);
     QCOMPARE(c.horizontalPosition(), 50.0);
     QCOMPARE(c.triggerHysteresis(), 0.0);
     QVERIFY(!c.cursorsOn());
@@ -865,7 +871,8 @@ void TestScope::controllerDefaultsAndPersistence()
     c.channel1()->style()->setLineWidth(3);
     c.channel1()->style()->setLineColor(QColor(u"#ff0000"_s));
     c.setTimePerDiv(1e-3);
-    c.setTriggerType(ScopeController::Edge);
+    c.setTriggerType(ScopeController::Immediate);
+    c.setNoTriggerMode(ScopeController::KeepLastTrace);
     c.setTriggerLevel(0.25);
     c.math()->setEnabled(true);
     c.math()->setOperation(ScopeMath::Difference);
@@ -880,7 +887,9 @@ void TestScope::controllerDefaultsAndPersistence()
     QCOMPARE(d.channel1()->style()->lineWidth(), 3.0);
     QCOMPARE(d.channel1()->style()->lineColor(), QColor(u"#ff0000"_s));
     QCOMPARE(d.timePerDiv(), 1e-3);
-    QCOMPARE(d.triggerType(), ScopeController::Edge);
+    // A stored session keeps its trigger (here None / Normal), the new Auto default does not win.
+    QCOMPARE(d.triggerType(), ScopeController::Immediate);
+    QCOMPARE(d.noTriggerMode(), ScopeController::KeepLastTrace);
     QCOMPARE(d.triggerLevel(), 0.25);
     QVERIFY(d.math()->enabled());
     QCOMPARE(d.math()->operation(), ScopeMath::Difference);
@@ -892,6 +901,19 @@ void TestScope::controllerDefaultsAndPersistence()
     QCOMPARE(d.channel1()->style()->lineWidth(), 1.0);   // ELVISmx default width
     QCOMPARE(d.timePerDiv(), 5e-3);
     QVERIFY(!d.math()->enabled());
+    QCOMPARE(d.triggerType(), ScopeController::Edge);   // reset = the new-session default
+    QCOMPARE(d.noTriggerMode(), ScopeController::ShowUntriggered);
+
+    // A session stored before the Auto default (all properties are stored, the trigger as None)
+    // restores as None.
+    QJsonObject old = saved;
+    old.insert(u"triggerType"_s, u"Immediate"_s);
+    old.insert(u"noTriggerMode"_s, u"KeepLastTrace"_s);
+    ScopeController e;
+    e.initialize();
+    e.restoreSettings(old);
+    QCOMPARE(e.triggerType(), ScopeController::Immediate);
+    QCOMPARE(e.noTriggerMode(), ScopeController::KeepLastTrace);
 }
 
 void TestScope::controllerRules()
@@ -1030,6 +1052,7 @@ void TestScope::timeoutOnlyWithEdge()
     mybench::DeviceHub::instance()->select(u"sim:0"_s);
     ScopeController c;
     c.initialize();
+    c.setTriggerType(ScopeController::Immediate);
     c.run();
     QTRY_VERIFY_WITH_TIMEOUT(c.hasRecord(), 5000);
     QVERIFY(!c.timedOut());   // Immediate
@@ -1248,6 +1271,8 @@ void TestScope::stateText()
     mybench::DeviceHub::instance()->select(u"sim:0"_s);
     ScopeController c;
     c.initialize();
+    c.setTriggerType(ScopeController::Immediate);
+    c.setNoTriggerMode(ScopeController::KeepLastTrace);
     c.setTimePerDiv(1e-3);
     c.run();
     QTRY_VERIFY_WITH_TIMEOUT(c.hasRecord(), 5000);

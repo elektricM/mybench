@@ -12,7 +12,7 @@ import MyBench.Controls
 // Time | Frequency); the display on the left (one readout line and one preview per active
 // channel); on the right one card per channel (output switch, waveform pictures, knob fields)
 // and a tool palette whose tools (Sweep, Arbitrary, Editor, Presets, Export) open a floating
-// panel over the display. The Waveform Editor view keeps its inspector sections.
+// panel over the display. The Waveform Editor view (EditorView) follows the same pattern.
 Item {
     id: root
 
@@ -20,7 +20,7 @@ Item {
     readonly property bool editorTab: controller.activeTab === 1
     readonly property WaveformEditor editor: controller.editor
     // Narrow pane (e.g. beside the Scope): knob fields without knobs, palette icons only.
-    readonly property bool compact: panel.width < 760
+    readonly property bool compact: panel.width < Theme.instrumentCompactWidth
     // Open tool panel ("" = none).
     property string tool: ""
     readonly property var channels: [controller.channel0, controller.channel1]
@@ -35,10 +35,8 @@ Item {
         // (the framework's own text while paused, in error or without a device).
         stateText: root.controller.hasError || root.controller.paused || (!root.controller.running && !root.controller.canRun)
                    ? "" : root.controller.running ? qsTr("Generating") : qsTr("Stopped")
-        // The generator view keeps every control beside its display; only the editor view uses
-        // the inspector (its document, selection and display sections).
-        hasInspector: root.editorTab
-        displayTitle: root.editorTab ? qsTr("Waveform Editor · %1").arg(root.editor.windowTitle) : ""
+        // Both views keep every control beside their display: no inspector.
+        hasInspector: false
         // The editor's trace in the panel menu and the plots' "Trace style…" (editor tab).
         traceStyles: root.editorTab ? [{ name: root.editor.documentName, style: root.editor.traceStyle,
                                          color: root.editor.plotColor.a > 0 ? root.editor.plotColor : Theme.accent }] : []
@@ -87,16 +85,6 @@ Item {
                          { text: qsTr("Frequency"), toolTip: qsTr("Spectrum of each output (dBV)") } ]
                 currentIndex: root.controller.displayMode
                 onActivated: index => root.controller.displayMode = index
-            },
-            Button {
-                objectName: "backToGenerator"
-                visible: root.editorTab
-                anchors.verticalCenter: parent ? parent.verticalCenter : undefined
-                text: qsTr("Generator")
-                icon.source: Theme.icon("chevron-left")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Back to the generator controls")
-                onClicked: root.controller.activeTab = 0
             }
         ]
 
@@ -201,7 +189,7 @@ Item {
                         id: controlsColumn
                         objectName: "genControls"
                         Layout.fillHeight: true
-                        Layout.preferredWidth: root.compact ? 232 : 288
+                        Layout.preferredWidth: root.compact ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
                         contentWidth: availableWidth
                         clip: true
 
@@ -261,7 +249,7 @@ Item {
                     anchors.right: parent.right
                     anchors.topMargin: Theme.spacingS
                     anchors.rightMargin: controlsColumn.width + Theme.spacingS
-                    width: Math.min(340, Math.max(220, displayColumn.width - 2 * Theme.spacingS))
+                    width: Math.min(Theme.toolPanelWidth, Math.max(220, displayColumn.width - 2 * Theme.spacingS))
                     maximumHeight: parent.height - 2 * Theme.spacingS
                     title: root.tool === "sweep" ? qsTr("Frequency Sweep")
                            : root.tool === "arbitrary" ? qsTr("Arbitrary Waveforms")
@@ -350,34 +338,11 @@ Item {
             // --- Waveform Editor view ------------------------------------------------------------
             EditorView {
                 id: editorView
+                objectName: "editorView"
                 controller: root.controller
                 editor: root.editor
             }
         }
-
-        inspector: [
-            // The editor's shortcuts also apply while a field of its cards has the focus.
-            EditorDocumentSection {
-                visible: root.editorTab
-                controller: root.controller
-                editor: root.editor
-                Keys.onShortcutOverride: event => event.accepted = editorView.claimsShortcut(event)
-                Keys.onPressed: event => editorView.handleShortcut(event)
-            },
-            EditorSelectionSection {
-                visible: root.editorTab
-                editor: root.editor
-                Keys.onShortcutOverride: event => event.accepted = editorView.claimsShortcut(event)
-                Keys.onPressed: event => editorView.handleShortcut(event)
-            },
-            EditorDisplaySection {
-                visible: root.editorTab
-                editor: root.editor
-                onTraceStyleRequested: editorView.openTraceStyle()
-                Keys.onShortcutOverride: event => event.accepted = editorView.claimsShortcut(event)
-                Keys.onPressed: event => editorView.handleShortcut(event)
-            }
-        ]
     }
 
     // Screenshot scenes (dev executable, MYBENCH_GEN_SCENE): open a dialog, tool or state once loaded.
@@ -394,8 +359,11 @@ Item {
                     root.controller.run()
             } else if (scene === "editor") {
                 root.controller.activeTab = 1
-            } else
+            } else {
+                // Editor scenes (draw, component, info, menu, settings, editor-tool-…).
+                root.controller.activeTab = 1
                 editorView.showScene(scene)
+            }
         }
     }
 

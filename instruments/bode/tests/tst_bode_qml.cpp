@@ -1,5 +1,5 @@
-// Bode panel QML in an offscreen window ("less text, more instrument"): every value shows once,
-// in its control, so the display carries no sentence-style title or info line.
+// Bode panel QML in an offscreen window: PicoScope-7 layout (no inspector, right column with the
+// Sweep card and tool palette, floating tool panels), no sentence-style display text, result cards.
 #include "bodecontroller.h"
 
 #include <mybench/offscreen.h>
@@ -26,7 +26,7 @@ private slots:
         mybench::InstrumentController::setRestoreSavedSettings(false);
     }
 
-    void lessText()
+    void layout()
     {
         BodeController ctl;
         ctl.initialize();
@@ -47,16 +47,45 @@ private slots:
         offscreen.renderFrame();
         offscreen.renderFrame();
 
+        // No inspector, no display title: the wiring shows as a diagram while there is no sweep.
         int panels = 0;
         for (QObject* o : root->findChildren<QObject*>()) {
-            if (o->metaObject()->indexOfProperty("displayTitle") < 0)
+            if (o->metaObject()->indexOfProperty("hasInspector") < 0)
                 continue;
             ++panels;
-            QCOMPARE(o->property("displayTitle").toString(), u"AI 0 – AO 0  ·  AI 1 – Signal"_s);
+            QVERIFY(!o->property("hasInspector").toBool());
+            QCOMPARE(o->property("displayTitle").toString(), QString());
             if (o->metaObject()->indexOfProperty("displayInfo") >= 0)
                 QCOMPARE(o->property("displayInfo").toString(), QString());
         }
         QVERIFY(panels > 0);
+        auto* wiring = root->findChild<QQuickItem*>(u"wiringDiagram"_s);
+        QVERIFY(wiring);
+        QVERIFY(wiring->isVisible());
+
+        // Right column: the Sweep card and the tool palette; each tool opens its floating panel.
+        QVERIFY(root->findChild<QObject*>(u"sweepCard"_s));
+        QVERIFY(root->findChild<QObject*>(u"stepsKnob"_s));
+        QVERIFY(root->findChild<QObject*>(u"polarityButtons"_s));
+        QObject* tools = root->findChild<QObject*>(u"bodeTools"_s);
+        QVERIFY(tools);
+        const QStringList ids { u"graph"_s, u"markers"_s, u"cursor"_s, u"references"_s, u"export"_s };
+        for (const QString& id : ids) {
+            QVERIFY(QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, id)));
+            offscreen.renderFrame();
+            for (const QString& other : ids) {
+                auto* panelItem = root->findChild<QQuickItem*>(other + u"Panel"_s);
+                QVERIFY2(panelItem, qPrintable(other));
+                QCOMPARE(panelItem->isVisible(), other == id);
+            }
+        }
+        QVERIFY(QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"export"_s)));   // toggles closed
+        QVERIFY(!root->findChild<QQuickItem*>(u"exportPanel"_s)->isVisible());
+
+        // Result cards, including the gain-margin frequency.
+        for (const char* name : { "cardCutoff", "cardUnity", "cardGainMargin", "cardGainMarginFrequency",
+                                  "cardPhaseMargin", "cardMaxGain", "cardCursor" })
+            QVERIFY2(root->findChild<QObject*>(QString::fromLatin1(name)), name);
         offscreen.setRootItem(nullptr);
     }
 };

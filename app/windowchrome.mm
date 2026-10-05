@@ -3,6 +3,9 @@
 #include "windowchrome.h"
 
 #include <QGuiApplication>
+
+#include <algorithm>
+#include <cmath>
 #include <QWindow>
 
 #import <AppKit/AppKit.h>
@@ -43,4 +46,30 @@ void WindowChrome::setTitleHidden(QWindow* window, bool hidden) const
 {
     if (NSWindow* ns = nativeWindow(window))
         ns.titleVisibility = hidden ? NSWindowTitleHidden : NSWindowTitleVisible;
+}
+
+void WindowChrome::centerButtons(QWindow* window, qreal barHeight) const
+{
+    NSWindow* ns = nativeWindow(window);
+    if (!ns || barHeight <= 0 || (ns.styleMask & NSWindowStyleMaskFullScreen))
+        return;
+    const CGFloat windowHeight = ns.frame.size.height;
+    for (NSWindowButton kind : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+        NSButton* button = [ns standardWindowButton:kind];
+        NSView* bar = button.superview;
+        if (!button || !bar)
+            continue;
+        const CGFloat height = button.frame.size.height;
+        // Wanted top edge (from the top of the window), kept inside the title bar view: the
+        // buttons are clipped outside it and stay clickable only there.
+        const NSRect barInWindow = [bar convertRect:bar.bounds toView:nil];
+        const CGFloat barTop = windowHeight - NSMaxY(barInWindow);
+        const CGFloat top = std::clamp(std::round((barHeight - height) / 2), barTop,
+                                       std::max(barTop, barTop + barInWindow.size.height - height));
+        const NSRect wanted = NSMakeRect(NSMinX([button convertRect:button.bounds toView:nil]),
+                                         windowHeight - top - height, button.frame.size.width, height);
+        const NSRect inBar = [bar convertRect:wanted fromView:nil];
+        if (std::abs(inBar.origin.y - button.frame.origin.y) >= 0.5)
+            [button setFrameOrigin:NSMakePoint(button.frame.origin.x, inBar.origin.y)];
+    }
 }

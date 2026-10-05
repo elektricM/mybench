@@ -18,7 +18,7 @@ Item {
 
     required property DmmController controller
 
-    readonly property bool narrow: width < 820     // split screen: narrower column, icon-only tools
+    readonly property bool narrow: width < Theme.instrumentCompactWidth   // split screen: narrower column, icon-only tools
     readonly property bool compact: width < 600    // very narrow: icon-only bar buttons, 3 statistics cards
     property string tool: ""
 
@@ -144,11 +144,11 @@ Item {
                     anchors.margins: Theme.spacingS
                     spacing: Theme.spacingS
 
-                    // The readout.
+                    // The readout: sized to its content, the trend takes the rest.
                     Item {
+                        objectName: "dmmReadoutBlock"
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.minimumHeight: readoutColumn.implicitHeight
+                        Layout.preferredHeight: readoutColumn.implicitHeight + Theme.spacingS
 
                         Column {
                             id: readoutColumn
@@ -164,7 +164,7 @@ Item {
                                 color: root.controller.overload ? Theme.negative : Theme.text
                                 stale: !root.controller.running || root.controller.hold
                                 fontSize: Math.max(Theme.fontSizeReadoutM * 1.6,
-                                                   Math.min(display.width / 5.6, display.height / 4.2))
+                                                   Math.min(display.width / 5.6, display.height / 5))
                                 secondaryText: root.continuity && root.controller.hasReading && !root.controller.continuityClosed ? qsTr("Open") : ""
                             }
                             DmmFsBar {
@@ -193,7 +193,8 @@ Item {
                         id: trend
                         objectName: "trendView"
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.max(Theme.controlHeightL * 4, display.height * 0.42)
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: Theme.controlHeightL * 4
                         windows: [ { text: qsTr("1 min"), seconds: 60 }, { text: qsTr("10 min"), seconds: 600 },
                                    { text: qsTr("1 h"), seconds: 3600 }, { text: qsTr("All"), seconds: 0 } ]
                         windowIndex: root.controller.trendWindow
@@ -225,7 +226,8 @@ Item {
                 objectName: "dmmControls"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
                 // Split screen: the column shrinks with the pane so the display stays the larger part.
-                width: root.narrow ? Math.round(Math.max(150, Math.min(212, root.width * 0.42))) : 256
+                width: root.narrow ? Math.round(Math.max(150, Math.min(Theme.instrumentColumnCompactWidth, root.width * 0.42)))
+                                   : Theme.instrumentColumnWidth
                 color: Theme.window
                 Rectangle { width: 1; height: parent.height; color: Theme.separator }
 
@@ -242,6 +244,8 @@ Item {
                         x: Theme.spacingS
                         y: Theme.spacingS
                         width: columnFlick.width - 2 * Theme.spacingS
+                        // At least the column's height: the tools sit at its bottom (no empty tail).
+                        height: Math.max(implicitHeight, columnFlick.height - 2 * Theme.spacingS)
                         spacing: Theme.spacingM
 
                         Label {
@@ -269,10 +273,7 @@ Item {
                                     checked: modelData.fn === root.controller.selectedFunction
                                     ToolTip.visible: hovered
                                     ToolTip.text: qsTr("%1 (key %2)").arg(modelData.toolTip).arg(index + 1)
-                                    onClicked: {
-                                        root.controller.selectedFunction = modelData.fn
-                                        checked = Qt.binding(() => modelData.fn === root.controller.selectedFunction)
-                                    }
+                                    onClicked: root.controller.selectedFunction = modelData.fn
                                 }
                             }
                         }
@@ -328,6 +329,7 @@ Item {
                             wrapMode: Text.WordWrap
                         }
 
+                        Item { Layout.fillHeight: true }
                         Label {
                             text: qsTr("Tools")
                             color: Theme.textSecondary
@@ -354,7 +356,7 @@ Item {
             Item {
                 id: toolArea
                 anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
-                width: Math.min(300, Math.max(220, display.width * 0.45))
+                width: Math.min(Theme.toolPanelWidth, Math.max(Theme.instrumentColumnCompactWidth, display.width * 0.45))
                 z: 10
 
                 ToolPanel {

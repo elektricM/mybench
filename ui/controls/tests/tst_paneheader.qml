@@ -261,6 +261,38 @@ Item {
         }
 
         // The header's reset button (before ⋯) asks "Reset" first, like the ⋯ entry.
+        // Split-size pane: ↺ folds into ⋯ (Reset Settings… stays there) below 700 px, and the
+        // title elides before the instrument's header items are clipped.
+        function test_narrowHeader() {
+            const panel = createTemporaryObject(contentPanel, root, { width: 900 })
+            const header = panel.paneHeader
+            header.title = "A Rather Long Instrument Title"
+            const reset = findChild(header, "resetButton")
+            const title = findChild(header, "paneTitle")
+            const big = findChild(header, "bigRun")
+            const clipItem = big.parent.parent
+            waitForRendering(panel)
+            verify(reset.visible)
+            verify(!title.truncated)
+            panel.width = 560
+            waitForRendering(panel)
+            verify(header.narrow)
+            verify(!reset.visible)
+            const texts = []
+            for (let i = 0; i < header.menu.count; ++i)
+                texts.push(header.menu.itemAt(i).text)
+            verify(texts.indexOf("Reset Settings…") >= 0, texts.join("|"))
+            panel.width = 470
+            waitForRendering(panel)
+            verify(title.truncated)
+            compare(clipItem.width, clipItem.implicitWidth)          // content not clipped yet
+            const more = findChild(header, "moreButton")
+            verify(more.mapToItem(header, 0, 0).x + more.width <= header.width)
+            panel.width = 900
+            waitForRendering(panel)
+            verify(reset.visible)
+        }
+
         function test_resetButtonConfirms() {
             const panel = createTemporaryObject(compatPanel, root)
             const button = findChild(panel.paneHeader, "resetButton")

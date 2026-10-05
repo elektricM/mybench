@@ -14,6 +14,7 @@ Item {
     width: 800
     height: 600
 
+    readonly property AppActions shellActions: actions
     AppPreferences { id: prefs }
     WorkspaceState { id: ws }
     ShellDialogs {
@@ -34,9 +35,28 @@ Item {
 
     readonly property bool mac: AppInfo.platform === "macos"
 
+    Component {
+        id: overviewComponent
+        OverviewPage { workspace: ws; actions: host.shellActions; width: 1200; height: 700 }
+    }
+
     TestCase {
         name: "Actions"
         when: windowShown
+
+        // Overview: the Device and Recent Sessions headings sit on one line (the sessions
+        // heading shares its row with the Open… button).
+        function test_overviewHeadingsAligned() {
+            const page = createTemporaryObject(overviewComponent, host)
+            verify(page)
+            const device = findChild(page, "overviewDeviceHeading")
+            const sessions = findChild(page, "overviewSessionsHeading")
+            verify(device && sessions)
+            waitForRendering(page)
+            const a = device.mapToItem(page, 0, device.height / 2)
+            const b = sessions.mapToItem(page, 0, sessions.height / 2)
+            fuzzyCompare(a.y, b.y, 1)
+        }
 
         function init() {
             ws.fromMap({})

@@ -63,14 +63,14 @@ Rectangle {
             implicitWidth: Theme.controlHeight
             onClicked: bar.actions.toggleSidebar.trigger()
             Accessible.name: ToolTip.text
-            contentItem: Item {
-                Icon {
-                    anchors.centerIn: parent
-                    name: "sidebar-right"
-                    size: Theme.iconSizeL
-                    color: sidebarButton.hovered ? Theme.text : Theme.textSecondary
-                    transform: Scale { origin.x: Theme.iconSizeL / 2; xScale: -1 }
-                }
+            // The sidebar-right glyph mirrored, as a plain child over the button (the standard
+            // control keeps its own content item; a transform on the button would move its tooltip).
+            Icon {
+                anchors.centerIn: parent
+                name: "sidebar-right"
+                size: Theme.iconSizeL
+                color: sidebarButton.hovered ? Theme.text : Theme.textSecondary
+                transform: Scale { origin.x: Theme.iconSizeL / 2; xScale: -1 }
             }
             ToolTip.visible: hovered
             ToolTip.delay: Theme.toolTipDelay
@@ -108,8 +108,8 @@ Rectangle {
             visible: InstrumentRegistry.runningCount > 0
             spacing: Theme.spacingXs
             Rectangle {
-                width: Theme.spacingS - 1
-                height: width
+                implicitWidth: Theme.spacingS - 1
+                implicitHeight: implicitWidth
                 radius: width / 2
                 color: Theme.positive
             }

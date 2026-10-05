@@ -63,14 +63,16 @@ field beside them, or use − / +.
   up and down pulses). Linear: distance per pulse and a unit; angular: pulses per revolution
   (degrees). *Z Index* on DIO 1 reloads the *Z Index Value* once per turn. The secondary line
   shows velocity or rpm.
-- **Expected Range**: the slowest and fastest values you expect. MYBENCH picks the counter's
-  timebase from it (100 MHz, 20 MHz or 100 kHz); the tooltips of the two fields show its
-  resolution and the longest interval it can time.
+- **Expected Range**: three buttons, one per counter timebase (100 MHz, 20 MHz, 100 kHz): the
+  slower the slowest expected value, the slower the timebase. Frequency: 1 Hz – 1 MHz,
+  10 mHz – 1 MHz, 100 µHz – 1 kHz; times: 100 ns – 10 s, 1 µs – 100 s, 100 µs – 10 ks. The
+  tooltip shows the timebase's resolution and the longest interval it can time.
 - **Acquisition**: *On Demand* takes the latest measurement every *Update interval* (knob); *Buffered*
   measures every single period (best for statistics and jitter; Single measures the number of
   *Samples* and stops). Edge counts and encoders are always on demand.
 - The big readout shows the value with its unit and the secondary quantity, then a trend chart
-  (drag or scroll to look back) and the statistics cards: Min, Max, Mean, σ and Count. **Reset
+  (time window 10 s, 1 min, 10 min or All in its toolbar; drag or scroll to look back) and the
+  statistics cards: Min, Max, Mean, σ and Count. **Reset
   Stats** (or **Reset Count**) starts over. The trend also starts empty with every new run. The
   Run button says **No input** while no complete measurement has arrived.
 

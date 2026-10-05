@@ -127,6 +127,38 @@ TestCase {
         verify(layout.inspectorDocked)
     }
 
+    Component {
+        id: layoutComponent
+        ShellLayout { workspace: ws; width: 1440 }
+    }
+    Component {
+        id: panelComponent
+        InstrumentPanel {
+            property bool withInspector: false
+            hasInspector: withInspector
+        }
+    }
+    // While the focused pane's panel loads (no panel registered yet) the dock column stays away:
+    // it appears once a panel with an inspector is there and never flashes for one without.
+    function test_noDockWhilePanelLoads() {
+        const fresh = createTemporaryObject(layoutComponent, this)
+        verify(fresh)
+        verify(!ws.overview)
+        compare(fresh.focusedPanel, null)
+        verify(fresh.panelInspectorEmpty)
+        verify(!fresh.inspectorDocked)
+        compare(fresh.dockWidth, 0)
+        const without = createTemporaryObject(panelComponent, this)
+        fresh.focusedPanel = without
+        verify(!fresh.inspectorDocked)
+        const withInspector = createTemporaryObject(panelComponent, this, { withInspector: true })
+        fresh.focusedPanel = withInspector
+        verify(fresh.inspectorDocked)
+        compare(fresh.dockWidth, Theme.inspectorWidth)
+        fresh.focusedPanel = null
+        verify(!fresh.inspectorDocked)
+    }
+
     // A panel without inspector (controls beside the display): no dock column, no dock width, the
     // pane gets the room; Help still opens the column on request, Settings hides it again.
     function test_panelWithoutInspectorHidesTheDock() {

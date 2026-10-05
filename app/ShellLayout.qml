@@ -37,7 +37,11 @@ QtObject {
                                                                        : workspace.inspectorShown
     readonly property bool inspectorOverlay: layoutClass === "narrow" || layoutClass === "compact"
     // The focused panel has no inspector (its controls sit beside the display): no column either.
-    property bool panelInspectorEmpty: false
+    // The focused instrument's panel (null on Overview and while the panel is still loading).
+    property InstrumentPanel focusedPanel: null
+    // Nothing to dock for the focused pane: a panel without inspector, or no panel yet (so the
+    // dock column never flashes while a panel without inspector loads).
+    property bool panelInspectorEmpty: focusedPanel === null || !focusedPanel.hasInspector
     readonly property bool inspectorHasContent: (!workspace.overview && !panelInspectorEmpty) || workspace.helpShown
     readonly property bool inspectorDocked: inspectorWanted && !inspectorOverlay && inspectorHasContent
     readonly property bool inspectorSheet: inspectorWanted && inspectorOverlay && inspectorHasContent

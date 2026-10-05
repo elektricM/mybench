@@ -502,8 +502,9 @@ void WaveformEditor::documentEdited()
     emit documentChanged();
     emit selectionChanged();
     emit drawChanged();
-    setStatus(tr("%1 samples · %2 %3").arg(groupDigits(qint64(m_doc.totalSamples())),
-                                           shortDuration(m_doc.totalDuration() * displayScale()), timeUnit()));
+    // The totals are in the Document card (a value appears once): the status line only carries
+    // messages (Max Points, Draw needs a sketch…).
+    setStatus(QString());
     scheduleRender();
 }
 

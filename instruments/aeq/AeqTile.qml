@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 

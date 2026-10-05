@@ -3,58 +3,48 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MyBench.Controls
 
-// Waveform Editor display settings: View, X Axis, the Plot Style legend (plot visible, style,
+// Display tool of the Waveform Editor (floating ToolPanel): View, X Axis, the Plot Style legend (plot visible, style,
 // width, step interpolation, the full Trace style dialog, Copy data) and cursors.
-Section {
+ColumnLayout {
     id: root
 
     required property WaveformEditor editor
     signal traceStyleRequested()
 
-    title: qsTr("Display")
-    iconName: "grid"
-    summary: [qsTr("Waveform"), qsTr("Segment"), qsTr("Component")][editor.view] + " · " + [qsTr("Time"), qsTr("Frequency")][editor.xAxis]
+    spacing: Theme.spacingS
 
-    FieldRow {
+    // View, X axis and plot style as segmented choices (Trace style… has every option).
+    SegmentedControl {
+        objectName: "editorViewChoice"
         Layout.fillWidth: true
-        Field {
-            label: qsTr("View")
-            ComboBox {
-                Layout.fillWidth: true
-                model: [qsTr("Waveform"), qsTr("Segment"), qsTr("Component")]
-                enabled: !root.editor.drawMode
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Whole waveform, the selected segment, or the selected component alone")
-                currentIndex: root.editor.view
-                onActivated: index => root.editor.view = index
-            }
-        }
-        Field {
-            label: qsTr("X Axis")
-            ComboBox {
-                Layout.fillWidth: true
-                model: [qsTr("Time"), qsTr("Frequency")]
-                enabled: !root.editor.drawMode
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Time, or the power spectrum of the view (dBVrms)")
-                currentIndex: root.editor.xAxis
-                onActivated: index => root.editor.xAxis = index
-            }
-        }
+        compact: true
+        enabled: !root.editor.drawMode
+        model: [ { text: qsTr("Waveform"), toolTip: qsTr("The whole waveform") },
+                 { text: qsTr("Segment"), toolTip: qsTr("The selected segment alone") },
+                 { text: qsTr("Component"), toolTip: qsTr("The selected component alone") } ]
+        currentIndex: root.editor.view
+        onActivated: index => root.editor.view = index
+    }
+    SegmentedControl {
+        objectName: "editorAxisChoice"
+        Layout.fillWidth: true
+        compact: true
+        enabled: !root.editor.drawMode
+        model: [ { text: qsTr("Time"), toolTip: qsTr("Amplitude against time") },
+                 { text: qsTr("Frequency"), toolTip: qsTr("Power spectrum of the view (dBVrms)") } ]
+        currentIndex: root.editor.xAxis
+        onActivated: index => root.editor.xAxis = index
+    }
+    SegmentedControl {
+        objectName: "editorPlotStyleChoice"
+        Layout.fillWidth: true
+        compact: true
+        model: [ { text: qsTr("Line") }, { text: qsTr("Line + Points") }, { text: qsTr("Points") } ]
+        currentIndex: root.editor.plotStyle
+        onActivated: index => root.editor.plotStyle = index
     }
     FieldRow {
         Layout.fillWidth: true
-        Field {
-            label: qsTr("Plot Style")
-            ComboBox {
-                Layout.fillWidth: true
-                model: [qsTr("Line"), qsTr("Line + Points"), qsTr("Points")]
-                currentIndex: root.editor.plotStyle
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Common plot styles; Trace style… has every option")
-                onActivated: index => root.editor.plotStyle = index
-            }
-        }
         Field {
             label: qsTr("Line Width")
             SiField {

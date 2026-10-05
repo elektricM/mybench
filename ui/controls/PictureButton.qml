@@ -5,16 +5,20 @@ import QtQuick.Templates as T
 // Checkable picture button: a small pictogram above a label, for choices that read better as
 // pictures than as a dropdown (measurement types, trigger types, waveform shapes). The pictogram
 // is `glyph` (an SVG path on a 32 × 18 box, stroked with the text color) or `iconName` (an icon
-// of assets/icons). Checked = accent border and soft accent fill. Standard clicked()/toggled().
-//     PictureButton { text: qsTr("RMS"); glyph: "M3 9c3-7 5-7 8 0s5 7 8 0"; checked: ...; onClicked: ... }
+// of assets/icons). Checked = accent border and soft accent fill. Controlled: bind `checked` to the
+// state and change the state in onClicked; a click never touches `checked`, so the binding holds.
+// `autoToggle: true` makes it a standard checkable button (a click flips `checked`, toggled()).
+//     PictureButton { text: qsTr("RMS"); glyph: "M3 9c3-7 5-7 8 0s5 7 8 0"
+//                     checked: ctl.kind === 2; onClicked: ctl.kind = 2 }
 T.AbstractButton {
     id: control
 
     property string glyph
     property string iconName
     property color accentColor: Theme.accent
+    property bool autoToggle: false
 
-    checkable: true
+    checkable: autoToggle
     hoverEnabled: true
     focusPolicy: Qt.StrongFocus
     implicitWidth: Math.max(72, implicitContentWidth + 12)

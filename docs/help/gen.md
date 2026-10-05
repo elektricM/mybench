@@ -107,7 +107,7 @@ The tool buttons below the cards open a floating panel over the display (× or E
   last value until you switch the output off or press Stop), **Return to 0 V after Run Once** (the
   ELVISmx behaviour), **Hold** / **Linear** interpolation; and **Link update rates** (both
   Arbitrary channels share one Update Rate, as in ELVISmx).
-- **Editor**: opens the Waveform Editor; **‹ Generator** in the header brings you back.
+- **Editor**: opens the Waveform Editor; **‹ Generator** at its top left brings you back.
 - **Presets**: ready-made setups (1 kHz sine, TTL clock, quadrature pair, sweep, ±5 V reference,
   ELVISmx defaults), your own saved setups (the bin deletes one) and **Save Current Settings…**.
 - **Export**: a channel's waveform as CSV or WAV, or an image of the panel.
@@ -137,13 +137,24 @@ empty segment is 0 V. The document's **Sample Rate** fixes how many points each 
   **MHz** (microseconds, MS/s). As in ELVISmx, switching keeps the numbers and changes their meaning:
   a 10 s segment becomes 10 ms, 10000.0 S/s becomes 10000.0 kS/s, 1 Hz becomes 1 kHz; the shape and
   the number of samples stay the same. Undo reverts it.
+- **Layout**: the waveform plot on the left with the segment list under it; on the right the
+  **Document** card, the **Segment** card (the selection) and the tools. The bar above the plot has
+  **‹ Generator**, Undo / Redo, **Zoom to fit**, New / Open / Save, and **⋯** with every File and
+  Edit action (New, Open, Close, Save, Save As, Import, Export, Undo, Redo, Cut, Copy, Paste, Clear,
+  Select All, Scale Selection, Info, Settings, Help).
 - The list shows segments (`1: name (10 sec)`) and their components. Click to select; drag a row to
   move it, or use the arrows (Alt+↑/↓). **Index** steps through segments; clicking the plot selects
   the segment under the pointer. **New Segment** (1 s) inserts after the selection; **New
   Component** inserts the library function you chose last (a sine at first).
-- The inspector shows the selection's parameters:
-  - **Segment**: Name, Duration (in the document's time unit), Gain.
-  - **Library**: the 21 functions of the NI editor with their NI defaults: DC Level, Sine, Square
+- **Document** card: name, **Points**, **Duration**, **Sample Rate** (knob or type a value),
+  **Hz / kHz / MHz**, **Use in AO 0 / AO 1** and **Live update**.
+- **Segment** card, for the selection:
+  - **Segment**: Name, Duration (knob, in the document's time unit), Gain.
+  - **Component**: pictures for Sine, Square, Triangle, Ramp (sawtooth), DC, Noise, **f(x)** and
+    **Sketch**; **Combine** `+ − × /` or **FM** with the components above (not for the first one);
+    then the function's parameters as knob fields.
+  - **Library** (the **Functions** tool lists all 21 functions of the NI editor with their NI
+    defaults): DC Level, Sine, Square
     (duty cycle), Triangle, Sawtooth, Uniform / Triangular / Gaussian Noise (Level = standard
     deviation; a **Seed** makes a waveform render the same everywhere, Seed 0 gives new random values
     at every render), Rising / Falling Exponential (Tau sets how steep: the rising one climbs from 0
@@ -154,41 +165,45 @@ empty segment is 0 V. The document's **Sample Rate** fixes how many points each 
     per period), Haversine. Shapes with a frequency repeat at it (Freq = 0 gives one cycle per
     segment); the others span the whole segment. A warning appears when a frequency exceeds half the
     sample rate.
-  - **Expression**: `f(x) =` a formula of `x`, for example `sin(2*pi*x) + 0.3*sin(6*pi*x)`. **X
+  - **Expression** (f(x)): `f(x) =` a formula of `x`, for example `sin(2*pi*x) + 0.3*sin(6*pi*x)`. **X
     Range** From/To is spread over the segment and repeated **Cycles** times. Operators `+ - * / ^`,
     `pi`, `e`, and `abs acos asin atan ceil cos cosh exp floor ln log max min mod sign sin sinh sqrt
     tan tanh`. The preview and any mistake (in red, with the character position) follow your typing.
-  - **Sketch**: Name, Cycles, Samples, **Import…** (replace the values from a file) and **Draw**:
-    paint one cycle with **Freehand**, or use **Line** to click points, drag them, and right-click to
-    delete one. While drawing, the palette shows the pointer position, the list and the structure
-    buttons are grayed, and the Y range stays fixed; press **Done** (or Draw) to finish.
+  - **Sketch**: Name, Cycles, Samples, **Import…** (replace the values from a file) and **Draw**.
+- **Tools** (below the cards; each opens a floating panel, × closes it):
+  - **Draw**: paints one cycle of the selected sketch (a new sketch component when none is
+    selected) with **Freehand**, or **Line** to click points, drag them, and right-click to delete
+    one. While drawing, the palette on the plot shows the pointer position, the list and the
+    structure buttons are grayed, and the Y range stays fixed; press **Done** (or Draw) to finish.
+  - **Functions**: all 21 library functions, f(x) and Sketch for the selected component (a new
+    component when a segment is selected).
+  - **Import**: from a file as new segments (text wizard showing the detected delimiter, column,
+    start line and count; WAV channel; binary), or into the selected sketch.
+  - **Export**: the rendered waveform as CSV, 32-bit float WAV, 16-bit binary, or `.wdt` in
+    MYBENCH's reading of the LabVIEW layout (MYBENCH reads it back; NI software was not available to
+    confirm it opens it); Save As; Copy Data (tab-separated Time / Amplitude on the clipboard).
+  - **Display**: **Waveform / Segment / Component** view, **Time / Frequency** (power spectrum in
+    dBVrms), **Line / Line + Points / Points**, line width, step interpolation, **Plot visible**,
+    **Trace style…** (color, line style, points, interpolation, fill), Copy data, two **Cursors**
+    with ΔX, ΔY and 1/ΔX, and **Settings…** (plot, selection, grid, cursor and background colors,
+    Max Points, Animate Graphs, Show Cursors).
+  - **Scale**: stretch the selection in time and scale it in amplitude.
+  - **Info** (⌘I): the file path and the description stored with the document.
 - **Plot**: hover it for the plot toolbar (pointer, zoom menu, pan, autoscale X / Y and their locks);
   right-click for the same, Trace style…, Cursors, Copy data, and image / data export (the rendered
   waveform). Autoscale is locked by default, so the view follows every edit; zooming or panning
-  unlocks it and your zoom is kept while you edit.
-- **Display** card: **View** (whole Waveform, the selected Segment, or the selected Component
-  alone), **X Axis** (Time, or Frequency: power spectrum in dBVrms), **Plot Style** (Line, Line +
-  Points, Points), line width, step interpolation, **Plot visible**, **Trace style…** (color, line
-  style, points, interpolation, fill), **Copy data** (the waveform as tab-separated Time / Amplitude
-  on the clipboard) and two **Cursors** with ΔX, ΔY and 1/ΔX.
-- **File** menu: New (⌘N / Ctrl+N), Open (⌘O; `.mbw`, an NI `.wfm` document with its segments, or
-  any supported file as a one-sketch document), Close (⌘W), Save (⌘S) / Save As (⇧⌘S, `.mbw`), Import
-  from File (text wizard showing the detected delimiter, column, start line and count; WAV channel;
-  binary), Export (CSV, 32-bit float WAV, 16-bit binary, or `.wdt` in MYBENCH's reading of the
-  LabVIEW layout: MYBENCH reads it back, NI software was not available to confirm it opens it).
-  New, Open and Close ask before discarding unsaved changes, and so does the pencil (Edit) of a
-  channel card when the editor holds another modified waveform.
-- **Edit** menu: Undo / Redo (every edit, ⌘Z / ⇧⌘Z), Cut, Copy, Paste, Clear (Del), Select All
-  (⌘A), Import from File, Scale Selection (stretch in time and scale in amplitude), **Settings…**
-  (plot, selection, grid, cursor and background colors, Max Points, Animate Graphs, Show Cursors),
-  Info (⌘I: file path and description).
-- **Help** menu: this page (⌘H) and About.
-- The shortcuts work while the editor has the focus (click in the list, the plot or a field of its
+  unlocks it and your zoom is kept while you edit; **Zoom to fit** locks it again.
+- Files: Open (⌘O; `.mbw`, an NI `.wfm` document with its segments, or any supported file as a
+  one-sketch document), New (⌘N), Close (⌘W), Save (⌘S) / Save As (⇧⌘S, `.mbw`). New, Open and
+  Close ask before discarding unsaved changes, and so does the pencil (Edit) of a channel card when
+  the editor holds another modified waveform.
+- Keys: Undo / Redo (every edit, ⌘Z / ⇧⌘Z), Cut, Copy, Paste, Clear (Del), Select All (⌘A), this
+  page (⌘H). They work while the editor has the focus (click in the list, the plot or a field of its
   cards); elsewhere ⌘N / ⌘O / ⌘S keep their session meaning.
 - **Max Points** (Settings, 500 000 by default as in ELVISmx, up to 10 000 000): an edit that would
   make the waveform longer is refused with a message. A waveform already above the limit (a large
   channel file) stays editable as long as it does not grow.
-- **Use in AO 0 / AO 1** loads the document into that channel (Arbitrary mode; its Update Rate follows
+- **Use in AO 0 / AO 1** (Document card) loads the document into that channel (Arbitrary mode; its Update Rate follows
   the document). With **Live update**, every later edit reaches the channel, also while it plays.
 
 ## Tips

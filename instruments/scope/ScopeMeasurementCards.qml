@@ -41,7 +41,11 @@ Item {
         return keys.join("|")
     }
 
-    implicitHeight: flow.implicitHeight + 2 * Theme.spacingS
+    // The scroll bar gets its own row under the cards: native styles (macOS) draw a permanent bar
+    // that would otherwise cover the cards' last line.
+    readonly property bool overflowing: flow.implicitWidth > width - 2 * Theme.spacingS
+    readonly property real scrollBarSpace: overflowing ? hbar.implicitHeight : 0
+    implicitHeight: flow.implicitHeight + 2 * Theme.spacingS + scrollBarSpace
     implicitWidth: 400
 
     function catalogEntry(flag: int): var {
@@ -51,12 +55,18 @@ Item {
     // One row of cards; scrolls sideways when they do not fit (the display keeps its height).
     Flickable {
         id: scroller
+        // The bottom scrollBarSpace stays free of cards: the attached bar sits there.
         anchors { fill: parent; margins: Theme.spacingS }
         contentWidth: flow.implicitWidth
+        contentHeight: height
         flickableDirection: Flickable.HorizontalFlick
         boundsBehavior: Flickable.StopAtBounds
-        clip: contentWidth > width
-        ScrollBar.horizontal: ScrollBar { policy: scroller.contentWidth > scroller.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff }
+        clip: strip.overflowing
+        ScrollBar.horizontal: ScrollBar {
+            id: hbar
+            objectName: "measurementScrollBar"
+            policy: strip.overflowing ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        }
     Row {
         id: flow
         spacing: Theme.spacingS
@@ -74,7 +84,7 @@ Item {
                 readonly property var row: strip.rows.find(r => r.id === rowId) ?? null
                 readonly property var trace: strip.traces[column] ?? { title: "", color: Theme.text }
                 readonly property var entry: strip.catalogEntry(flag)
-                readonly property string unit: traceIndex === 2 ? strip.controller.math.unit : entry.unit
+                readonly property string measureUnit: traceIndex === 2 ? strip.controller.math.unit : entry.unit
                 property var samples: []
                 property real total: 0
                 property real total2: 0
@@ -106,8 +116,10 @@ Item {
                 function reset() {
                     samples = []; total = 0; total2 = 0; minimum = NaN; maximum = NaN; count = 0
                 }
-                function fmt(v: real): string {
-                    return isFinite(v) ? strip.controller.formatMeasurement(v, unit) : "—"
+                // Statistics as numbers: the card formats them (4 significant digits, σ 3); the
+                // value keeps the controller's measurement format.
+                function num(v: real): var {
+                    return isFinite(v) ? v : ""
                 }
 
                 Connections {
@@ -129,7 +141,8 @@ Item {
                 title: card.trace.title + " · " + (card.row ? card.row.title : "")
                 color: card.trace.color
                 value: card.row ? (card.row.values[card.column] || "—") : "—"
-                stats: strip.statistics === 0 ? ({}) : ({ min: fmt(minimum), max: fmt(maximum), mean: fmt(mean), stdDev: fmt(sigma) })
+                unit: card.measureUnit
+                stats: strip.statistics === 0 ? ({}) : ({ min: num(minimum), max: num(maximum), mean: num(mean), stdDev: num(sigma) })
                 onRemoveRequested: strip.removeRequested(card.rowId)
             }
         }

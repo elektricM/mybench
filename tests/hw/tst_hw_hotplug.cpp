@@ -47,6 +47,7 @@ private slots:
         const QString id = hub->currentId();
         ScopeController scope;
         scope.initialize();
+        scope.setTriggerType(ScopeController::Immediate);   // new sessions start in Auto/Edge
         scope.run();
         QVERIFY(hw::waitFor([&] { return scope.acquisitionCount() >= 3; }, 5000));
 

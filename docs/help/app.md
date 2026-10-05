@@ -54,7 +54,9 @@ Each instrument pane has a **header** and a **display**:
 - **Release Outputs** appears when an instrument is stopped but still drives an output (for
   example digital lines left high after Single): it returns them to their safe state. **Stop** and
   **Stop All** do the same.
-- **↺** (before **⋯**): **Reset to Defaults**, after a confirmation (**Reset**).
+- **↺** (before **⋯**): **Reset to Defaults**, after a confirmation (**Reset**). In a pane
+  narrower than about 700 px (a split) the ↺ button folds into **⋯ > Reset Settings…** and the
+  instrument name shortens first, so the instrument's own header controls keep their room.
 - **⋯**: Export Data, Export Image, Print, Trace Style, Show Measurements, Reset Settings and Help.
 
 ## Overview
@@ -136,6 +138,14 @@ or to the top of the graph); changes show immediately, Cancel undoes them.
 **Preferences** (`Ctrl+,`) has the appearance: **Dark** (the default), **Light** or **System**
 (follows the light or dark setting and the accent color of your desktop). **Always use dark
 displays** keeps graphs dark in the light appearance.
+
+**Controls**: **Native** (the default) draws buttons, fields, check boxes and menus in your
+desktop's own style (macOS, Windows 11, KDE or Fusion); **MYBENCH** uses MYBENCH's own flat style
+on every system. The change applies at the next start of MYBENCH.
+
+**General > Reset Window Layout** puts the window back to its default size (centred, not
+maximized), the split back to half and half, and the sidebar and inspector back to their default
+visibility. The instruments on screen and their settings stay as they are.
 
 ## Keyboard shortcuts
 

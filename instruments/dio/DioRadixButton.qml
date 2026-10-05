@@ -1,11 +1,13 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Templates as T
 import MyBench.Controls
 
 // The LabVIEW-style radix prefix of a numeric value ("x", "d", "b"...): click it to choose
-// Decimal, Hex, Octal, Binary or SI notation. `radix` is a DioController.Radix.
-AbstractButton {
+// Decimal, Hex, Octal, Binary or SI notation. `radix` is a DioController.Radix. A custom part
+// (docs/UI.md round 3): built on QtQuick.Templates, so no native style is overridden.
+T.AbstractButton {
     id: root
 
     property int radix: DioController.Hex

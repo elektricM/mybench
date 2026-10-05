@@ -58,6 +58,18 @@ Item {
         PictureButton { text: "RMS"; glyph: "M3 9c3-7 5-7 8 0s5 7 8 0" }
     }
     Component {
+        id: boundPictureComponent
+        PictureButton {
+            property bool chosen: false
+            text: "Edge"
+            checked: chosen
+        }
+    }
+    Component {
+        id: autoPictureComponent
+        PictureButton { text: "Hold"; autoToggle: true }
+    }
+    Component {
         id: measurementComponent
         MeasurementCard { title: "CH 0 · RMS"; value: "707.1 mV" }
     }
@@ -152,8 +164,24 @@ Item {
             verify(full.implicitWidth > field.implicitWidth)
         }
 
-        function test_channelCardCollapses() {
+        // Default: an off channel keeps its body (dimmed, usable) so it can be set up first.
+        function test_channelCardKeepsBodyWhenOff() {
             const card = createTemporaryObject(cardComponent, root)
+            waitForRendering(card)
+            const open = card.height
+            const body = findChild(card, "channelBody")
+            compare(body.opacity, 1)
+            mouseClick(findChild(card, "channelSwitch"))
+            verify(!card.checked)
+            verify(card.expanded)
+            verify(!card.active)
+            compare(card.height, open)
+            verify(body.visible && body.enabled)
+            verify(body.opacity < 1)
+        }
+
+        function test_channelCardCollapses() {
+            const card = createTemporaryObject(cardComponent, root, { collapseWhenOff: true })
             waitForRendering(card)
             const open = card.height
             verify(open > 100)
@@ -187,15 +215,46 @@ Item {
             compare(spy.count, 1)
             mouseClick(findChild(panel, "closeButton"))
             compare(spy.count, 2)
-            compare(panel.width, 280)
+            compare(panel.width, Theme.toolPanelWidth)
         }
 
         function test_pictureButton() {
             const button = createTemporaryObject(pictureComponent, root)
             verify(!button.checked)
+            verify(!button.checkable)
+            mouseClick(button)
+            verify(!button.checked)          // no auto-toggle: the caller decides
+            verify(button.height >= 40)
+        }
+
+        // A click never breaks the caller's `checked` binding, also while checked.
+        function test_pictureButtonKeepsBinding() {
+            const button = createTemporaryObject(boundPictureComponent, root)
+            watch(button, "clicked")
+            mouseClick(button)
+            compare(spy.count, 1)
+            verify(!button.checked)
+            button.chosen = true
+            verify(button.checked)
+            mouseClick(button)
+            mouseClick(button)
+            compare(spy.count, 3)
+            verify(button.checked)
+            button.chosen = false
+            verify(!button.checked)
+            button.chosen = true
+            verify(button.checked)
+        }
+
+        function test_pictureButtonAutoToggle() {
+            const button = createTemporaryObject(autoPictureComponent, root)
+            watch(button, "toggled")
+            verify(button.checkable)
             mouseClick(button)
             verify(button.checked)
-            verify(button.height >= 40)
+            compare(spy.count, 1)
+            mouseClick(button)
+            verify(!button.checked)
         }
 
         function test_measurementCard() {
@@ -209,6 +268,31 @@ Item {
             mouseMove(card, card.width / 2, card.height / 2)
             mouseClick(findChild(card, "removeButton"))
             compare(spy.count, 1)
+        }
+
+        // Numeric API: value and stats formatted with Units.format (σ one digit less).
+        function test_measurementCardNumeric() {
+            const card = createTemporaryObject(measurementComponent, root)
+            compare(card.valueText, "707.1 mV")          // string API unchanged
+            card.unit = "Hz"
+            card.numericValue = 1000.0412
+            compare(card.valueText, "1 kHz")
+            card.numericValue = 201.8512e-6
+            compare(card.valueText, "201.9 µHz")
+            card.stats = { min: 0.00123456, max: "2 Hz", mean: 1234.56, stdDev: 201.85e-6 }
+            verify(card.hasStats)
+            compare(card.statText("min"), "1.235 mHz")
+            compare(card.statText("max"), "2 Hz")
+            compare(card.statText("mean"), "1.235 kHz")
+            compare(card.statText("stdDev"), "202 µHz")
+            card.significantDigits = 3
+            compare(card.valueText, "202 µHz")
+            compare(card.statText("stdDev"), "202 µHz")     // integer digits are kept
+            card.stats = { stdDev: 1.2345e-3 }
+            compare(card.statText("stdDev"), "1.2 mHz")
+            compare(card.statText("min"), "—")
+            card.numericValue = NaN
+            compare(card.valueText, "707.1 mV")
         }
 
         function test_runButton() {

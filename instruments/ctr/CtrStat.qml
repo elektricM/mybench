@@ -14,11 +14,10 @@ ColumnLayout {
 
     Text {
         Layout.fillWidth: true
-        text: root.label.toUpperCase()
+        text: root.label   // sentence case: no all-caps or letter-spaced labels (docs/UI.md §1)
         color: Theme.textMuted
         font.pixelSize: Theme.fontSizeXs
         font.weight: Font.DemiBold
-        font.letterSpacing: 0.8
         horizontalAlignment: Text.AlignHCenter
     }
     Text {

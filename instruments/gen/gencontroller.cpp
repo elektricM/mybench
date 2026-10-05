@@ -1019,11 +1019,11 @@ void GenController::loadBuiltInPreset(int index)
         a->setSweepStop(1000);
         a->setSweepStep(100);
         a->setSweepInterval(1000);
-        a->setSweepBlockTiming(true);
         b->setMode(GenChannel::Off);
         break;
     default: return;
     }
+    resetHiddenOptions();
     notify(Notifications::Info, tr("Preset loaded"), builtInPresets().value(index));
 }
 
@@ -1057,6 +1057,7 @@ void GenController::loadPreset(const QString& name)
     const QJsonObject preset = all.value(name).toObject();
     setOutputPair(preset.value(u"outputPair"_s).toString() == u"AudioOutputs" ? AudioOutputs : AnalogOutputs);
     applyChannelsJson(preset);
+    resetHiddenOptions();   // presets saved by older versions may carry them
     notify(Notifications::Info, tr("Preset loaded"), name);
 }
 
@@ -1157,14 +1158,19 @@ void GenController::restoreExtraSettings(const QJsonObject& settings)
         applyChannelsJson(settings);
     if (settings.contains(u"editor"_s))
         m_editor.restoreState(settings.value(u"editor"_s).toObject());
-    // The panel no longer offers an Engine choice nor "whole 250 ms sweep steps": settings saved
-    // by older versions fall back to the defaults (Auto engine, exact Step Interval) instead of
-    // silently applying an option the user cannot see.
-    setEngineMode(Auto);
-    for (auto& ch : m_channels) {
-        ch->setSweepBlockTiming(false);
+    resetHiddenOptions();
+    for (auto& ch : m_channels)
         ch->setSpectrumVisible(m_displayMode == Frequency);
-    }
+}
+
+// The panel no longer offers an Engine choice nor "whole 250 ms sweep steps": sessions and presets
+// saved by older versions fall back to the defaults (Auto engine, exact Step Interval) instead of
+// silently applying an option the user cannot see.
+void GenController::resetHiddenOptions()
+{
+    setEngineMode(Auto);
+    for (auto& ch : m_channels)
+        ch->setSweepBlockTiming(false);
 }
 
 // --- Export ------------------------------------------------------------------------------------------

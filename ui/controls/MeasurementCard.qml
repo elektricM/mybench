@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import MyBench.Framework
 
 // One measurement under the display (PicoScope style): swatch and title ("CH 0 · RMS"), the
 // value large, and its statistics (min, max, mean, σ) beside it when `stats` has any. A × on
@@ -9,6 +10,10 @@ import QtQuick.Layouts
 //     MeasurementCard { title: "CH 0 · RMS"; color: Theme.signalCh0; value: "707.1 mV"
 //                       stats: ({ min: "706.4 mV", max: "708.0 mV", mean: "707.2 mV", stdDev: "0.31 mV" })
 //                       onRemoveRequested: model.remove(index) }
+// Numbers instead of strings: set `numericValue` and `unit` (stats entries may be numbers too); the
+// card formats them with Units.format to `significantDigits` (σ to `stdDevDigits`).
+//     MeasurementCard { title: "CH 0 · Frequency"; numericValue: m.value; unit: "Hz"
+//                       stats: ({ min: m.min, max: m.max, mean: m.mean, stdDev: m.sd }) }
 Item {
     id: card
 
@@ -16,6 +21,12 @@ Item {
     property color color: Theme.accent
     property string value
     property var stats: ({})
+    property real numericValue: NaN              // NaN: show `value`
+    property string unit
+    property int significantDigits: 4
+    property int stdDevDigits: Math.max(1, significantDigits - 1)
+    // What the card shows: the formatted number, else `value`.
+    readonly property string valueText: !isNaN(numericValue) ? Units.format(numericValue, unit, significantDigits) : value
     property Menu menu: null
     property bool removable: true
     property bool selected: false
@@ -25,6 +36,16 @@ Item {
     readonly property bool hovered: hover.hovered
 
     signal removeRequested()
+
+    // A statistic as shown: numbers formatted like the value, strings as given.
+    function statText(key: string): string {
+        const v = stats?.[key]
+        if (v === undefined || v === null || v === "")
+            return "—"
+        if (typeof v === "number")
+            return Units.format(v, unit, key === "stdDev" ? stdDevDigits : significantDigits)
+        return String(v)
+    }
 
     implicitWidth: Math.max(180, row.implicitWidth + 2 * 10 + 2)
     implicitHeight: Math.max(64, column.implicitHeight + 2 * 7 + 2)
@@ -36,7 +57,7 @@ Item {
         border.color: card.selected ? Theme.accent : card.hovered ? Theme.controlBorder : Theme.cardBorder
     }
     Accessible.role: Accessible.StaticText
-    Accessible.name: title + ": " + value
+    Accessible.name: title + ": " + valueText
 
     HoverHandler { id: hover }
     TapHandler {
@@ -102,7 +123,7 @@ Item {
             Text {
                 id: valueText
                 Layout.alignment: Qt.AlignVCenter
-                text: card.value.length > 0 ? card.value : "—"
+                text: card.valueText.length > 0 ? card.valueText : "—"
                 color: Theme.text
                 font.pixelSize: Theme.fontSizeReadoutM
                 font.weight: Font.DemiBold
@@ -138,7 +159,7 @@ Item {
                                 font.pixelSize: Theme.fontSizeCaption
                             }
                             Text {
-                                text: String(card.stats?.[statCell.modelData.key] ?? "—")
+                                text: card.statText(statCell.modelData.key)
                                 color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeCaption
                                 font.features: Theme.tabularFigures

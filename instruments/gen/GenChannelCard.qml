@@ -25,8 +25,8 @@ ChannelCard {
     objectName: "genChannelCard" + channel.index
     title: channel.name
     color: channelColor
-    // The card stays open while the output is off, so the next output can be set up first.
-    checkable: false
+    // The card stays open while the output is off (collapseWhenOff false), so the next output
+    // can be set up first.
     subtitle: root.channel.errorText.length > 0 ? root.channel.errorText
               : root.channel.state === GenChannel.Done ? qsTr("Done")
               : root.channel.state === GenChannel.Paused ? qsTr("Paused")
@@ -34,17 +34,11 @@ ChannelCard {
               : root.channel.mode !== GenChannel.Off && !root.channel.outputOn ? qsTr("0 V")
               : ""   // the switch and the waveform pictures say the rest
 
-    headerExtras: [
-        Switch {
-            objectName: "outputSwitch"
-            enabled: root.channel.mode !== GenChannel.Off
-            checked: root.channel.outputOn
-            Accessible.name: qsTr("%1 output").arg(root.channel.name)
-            ToolTip.visible: hovered
-            ToolTip.text: qsTr("Output of %1 on / off").arg(root.channel.name)
-            onToggled: root.controller.setOutput(root.channel.index, checked)
-        }
-    ]
+    // The header switch is the channel's output on/off (ChannelCard's own switch re-binds after a
+    // click, so a refused request leaves it showing the real state).
+    checkable: true
+    checked: root.channel.outputOn
+    onToggled: on => root.controller.setOutput(root.channel.index, on)
 
     // --- Waveform pictures ---------------------------------------------------------------------
     GridLayout {
@@ -55,7 +49,7 @@ ChannelCard {
         Repeater {
             model: [
                 { id: "Sine", text: qsTr("Sine"), name: qsTr("Sine"), icon: "wave-sine", mode: GenChannel.Function, shape: GenChannel.Sine },
-                { id: "Square", text: qsTr("Square"), name: qsTr("Square"), icon: "wave-square", mode: GenChannel.Function, shape: GenChannel.Square },
+                { id: "Square", text: qsTr("Sq"), name: qsTr("Square"), icon: "wave-square", mode: GenChannel.Function, shape: GenChannel.Square },
                 { id: "Triangle", text: qsTr("Tri"), name: qsTr("Triangle"), icon: "wave-triangle", mode: GenChannel.Function, shape: GenChannel.Triangle },
                 { id: "DC", text: qsTr("DC"), name: qsTr("DC level"), icon: "wave-dc", mode: GenChannel.Dc, shape: -1 },
                 { id: "Arbitrary", text: qsTr("Arb"), name: qsTr("Arbitrary waveform"), icon: "wave-arbitrary", mode: GenChannel.Arbitrary, shape: -1 }
@@ -72,7 +66,6 @@ ChannelCard {
                 Accessible.name: modelData.name
                 iconName: modelData.icon
                 accentColor: root.channelColor
-                checkable: false
                 enabled: !(modelData.mode === GenChannel.Dc && root.channel.audio) && !root.channel.sweeping
                 checked: root.channel.mode === modelData.mode
                          && (modelData.shape < 0 || root.channel.shape === modelData.shape)

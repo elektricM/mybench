@@ -7,3 +7,4 @@ QRectF WindowChrome::buttonsRect(QWindow*) const
 }
 
 void WindowChrome::setTitleHidden(QWindow*, bool) const {}
+void WindowChrome::centerButtons(QWindow*, qreal) const {}

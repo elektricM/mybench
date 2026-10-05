@@ -13,6 +13,8 @@
 #include <QJsonObject>
 #include <QGuiApplication>
 #include <QSignalSpy>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -313,6 +315,40 @@ private slots:
         QVERIFY(!m_gen->channel0()->sweepBlockTiming());
         QVERIFY(!m_gen->channel1()->sweepBlockTiming());
         QCOMPARE(m_gen->channel0()->frequency(), 1234.0);   // everything else is restored
+    }
+
+    // Presets (built-in and saved, also ones saved by older versions) never bring back the hidden
+    // "whole 250 ms sweep steps" option nor an engine choice: the panel offers neither.
+    void presetsIgnoreHiddenOptions()
+    {
+        m_gen->setEngineMode(GenController::Regenerate);
+        m_gen->loadBuiltInPreset(5);   // ELVISmx defaults (sweep 100 Hz to 1 kHz)
+        QVERIFY(!m_gen->channel0()->sweepBlockTiming());
+        QCOMPARE(m_gen->engineMode(), GenController::Auto);
+
+        m_gen->channel0()->setFrequency(4321);
+        m_gen->savePreset(u"old"_s);
+        // An old preset: stored with the 250 ms option on.
+        QJsonObject all = QJsonDocument::fromJson(QSettings().value(u"instruments/gen/presets"_s).toByteArray()).object();
+        QVERIFY(all.contains(u"old"_s));
+        QJsonObject preset = all.value(u"old"_s).toObject();
+        QJsonArray channels = preset.value(u"channels"_s).toArray();
+        QJsonObject c0 = channels[0].toObject();
+        c0[u"sweepBlockTiming"_s] = true;
+        channels[0] = c0;
+        preset[u"channels"_s] = channels;
+        preset[u"engineMode"_s] = u"Regenerate"_s;
+        all[u"old"_s] = preset;
+        QSettings().setValue(u"instruments/gen/presets"_s, QJsonDocument(all).toJson(QJsonDocument::Compact));
+
+        m_gen->channel0()->setFrequency(100);
+        m_gen->setEngineMode(GenController::Stream);
+        m_gen->loadPreset(u"old"_s);
+        QCOMPARE(m_gen->channel0()->frequency(), 4321.0);   // the preset itself is applied
+        QVERIFY(!m_gen->channel0()->sweepBlockTiming());
+        QVERIFY(!m_gen->channel1()->sweepBlockTiming());
+        QCOMPARE(m_gen->engineMode(), GenController::Auto);
+        m_gen->deletePreset(u"old"_s);
     }
 
     void singleHoldsThenReleases()

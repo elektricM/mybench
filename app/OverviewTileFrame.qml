@@ -2,14 +2,15 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Templates as T
 import MyBench.Framework
 import MyBench.Controls
 
 // An instrument tile of the Overview (the shape of OverviewTile, docs/UI.md §13.8, until it lands
 // in MyBench.Controls): icon, name, state, key value and the instrument's own preview
 // (<Name>Tile.qml). Click shows the instrument; Run/Stop appears on hover; the context menu has
-// Show, Show Beside, Run/Stop and Pin to Top.
-Control {
+// Show, Show Beside, Run/Stop and Pin to Top. A template control: the look is ours.
+T.Control {
     id: tile
 
     property string title
@@ -35,6 +36,10 @@ Control {
         : status === "paused" ? qsTr("Paused") : status === "starting" ? qsTr("Starting")
         : status === "error" ? qsTr("Error") : ""
 
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding)
     hoverEnabled: true
     padding: Theme.spacingM
     focusPolicy: Qt.TabFocus

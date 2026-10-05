@@ -22,6 +22,29 @@ TestCase {
         return ["aa", "bb", "cc"].map(id => InstrumentRegistry.controller(id).closedCount)
     }
 
+    // Preferences ▸ General ▸ Reset Window Layout: equal split, default sidebar/inspector
+    // visibility, inspector page; the shown instruments stay.
+    function test_resetLayoutKeepsPanes() {
+        ws.show("aa")
+        ws.showBeside("bb")
+        ws.setRatio(0.3)
+        ws.setSidebarShown(false)
+        ws.setInspectorShown(false)
+        ws.showHelp("app")
+        let changes = 0
+        const count = () => ++changes
+        ws.changed.connect(count)
+        ws.resetLayout()
+        ws.changed.disconnect(count)
+        verify(changes > 0)
+        compare(ws.ratio, 0.5)
+        compare(ws.sidebarShown, true)
+        compare(ws.inspectorShown, true)
+        compare(ws.helpShown, false)
+        compare(ws.selected, "aa")
+        compare(ws.beside, "bb")
+    }
+
     function test_emptyMapIsOverview() {
         compare(ws.selected, "")
         compare(ws.overview, true)

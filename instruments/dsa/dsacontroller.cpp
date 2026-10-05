@@ -599,6 +599,11 @@ double DsaController::sinad() const
     return m_frame ? m_frame->measurements.sinadDb : 0.0;
 }
 
+double DsaController::snr() const
+{
+    return m_frame ? m_frame->measurements.snrDb : 0.0;
+}
+
 double DsaController::vpk() const
 {
     return m_frame ? m_frame->measurements.vpk : 0.0;

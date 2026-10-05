@@ -188,7 +188,10 @@ QtObject {
     readonly property int formRowSpacing: 6        // between the rows of a form (Section content)
 
     readonly property int controlHeightS: lineHeight + 6     // plot toolbars, dense tables
-    readonly property int controlHeight: lineHeight + 10
+    // Our fields, steppers and segmented controls match the standard controls beside them: the
+    // platform style's regular control height when it draws them (macOS 24), else lineHeight + 10.
+    readonly property int nativeControlHeight: nativeControls && AppInfo.controlsStyle === "macOS" ? 24 : 0
+    readonly property int controlHeight: nativeControlHeight > 0 ? nativeControlHeight : lineHeight + 10
     readonly property int controlHeightL: lineHeight + 16    // the Run button, dialog default buttons
     readonly property int iconSize: 16
     readonly property int iconSizeL: 20
@@ -210,6 +213,12 @@ QtObject {
     readonly property int splitMinWidth: 900
     readonly property int paneMinWidth: 450
     readonly property int shortHeight: 600
+    // Instrument panels (round 2, docs/UI.md §13.8b): the column of cards and knobs right of the
+    // display, its width below `instrumentCompactWidth` (pane width), and the floating tool panels.
+    readonly property int instrumentColumnWidth: 260
+    readonly property int instrumentColumnCompactWidth: 220
+    readonly property int instrumentCompactWidth: 1000
+    readonly property int toolPanelWidth: 300
 
     // Adaptive layout class of a window width (docs/UI.md §8).
     function layoutClass(width: real): string {

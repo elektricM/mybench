@@ -35,6 +35,13 @@ Item {
         }
     }
 
+    SignalSpy { id: resetSpy; target: prefs; signalName: "windowLayoutResetRequested" }
+    // Reads a preferences file back the way any QSettings user does (category = group).
+    Component {
+        id: appearanceReaderComponent
+        Settings { category: "appearance" }
+    }
+
     TestCase {
         name: "Preferences"
         when: windowShown
@@ -95,6 +102,60 @@ Item {
             verify(Theme.displayDark)                       // plots stay dark in light mode
             prefs.setAlwaysDarkDisplays(false)
             compare(Theme.alwaysDarkDisplays, false)
+        }
+
+        // Appearance ▸ Controls: Native | MYBENCH under the key appearance/controls (shell.cpp reads
+        // it at start: tst_framework storedControlsStyleReadsThePreference); the note shows while
+        // the choice differs from the style of this run.
+        function test_controlsStyleChoice() {
+            pane.page = "appearance"
+            const control = findChild(pane, "controlsStyleControl")
+            const note = findChild(pane, "controlsRestartNote")
+            verify(control)
+            verify(note)
+            const inUse = prefs.controlsInUse
+            prefs.setControls(inUse)
+            verify(!note.visible)
+            mouseClick(control, control.width * 0.75, control.height / 2)
+            compare(prefs.appearance.controls, "mybench")
+            compare(control.currentIndex, 1)
+            compare(note.visible, inUse !== "mybench")
+            mouseClick(control, control.width * 0.25, control.height / 2)
+            compare(prefs.appearance.controls, "native")
+            compare(control.currentIndex, 0)
+            compare(note.visible, inUse !== "native")
+            prefs.setControls(inUse)
+        }
+
+        function test_controlsKeyAndDefault() {
+            const fresh = createTemporaryObject(freshPrefsComponent, host)
+            verify(fresh)
+            compare(fresh.appearance.controls, "native")
+            fresh.setControls("mybench")
+            const reader = createTemporaryObject(appearanceReaderComponent, host,
+                                                 { location: fresh.appearance.location })
+            // Settings stores changed properties on a short timer.
+            tryVerify(() => {
+                fresh.appearance.sync()
+                reader.sync()
+                return reader.value("controls") === "mybench"
+            }, 3000)
+            fresh.setControls("anything")
+            compare(fresh.appearance.controls, "native")
+        }
+
+        // General ▸ Reset Window Layout: layout preferences back to defaults, the window is told.
+        function test_resetWindowLayout() {
+            const button = findChild(pane, "resetWindowLayoutButton")
+            verify(button)
+            prefs.setInspectorWidth(Theme.inspectorWidth + 60)
+            prefs.view.statusBarShown = false
+            resetSpy.clear()
+            mouseClick(button)
+            compare(resetSpy.count, 1)
+            compare(prefs.view.inspectorWidth, Theme.inspectorWidth)
+            compare(prefs.view.statusBarShown, true)
+            compare(prefs.view.menuBarShown, true)
         }
 
         function test_generalSwitchesWriteSettings() {

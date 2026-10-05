@@ -19,6 +19,8 @@ ApplicationWindow {
     readonly property bool tileMode: AppInfo.flag("tile")
     property InstrumentPanel pane: null
     property bool inspectorShown: true
+    // The dock has something to show: the loaded panel's inspector, or the help page.
+    readonly property bool dockAvailable: (pane !== null && pane.hasInspector) || dock.page === "help"
 
     width: 1280
     height: 800
@@ -113,9 +115,11 @@ ApplicationWindow {
             ToolButton {
                 objectName: "inspectorToggle"
                 visible: !window.tileMode
+                // Checked while the dock is on screen; disabled for a panel without inspector
+                // (nothing to show) unless its help is open. Not auto-toggling: `checked` stays bound.
+                enabled: window.dockAvailable
                 icon.source: Theme.icon("sidebar-right")
-                checkable: true
-                checked: window.inspectorShown
+                checked: dock.visible
                 onClicked: window.inspectorShown = !window.inspectorShown
                 Accessible.name: window.inspectorShown ? qsTr("Hide Inspector") : qsTr("Show Inspector")
                 ToolTip.visible: hovered
@@ -178,9 +182,9 @@ ApplicationWindow {
 
         InspectorDock {
             id: dock
-            // Hidden for a panel without inspector unless its help is open (as in the app).
-            visible: window.inspectorShown && !window.tileMode
-                     && (window.pane === null || window.pane.hasInspector || dock.page === "help")
+            // Hidden for a panel without inspector unless its help is open (as in the app), and
+            // while the panel is still loading (no flash of an empty column).
+            visible: window.inspectorShown && !window.tileMode && window.dockAvailable
             Layout.fillHeight: true
             Layout.preferredWidth: Theme.inspectorWidth
             panel: window.pane

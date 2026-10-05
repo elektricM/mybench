@@ -38,7 +38,9 @@ class Setup : public QObject
 public slots:
     void applicationAvailable()
     {
-        QQuickStyle::setStyle(u"MyBench.Style"_s);
+        // MYBENCH_TEST_STYLE runs the tests under another controls style (e.g. "macOS").
+        const QString style = qEnvironmentVariable("MYBENCH_TEST_STYLE");
+        QQuickStyle::setStyle(style.isEmpty() ? u"MyBench.Style"_s : style);
         mybench::InstrumentRegistry* registry = mybench::InstrumentRegistry::instance();
         for (const QString& id : {u"alpha"_s, u"beta"_s, u"gamma"_s}) {
             registry->registerInstrument({.id = id, .title = id, .shortTitle = id, .module = u"Test"_s,
