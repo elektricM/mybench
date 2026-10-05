@@ -6,9 +6,10 @@
 #      plugins and every non-system dylib (libusb) into the bundle, rewriting install names.
 #   2. Prune what the app never loads: QML modules that qmlimportscanner does not report
 #      (macdeployqt copies whole directory trees), our own MyBench.* modules (linked statically;
-#      the copied qmldir files would only shadow them), the Qt Quick Controls styles other than
-#      Basic (the app always uses MyBench.Style, built on Basic), unused plugin types, then every
-#      framework or dylib no longer reachable from what is left.
+#      the copied qmldir files would only shadow them), the Qt Quick Controls styles the app never
+#      selects (it picks one at run time with QQuickStyle: macOS natively, Fusion offscreen,
+#      MyBench.Style on Basic by preference; see docs/UI.md round 3), unused plugin types, then
+#      every framework or dylib no longer reachable from what is left.
 #   3. Check: no Mach-O file in the bundle may reference a library outside the bundle other than
 #      the system's (/System, /usr/lib), and every @rpath/@loader_path/@executable_path
 #      reference must resolve inside the bundle.
@@ -77,9 +78,14 @@ execute_process(COMMAND "${MYBENCH_QMLIMPORTSCANNER}" ${_scan_args}
 if(_rc)
     message(FATAL_ERROR "qmlimportscanner failed (${_rc})")
 endif()
-set(_unused_modules   # the app always uses MyBench.Style (on Basic); MyBench.* are static
-    "^MyBench" "^QtQuick/Controls/(Fusion|Imagine|Material|Universal|FluentWinUI3|macOS|iOS)(/|$)"
-    "^QtQuick/NativeStyle$")
+set(_unused_modules   # styles the app never selects on macOS; MyBench.* are static
+    "^MyBench" "^QtQuick/Controls/(Imagine|Material|Universal|FluentWinUI3|iOS)(/|$)")
+# Styles chosen at run time (QQuickStyle, not imported by any QML file, so qmlimportscanner does not
+# report them): macOS (native, on QtQuick.NativeStyle), Fusion (offscreen/--screenshot), Basic.
+set(_runtime_style_modules
+    QtQuick/Controls/macOS QtQuick/NativeStyle
+    QtQuick/Controls/Fusion QtQuick/Controls/Fusion/impl
+    QtQuick/Controls/Basic QtQuick/Controls/Basic/impl QtQuick/Controls/impl)
 set(_modules "")
 string(JSON _count LENGTH "${_json}")
 math(EXPR _last "${_count} - 1")
@@ -97,6 +103,13 @@ foreach(i RANGE ${_last})
     endforeach()
     if(NOT _skip)
         list(APPEND _modules "${_rel}")
+    endif()
+endforeach()
+foreach(m IN LISTS _runtime_style_modules)
+    if(IS_DIRECTORY "${_qml}/${m}")
+        list(APPEND _modules "${m}")
+    else()
+        message(FATAL_ERROR "deploy-bundle: run-time style module ${m} missing from the bundle")
     endif()
 endforeach()
 list(REMOVE_DUPLICATES _modules)
