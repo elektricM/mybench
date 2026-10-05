@@ -181,7 +181,8 @@ disappears. `TraceBuffer.setUniformValues(x0, dx, [numbers])` fills small previe
 `draggable`, `trace` (readout dot + value chip at the intersection; `value` = trace value in data
 units), `snap` (to the trace's samples), `readoutVisible`, `style`, `lineVisible` (false: chip,
 readout and dragging only), `lineWidth` (px, default 1), `selected`, `dragging`.
-Signal `moved(position)`. Two vertical cursors show a Δ chip (and 1/Δ when the x unit is "s").
+Signal `moved(position)`. Two vertical cursors show a Δ chip (and 1/Δ when the x unit is "s"); `cursorDeltaVisible: false`
+on the Plot hides it.
 
 **PlotLine** — reference line with an edge handle: `orientation` (Horizontal: y = value, e.g.
 trigger level; Vertical: trigger position), `value` (axis units, or the data units of `trace`

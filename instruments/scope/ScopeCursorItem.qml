@@ -9,6 +9,8 @@ PlotCursor {
     id: item
 
     required property ScopeCursor cursor
+    // The pair's color (Theme.cursor1 / cursor2) unless the trace style sets one.
+    property color defaultColor: cursor.label === "C2" ? Theme.cursor2 : Theme.cursor1
     property bool shown: false
     readonly property TraceStyle look: cursor.style
     // The horizontal line through the cursor's value (Full crosshair).
@@ -20,7 +22,7 @@ PlotCursor {
     visible: shown && cursor.cursorStyle !== ScopeCursor.NoCursor
     label: cursor.label
     position: cursor.position
-    color: look.lineColor.valid ? look.lineColor : Theme.signalCursor
+    color: look.lineColor.valid ? look.lineColor : defaultColor
     style: look.lineStyle
     lineWidth: look.lineWidth > 0 ? look.lineWidth : 1
     readoutVisible: false

@@ -133,6 +133,7 @@ Item {
                 placeholderText: root.idleText
                 cursorsAvailable: true
                 cursorsEnabled: root.controller.cursorsOn
+                cursorDeltaVisible: false   // Δt and 1/Δt are in the cursor card under the display
                 onCursorsToggled: on => root.controller.cursorsOn = on
                 xAxis {
                     min: 0
@@ -293,15 +294,17 @@ Item {
                     onMoved: v => root.controller.horizontalPosition = Math.round(v / root.controller.screenTime * 100)
                 }
 
-                // Cursors C1 / C2: values are in the measurement strip (not on the plot).
+                // Cursors C1 / C2 (Theme.cursor1 / cursor2): their readings are a card under the display.
                 ScopeCursorItem {
                     id: cursor1
+                    objectName: "cursorItem1"
                     cursor: root.controller.cursor1
                     shown: root.controller.cursorsOn
                     trace: root.traceFor(root.controller.cursor1.channel)
                 }
                 ScopeCursorItem {
                     id: cursor2
+                    objectName: "cursorItem2"
                     cursor: root.controller.cursor2
                     shown: root.controller.cursorsOn
                     trace: root.traceFor(root.controller.cursor2.channel)
@@ -343,25 +346,27 @@ Item {
                     size: 8 + 2 * cursor2.lineWidth
                 }
 
-                // Level cursors: two horizontal lines on one trace (values in the strip).
+                // Level cursors H1 / H2 (the cursor pair colors) on one trace; their card is under the display.
                 PlotLine {
+                    objectName: "levelCursor1"
                     visible: root.controller.levelCursorsOn
                     trace: root.traceFor(root.controller.levelCursorChannel)
                     value: root.controller.levelCursor1
                     handle: PlotLine.End
                     label: "H1"
-                    color: Theme.signalCursor
+                    color: Theme.cursor1
                     style: PlotElement.Dash
                     lineMode: PlotLine.Always
                     onMoved: v => root.controller.levelCursor1 = v
                 }
                 PlotLine {
+                    objectName: "levelCursor2"
                     visible: root.controller.levelCursorsOn
                     trace: root.traceFor(root.controller.levelCursorChannel)
                     value: root.controller.levelCursor2
                     handle: PlotLine.End
                     label: "H2"
-                    color: Theme.signalCursor
+                    color: Theme.cursor2
                     style: PlotElement.Dash
                     lineMode: PlotLine.Always
                     onMoved: v => root.controller.levelCursor2 = v
@@ -488,17 +493,48 @@ Item {
                 label: Units.format(root.math.peakFrequency, "Hz", 4) + "  " + root.math.peakLevel.toFixed(1) + " dBV"
             }
         }
+        // The spectrum's source (the only FFT setting besides View FFT in the bar) and its legend.
         Item {
             objectName: "fftLegend"
             visible: root.fftShown
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.lineHeight + Theme.spacingS
-            LegendEntry {
+            Layout.preferredHeight: Math.max(Theme.lineHeight + Theme.spacingS, fftRow.implicitHeight + 4)
+            Row {
+                id: fftRow
                 x: fftPlot.plotArea.x
                 anchors.verticalCenter: parent.verticalCenter
-                swatch: root.traceColor(root.fftChannel)
-                name: qsTr("CH%1 spectrum").arg(root.fftChannel)
-                detail: qsTr("Hann window · dBV RMS")
+                spacing: Theme.spacingS
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Spectrum of")
+                    color: Theme.displayText
+                    font.pixelSize: Theme.fontSizeCaption
+                    font.weight: Font.Medium
+                }
+                SegmentedControl {
+                    objectName: "fftSource"
+                    anchors.verticalCenter: parent.verticalCenter
+                    compact: true
+                    accentColor: root.traceColor(root.fftChannel)
+                    // FftChannel0 / FftChannel1 (FftOff is the YT view of the bar).
+                    model: [{ text: "CH0", enabled: root.ch0.enabled || root.fftChannel === 0 },
+                            { text: "CH1", enabled: root.ch1.enabled || root.fftChannel === 1 }]
+                    currentIndex: root.fftChannel
+                    onActivated: index => root.controller.fftSource = index + 1
+                }
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 8
+                    height: 8
+                    radius: 2
+                    color: root.traceColor(root.fftChannel)
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Hann window · dBV RMS")
+                    color: Theme.displayTextSecondary
+                    font.pixelSize: Theme.fontSizeCaption
+                }
             }
         }
     }

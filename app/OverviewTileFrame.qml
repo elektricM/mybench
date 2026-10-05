@@ -21,6 +21,8 @@ T.Control {
     property bool pinned: false
     property bool running: false
     property bool canToggle: false
+    // Stopped and nothing measured yet: the preview would be an empty box, so it offers Run instead.
+    property bool idle: false
     property Menu menu: null
     // Drag the tile onto the workspace to show the instrument (docs/UI.md §8).
     property string paneId: ""
@@ -90,7 +92,7 @@ T.Control {
             Icon {
                 name: tile.iconName
                 size: Theme.iconSizeL
-                color: Theme.textSecondary
+                color: Theme.accent
             }
             Text {
                 Layout.fillWidth: true
@@ -133,7 +135,7 @@ T.Control {
                 icon.source: Theme.icon(tile.running ? "stop-filled" : "play")
                 icon.width: Theme.iconSize - 2
                 icon.height: Theme.iconSize - 2
-                icon.color: tile.running ? Theme.text : Theme.accent
+                icon.color: tile.running ? Theme.stopFill : Theme.runFill
                 Accessible.name: tile.running ? qsTr("Stop %1").arg(tile.title) : qsTr("Run %1").arg(tile.title)
                 ToolTip.visible: hovered
                 ToolTip.delay: Theme.toolTipDelay
@@ -142,9 +144,10 @@ T.Control {
             }
         }
 
+        // The key value only for a tile without a preview: a preview shows the same value itself.
         Text {
             Layout.fillWidth: true
-            visible: tile.keyValue.length > 0
+            visible: tile.keyValue.length > 0 && tile.preview === null
             text: tile.keyValue
             color: Theme.text
             font.pixelSize: Theme.fontSizeHeading
@@ -152,11 +155,26 @@ T.Control {
             elide: Text.ElideRight
         }
 
-        Loader {
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            sourceComponent: tile.preview
-            clip: true
+
+            Loader {
+                anchors.fill: parent
+                sourceComponent: tile.preview
+                clip: true
+                opacity: tile.idle ? 0.35 : 1
+            }
+            Button {
+                objectName: "tileIdleRun"
+                visible: tile.idle && tile.canToggle
+                anchors.centerIn: parent
+                text: qsTr("Run")
+                icon.source: Theme.icon("play")
+                icon.color: Theme.runFill
+                Accessible.name: qsTr("Run %1").arg(tile.title)
+                onClicked: tile.runToggled()
+            }
         }
     }
 }

@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Templates as T
 
-// The instrument's big Run / Stop toggle (≈ 96 × 52). Stopped: accent fill "▶ Run". Running:
-// positive-tinted fill, positive text "■ Stop" and `stateText` below ("Triggered", "Waiting for
-// trigger"). `busy` (starting/stopping) dims it and ignores clicks. Emits toggled(); the owner
+// The instrument's big Run / Stop toggle (≈ 96 × 52). Stopped: green fill "▶ Run". Running:
+// red fill "■ Stop" and `stateText` below ("Triggered", "Waiting for trigger"), like the Run/Stop
+// key of a bench instrument. `busy` (starting/stopping) dims it and ignores clicks. Emits toggled(); the owner
 // starts or stops the instrument and binds `running`. Space/Enter when focused.
 //     RunButton { running: ctl.running; stateText: ctl.stateText; onToggled: ctl.running ? ctl.stop() : ctl.start() }
 T.AbstractButton {
@@ -37,16 +37,15 @@ T.AbstractButton {
     Keys.onReturnPressed: control.click()
     Keys.onEnterPressed: control.click()
 
-    readonly property color fill: running
-                                  ? Theme.mix(Theme.base, Theme.positive, pressed ? 0.26 : hovered ? 0.21 : 0.16)
-                                  : pressed ? Theme.accentPressed : hovered ? Theme.accentHover : Theme.accent
-    readonly property color ink: running ? Theme.positive : Theme.accentText
+    readonly property color baseFill: running ? Theme.stopFill : Theme.runFill
+    readonly property color fill: pressed ? Theme.mix(baseFill, "#000000", 0.18)
+                                : hovered ? Theme.mix(baseFill, "#FFFFFF", 0.10) : baseFill
+    readonly property color ink: "#FFFFFF"
 
     background: Rectangle {
         radius: Theme.radiusPopup
         color: control.fill
-        border.width: control.running ? 1 : 0
-        border.color: Theme.alpha(Theme.positive, 0.45)
+        border.width: 0
         opacity: control.busy || !control.enabled ? 0.6 : 1
         FocusRing {
             shown: control.visualFocus

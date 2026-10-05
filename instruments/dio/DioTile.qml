@@ -5,7 +5,7 @@ import MyBench.Controls
 import MyBench.Plot
 
 // Overview tile of the Digital I/O (content only; the shell draws title, state and Run/Stop): eight
-// mini LEDs (DIO 7 ... DIO 0; outputs in the accent color, like the panel), the input and output
+// mini LEDs (DIO 7 ... DIO 0; inputs green, outputs orange, like the panel), the input and output
 // values and a bare mini timeline. With the Manual pattern, clicking an OUT LED flips it.
 Item {
     id: root
@@ -42,13 +42,13 @@ Item {
                             anchors.horizontalCenter: parent.horizontalCenter
                             size: root.compact ? 12 : 16
                             on: cell.level
-                            color: cell.isOut ? Theme.accent : Theme.text
+                            color: cell.isOut ? Theme.signalAo0 : Theme.signalCh0
                             opacity: cell.isIn || cell.isOut ? 1 : 0.35
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: cell.line
-                            color: cell.isOut ? Theme.accent : cell.isIn ? Theme.textSecondary : Theme.textDisabled
+                            color: cell.isOut ? Theme.signalAo0 : cell.isIn ? Theme.signalCh0 : Theme.textDisabled
                             font.pixelSize: Theme.fontSizeXs
                             font.weight: Font.DemiBold
                         }
@@ -68,9 +68,9 @@ Item {
             spacing: Theme.spacingM
             Repeater {
                 model: [
-                    { title: qsTr("In"), shown: root.controller.inputMask !== 0, color: Theme.text,
+                    { title: qsTr("In"), shown: root.controller.inputMask !== 0, color: Theme.signalCh0,
                       output: false },
-                    { title: qsTr("Out"), shown: root.controller.outputMask !== 0, color: Theme.accent,
+                    { title: qsTr("Out"), shown: root.controller.outputMask !== 0, color: Theme.signalAo0,
                       output: true }
                 ]
                 delegate: Row {
@@ -125,8 +125,8 @@ Item {
             PlotLogicTrace {
                 buffer: root.controller.timeline
                 lanes: [7, 6, 5, 4, 3, 2, 1, 0]
-                laneColors: [7, 6, 5, 4, 3, 2, 1, 0].map(l => (root.controller.outputMask >> l) & 1 ? Theme.accent
-                                                         : (root.controller.inputMask >> l) & 1 ? Theme.text : Theme.textMuted)
+                laneColors: [7, 6, 5, 4, 3, 2, 1, 0].map(l => (root.controller.outputMask >> l) & 1 ? Theme.signalAo0
+                                                         : (root.controller.inputMask >> l) & 1 ? Theme.signalCh0 : Theme.textMuted)
                 labelsVisible: false
                 width: 1
             }

@@ -1,6 +1,8 @@
 // Scope QML behaviour (offscreen): the FFT view keeps the user's zoom; the panel has every setting
-// exactly once and no knob; Immediate trigger hides the Edge fields; measurements are chosen in the
-// measurement strip; the controller migration shows up in the panel.
+// exactly once; Immediate trigger hides the Edge fields; measurements are chosen in the measurement
+// strip; the controller migration shows up in the panel; round 5: horizontal and trigger controls
+// always visible, no duplicate controls, fixed column, tool panels beside the display, cursor pair
+// colors and readouts.
 #include "scopecontroller.h"
 
 #include <mybench/devicehub.h>
@@ -105,9 +107,9 @@ class TestScopeQml : public QObject
 
     QQmlEngine m_engine;
 
-    bool createPanel(ScopeController& scope, Panel& panel)
+    bool createPanel(ScopeController& scope, Panel& panel, QSize size = QSize(1440, 900))
     {
-        panel.window = std::make_unique<mybench::OffscreenWindow>(QSize(1440, 900));
+        panel.window = std::make_unique<mybench::OffscreenWindow>(size);
         if (!panel.window->isValid())
             return false;
         QQmlComponent component(&m_engine);
@@ -223,11 +225,11 @@ private slots:
         QList<QObject*> controls, knobs;
         QSet<QObject*> visited;
         collect(panel.root.get(), controls, knobs, visited);
-        // Knobs are back (PicoScope-style round 2): timebase, trigger level, scale and position of both
-        // channels, math scale and position.
+        // Knobs (PicoScope style): timebase and trigger position (bar), trigger level (Trigger card),
+        // scale and position of both channels, math scale and position.
         const auto knobFields = std::count_if(controls.cbegin(), controls.cend(),
                                               [](const QObject* c) { return isA(c, "KnobField"); });
-        QCOMPARE(knobFields, 8);
+        QCOMPARE(knobFields, 9);
 
         QStringList names;
         for (QObject* control : std::as_const(controls)) {
@@ -246,31 +248,36 @@ private slots:
             // The shared ChannelCard names its switch "channelSwitch": qualify it by the card.
             QString qualified = name;
             if (name == u"channelSwitch"_s) {
+                bool switchless = false;
                 for (QObject* p = control->parent(); p; p = p->parent())
                     if (isA(p, "ChannelCard")) {
-                        qualified = name + p->objectName().right(1);
+                        switchless = !p->property("checkable").toBool();   // e.g. the Trigger card
+                        const QString card = p->objectName();
+                        qualified = card.startsWith(u"channelCard"_s) ? name + card.mid(11) : name + u"_"_s + card;
                         break;
                     }
+                if (switchless)
+                    continue;
             }
             names.append(qualified);
         }
         names.sort();
         QStringList expected{
-            // Channel cards: switch and source in the header, scale and position knob fields, input range.
+            // Channel cards: switch, scale and position knob fields, source and input range.
             u"channelSwitch0"_s, u"source0"_s, u"scale0"_s, u"position0"_s, u"inputRange0"_s,
             u"channelSwitch1"_s, u"source1"_s, u"scale1"_s, u"position1"_s, u"inputRange1"_s,
-            // Instrument bar: timebase, trigger level and mode, view.
-            u"timeDiv"_s, u"triggerLevel"_s, u"triggerMode"_s, u"displayMode"_s,
-            // Trigger panel.
-            u"triggerSource"_s, u"triggerSlope"_s, u"horizontalPosition"_s, u"triggerClear"_s,
-            u"triggerTimeout"_s, u"triggerHoldoff"_s, u"triggerHysteresis"_s, u"rollMode"_s,
-            // Math card + panel, FFT panel.
-            u"mathSwitch"_s, u"mathScale"_s, u"mathPosition"_s, u"fftSource"_s,
+            // Instrument bar: horizontal (timebase, trigger position) and view.
+            u"timeDiv"_s, u"horizontalPosition"_s, u"displayMode"_s,
+            // Trigger card (type = picture buttons, not counted here), with its advanced section.
+            u"triggerMode"_s, u"triggerSource"_s, u"triggerSlope"_s, u"triggerLevel"_s,
+            u"triggerTimeout"_s, u"triggerHoldoff"_s, u"triggerHysteresis"_s, u"triggerClear"_s,
+            // Math card (operation = picture buttons); FFT source under the spectrum.
+            u"channelSwitch_mathCard"_s, u"mathScale"_s, u"mathPosition"_s, u"fftSource"_s,
             // Cursors panel.
             u"cursorsSwitch"_s, u"cursor1Trace"_s, u"cursor2Trace"_s, u"cursorStyle"_s,
             u"levelCursorsSwitch"_s, u"levelCursorTrace"_s,
             // Display and Measure panels.
-            u"persistence"_s, u"averaging"_s, u"recordLength"_s, u"autoscaleSetsLevel"_s,
+            u"persistence"_s, u"averaging"_s, u"recordLength"_s, u"autoscaleSetsLevel"_s, u"rollMode"_s,
             u"frequencyMethod"_s, u"measureSource"_s, u"measureStatistics"_s,
         };
         expected.sort();
@@ -280,28 +287,46 @@ private slots:
         QCOMPARE(QSet<QString>(names.begin(), names.end()).size(), names.size());
 
         // A few round trips: the control writes its setting.
-        QObject* mode = panel.find(u"triggerMode"_s);   // Auto / Normal / None
-        QVERIFY(mode);
-        QVERIFY(QMetaObject::invokeMethod(mode, "activated", Q_ARG(int, 2)));
+        QObject* immediate = panel.find(u"triggerTypeImmediate"_s);
+        QObject* edge = panel.find(u"triggerTypeEdge"_s);
+        QVERIFY(immediate && edge);
+        QVERIFY(QMetaObject::invokeMethod(immediate, "clicked"));
         QCOMPARE(scope.triggerType(), ScopeController::Immediate);
-        QObject* fft = panel.find(u"fftSource"_s);
-        QVERIFY(QMetaObject::invokeMethod(fft, "activated", Q_ARG(int, 2)));
-        QCOMPARE(scope.fftSource(), ScopeController::FftChannel1);
-        QVERIFY(QMetaObject::invokeMethod(mode, "activated", Q_ARG(int, 1)));
+        QVERIFY(QMetaObject::invokeMethod(edge, "clicked"));
         QCOMPARE(scope.triggerType(), ScopeController::Edge);
+        QObject* mode = panel.find(u"triggerMode"_s);   // Auto / Normal
+        QVERIFY(mode);
+        QVERIFY(QMetaObject::invokeMethod(mode, "activated", Q_ARG(int, 1)));
         QCOMPARE(scope.noTriggerMode(), ScopeController::KeepLastTrace);
         QVERIFY(QMetaObject::invokeMethod(mode, "activated", Q_ARG(int, 0)));
         QCOMPARE(scope.noTriggerMode(), ScopeController::ShowUntriggered);
+        QCOMPARE(scope.triggerType(), ScopeController::Edge);
+        QObject* fft = panel.find(u"fftSource"_s);       // CH0 / CH1 (Off = View YT)
+        QVERIFY(QMetaObject::invokeMethod(fft, "activated", Q_ARG(int, 1)));
+        QCOMPARE(scope.fftSource(), ScopeController::FftChannel1);
+        QVERIFY(QMetaObject::invokeMethod(fft, "activated", Q_ARG(int, 0)));
+        QCOMPARE(scope.fftSource(), ScopeController::FftChannel0);
         // View FFT turns the spectrum on, YT turns it off.
         QObject* view = panel.find(u"displayMode"_s);
         QVERIFY(QMetaObject::invokeMethod(view, "activated", Q_ARG(int, 0)));
         QCOMPARE(scope.fftSource(), ScopeController::FftOff);
         QVERIFY(QMetaObject::invokeMethod(view, "activated", Q_ARG(int, 2)));
         QVERIFY(scope.fftSource() != ScopeController::FftOff);
+        // Math operation picture buttons.
+        QObject* product = panel.find(u"mathOperation2"_s);
+        QVERIFY(product);
+        QVERIFY(QMetaObject::invokeMethod(product, "clicked"));
+        QCOMPARE(int(scope.math()->operation()), 2);
+        QVERIFY(product->property("checked").toBool());
+        QVERIFY(!product->property("glyph").toString().isEmpty());
+        QObject* position = panel.find(u"horizontalPosition"_s);
+        QVERIFY(QMetaObject::invokeMethod(position, "valueModified", Q_ARG(double, 20.0)));
+        QCOMPARE(scope.horizontalPosition(), 20.0);
     }
 
-    // docs/UI.md §1 "Show what matters now": Immediate shows no Edge field (hidden, not disabled);
-    // audio inputs hide the input range; roll only from 50 ms/div.
+    // docs/UI.md §1 "Show what matters now": Immediate shows no Edge field (hidden, not disabled):
+    // mode, source, slope, level (Trigger card) and the trigger position (bar); audio inputs hide
+    // the input range; roll only from 50 ms/div.
     void immediateHidesEdgeFields()
     {
         ScopeController scope;
@@ -309,36 +334,37 @@ private slots:
         Panel panel;
         if (!createPanel(scope, panel))
             QSKIP("no graphics device");
-        panel.root->setProperty("tool", u"trigger"_s);   // the Trigger panel open
+        QObject* card = panel.find(u"triggerCard"_s);
+        QVERIFY(card);
+        card->setProperty("advanced", true);          // timeout, holdoff, hysteresis unfolded
+        panel.root->setProperty("tool", u"display"_s);  // the Display panel (roll) open
         panel.window->renderFrame();
         // A new session opens in Auto: the trigger level knob is live from the start.
         QCOMPARE(scope.triggerType(), ScopeController::Edge);
-        QVERIFY(panel.shown(u"triggerLevel"_s));
-        QVERIFY(panel.find(u"triggerLevel"_s)->property("enabled").toBool());
-        scope.setTriggerType(ScopeController::Immediate);
-        panel.window->renderFrame();
-        const QStringList edgeOnly{u"triggerSource"_s, u"triggerSlope"_s,
+        const QStringList edgeOnly{u"triggerMode"_s, u"triggerSource"_s, u"triggerSlope"_s, u"triggerLevel"_s,
                                    u"triggerTimeout"_s, u"triggerHoldoff"_s, u"triggerHysteresis"_s,
-                                   u"horizontalPosition"_s};
-        QCOMPARE(scope.triggerType(), ScopeController::Immediate);
-        QVERIFY(panel.shown(u"triggerMode"_s));
-        for (const QString& name : edgeOnly) {
-            QVERIFY2(panel.find(name), qPrintable(name));
-            QVERIFY2(!panel.shown(name), qPrintable(name + u" shown with Immediate"_s));
-        }
-        QVERIFY(!panel.find(u"triggerLevelMarker"_s)->property("visible").toBool());
-        // The trigger level knob stays in the bar (no reflow), disabled while the trigger is None.
-        QVERIFY(panel.shown(u"triggerLevel"_s));
-        QVERIFY(!panel.find(u"triggerLevel"_s)->property("enabled").toBool());
-
-        scope.setTriggerType(ScopeController::Edge);
-        panel.window->renderFrame();
+                                   u"horizontalPosition"_s, u"triggerAdvancedButton"_s};
         for (const QString& name : edgeOnly) {
             QVERIFY2(panel.shown(name), qPrintable(name + u" hidden with Edge"_s));
             QVERIFY2(panel.find(name)->property("enabled").toBool(), qPrintable(name + u" disabled"_s));
         }
         QVERIFY(panel.find(u"triggerLevelMarker"_s)->property("visible").toBool());
-        QVERIFY(panel.find(u"triggerLevel"_s)->property("enabled").toBool());
+
+        scope.setTriggerType(ScopeController::Immediate);
+        panel.window->renderFrame();
+        for (const QString& name : edgeOnly) {
+            QVERIFY2(panel.find(name), qPrintable(name));
+            QVERIFY2(!panel.shown(name), qPrintable(name + u" shown with Immediate"_s));
+        }
+        QVERIFY(!panel.find(u"triggerLevelMarker"_s)->property("visible").toBool());
+        // The type stays visible (the way back to Edge).
+        QVERIFY(panel.shown(u"triggerTypeEdge"_s));
+        QVERIFY(panel.shown(u"triggerTypeImmediate"_s));
+        QVERIFY(panel.find(u"triggerTypeImmediate"_s)->property("checked").toBool());
+
+        scope.setTriggerType(ScopeController::Edge);
+        panel.window->renderFrame();
+        QVERIFY(panel.shown(u"triggerLevel"_s));
 
         QVERIFY(panel.shown(u"inputRange0"_s));
         QVERIFY(scope.setChannelSource(0, ScopeChannel::AudioLeft));
@@ -349,6 +375,206 @@ private slots:
         scope.setTimePerDiv(50e-3);
         panel.window->renderFrame();
         QVERIFY(panel.shown(u"rollMode"_s));
+        // Roll is untriggered: the edge settings hide, the type stays.
+        scope.setRollMode(true);
+        panel.window->renderFrame();
+        QVERIFY(scope.rolling());
+        for (const QString& name : {u"triggerLevel"_s, u"triggerSource"_s, u"triggerMode"_s, u"horizontalPosition"_s})
+            QVERIFY2(!panel.shown(name), qPrintable(name + u" shown while rolling"_s));
+        QVERIFY(panel.shown(u"triggerTypeEdge"_s));
+    }
+
+    // Round 5 (Alex: "where are the horizontal controls, trigger"): timebase, trigger position,
+    // type, mode, source, slope and level are on screen with no tool open; one control per action
+    // (no Math/References cards beside their tools, no FFT or Trigger tool, no range chip beside
+    // the range buttons); the column keeps one width; an open tool panel pushes the display aside
+    // when there is room (the traces stay visible) and floats in a narrow pane.
+    void horizontalAndTriggerAlwaysVisible()
+    {
+        ScopeController scope;
+        scope.initialize();
+        Panel panel;
+        if (!createPanel(scope, panel))
+            QSKIP("no graphics device");
+        QCOMPARE(panel.root->property("tool").toString(), QString());
+        for (const QString& name : {u"timeDiv"_s, u"horizontalPosition"_s, u"triggerCard"_s, u"triggerTypeImmediate"_s,
+                                    u"triggerTypeEdge"_s, u"triggerMode"_s, u"triggerSource"_s, u"triggerSlope"_s,
+                                    u"triggerLevel"_s, u"displayMode"_s, u"mathCard"_s, u"toolPalette"_s})
+            QVERIFY2(panel.shown(name), qPrintable(name + u" not visible without a tool"_s));
+        // The slope choices are pictograms.
+        const QVariantList slopes = panel.find(u"triggerSlope"_s)->property("model").toList();
+        QCOMPARE(slopes.size(), 2);
+        for (const QVariant& slope : slopes)
+            QVERIFY(!slope.toMap().value(u"icon"_s).toString().isEmpty());
+
+        // No duplicates: the tools are what no card shows.
+        QStringList tools;
+        for (const QVariant& entry : panel.find(u"toolPalette"_s)->property("model").toList())
+            tools.append(entry.toMap().value(u"id"_s).toString());
+        // (Export and print are the pane's ⋯ menu entries.)
+        QCOMPARE(tools, (QStringList{u"measure"_s, u"cursors"_s, u"references"_s, u"display"_s}));
+        for (const QString& gone : {u"mathPanel"_s, u"fftPanel"_s, u"triggerPanel"_s, u"exportPanel"_s, u"mathSwitch"_s})
+            QVERIFY2(!panel.find(gone), qPrintable(gone + u" still exists"_s));
+        QVERIFY(panel.find(u"channelCard0"_s)->property("facts").toList().isEmpty());
+        QVERIFY(scope.setChannelSource(0, ScopeChannel::AudioLeft));   // no range buttons: the card says it
+        QCOMPARE(panel.find(u"channelCard0"_s)->property("facts").toList().size(), 1);
+        QVERIFY(scope.setChannelSource(0, ScopeChannel::AI0));
+
+        // One column width; the default screen (CH 1 off) needs no scrolling at 1440 × 900.
+        auto* column = qobject_cast<QQuickItem*>(panel.find(u"scopeColumn"_s));
+        auto* display = qobject_cast<QQuickItem*>(panel.find(u"ytPlot"_s));
+        QVERIFY(column && display);
+        QCOMPARE(column->width(), 260.0);
+        QVERIFY(!column->property("scrolls").toBool());
+        const double displayWidth = display->width();
+        scope.setChannelEnabled(1, true);
+        scope.math()->setEnabled(true);
+        panel.window->renderFrame();
+        QCOMPARE(column->width(), 260.0);
+        QCOMPARE(display->width(), displayWidth);
+        QVERIFY(!panel.find(u"channelCard1"_s)->property("facts").toList().size());
+
+        // A tool panel beside the display, not over the traces.
+        panel.root->setProperty("tool", u"measure"_s);
+        panel.window->renderFrame();
+        auto* measure = qobject_cast<QQuickItem*>(panel.find(u"measurePanel"_s));
+        QVERIFY(measure && measure->isVisible());
+        const auto left = [](QQuickItem* i) { return i->mapToScene(QPointF(0, 0)).x(); };
+        QVERIFY2(left(display) + display->width() <= left(measure) + 0.5,
+                 qPrintable(u"display right %1, panel left %2"_s.arg(left(display) + display->width()).arg(left(measure))));
+        QVERIFY(display->width() < displayWidth);
+        panel.root->setProperty("tool", QString());
+        panel.window->renderFrame();
+        QCOMPARE(display->width(), displayWidth);
+    }
+
+    void toolPanelFloatsWhenNarrow()
+    {
+        ScopeController scope;
+        scope.initialize();
+        Panel panel;
+        if (!createPanel(scope, panel, QSize(900, 700)))
+            QSKIP("no graphics device");
+        auto* column = qobject_cast<QQuickItem*>(panel.find(u"scopeColumn"_s));
+        auto* display = qobject_cast<QQuickItem*>(panel.find(u"ytPlot"_s));
+        QCOMPARE(column->width(), 220.0);
+        const double displayWidth = display->width();
+        panel.root->setProperty("tool", u"measure"_s);
+        panel.window->renderFrame();
+        QCOMPARE(display->width(), displayWidth);
+        // The narrow view controls fit the compact column.
+        auto* view = qobject_cast<QQuickItem*>(panel.find(u"displayMode"_s));
+        QVERIFY(view && view->isVisible());
+        const double right = view->mapToScene(QPointF(view->width(), 0)).x();
+        QVERIFY2(right <= column->mapToScene(QPointF(column->width(), 0)).x() + 0.5, qPrintable(QString::number(right)));
+        // The Trigger card's header fits the compact column (the mode gets a row of its own).
+        auto* card = qobject_cast<QQuickItem*>(panel.find(u"triggerCard"_s));
+        auto* sliders = qobject_cast<QQuickItem*>(panel.find(u"triggerAdvancedButton"_s));
+        auto* mode = qobject_cast<QQuickItem*>(panel.find(u"triggerMode"_s));
+        QVERIFY(card && sliders && mode && mode->isVisible());
+        const double cardRight = card->mapToScene(QPointF(card->width(), 0)).x();
+        QVERIFY2(sliders->mapToScene(QPointF(sliders->width(), 0)).x() <= cardRight + 0.5, "sliders button outside the card");
+        QVERIFY2(mode->mapToScene(QPointF(mode->width(), 0)).x() <= cardRight + 0.5, "trigger mode outside the card");
+    }
+
+    // Martin: "cursors that are both the same color". C1 / C2 (and H1 / H2) are drawn in the two
+    // cursor pair colors, the same in their card; the card reads Δt, 1/Δt and ΔV.
+    void cursorPairColors()
+    {
+        ScopeController scope;
+        scope.initialize();
+        scope.setCursorsOn(true);
+        scope.setLevelCursorsOn(true);
+        scope.setChannelEnabled(1, true);   // C2 follows CH 1 (ELVISmx default)
+        Panel panel;
+        if (!createPanel(scope, panel))
+            QSKIP("no graphics device");
+        QSignalSpy frames(&scope, &ScopeController::recordChanged);
+        scope.run();
+        QTRY_VERIFY_WITH_TIMEOUT(frames.count() >= 2, 20000);
+        scope.stop();
+        QTRY_VERIFY(scope.isIdle());
+        panel.window->renderFrame();
+        QObject* c1 = panel.find(u"cursorItem1"_s);
+        QObject* c2 = panel.find(u"cursorItem2"_s);
+        QObject* card = panel.find(u"cursorCard"_s);
+        QVERIFY(c1 && c2 && card);
+        const QColor color1 = c1->property("color").value<QColor>();
+        const QColor color2 = c2->property("color").value<QColor>();
+        QVERIFY2(color1 != color2, "C1 and C2 have the same color");
+        QCOMPARE(card->property("color1").value<QColor>(), color1);
+        QCOMPARE(card->property("color2").value<QColor>(), color2);
+        QCOMPARE(panel.find(u"levelCursor1"_s)->property("color").value<QColor>(), color1);
+        QCOMPARE(panel.find(u"levelCursor2"_s)->property("color").value<QColor>(), color2);
+        // Readouts: Δt large, then 1/Δt, ΔV, C1, C2.
+        const double dt = scope.cursor2()->position() - scope.cursor1()->position();
+        QCOMPARE(card->property("value").toString(), scope.formatMeasurement(dt, u"s"_s));
+        QStringList names;
+        for (const QVariant& item : card->property("items").toList()) {
+            names.append(item.toMap().value(u"name"_s).toString());
+            QVERIFY2(!item.toMap().value(u"text"_s).toString().isEmpty(), qPrintable(names.last()));
+        }
+        QCOMPARE(names, (QStringList{u"1/Δt"_s, u"ΔV"_s, u"C1"_s, u"C2"_s}));
+        QVERIFY(card->property("items").toList().first().toMap().value(u"text"_s).toString().endsWith(u"Hz"_s));
+        QVERIFY(panel.shown(u"levelCursorCard"_s));
+        // Δt is in the card: the plot's own Δ chip between C1 and C2 is off (follow-up, ui/plot switch).
+        QVERIFY(!panel.find(u"ytPlot"_s)->property("cursorDeltaVisible").toBool());
+        // The Trace Styles dialog offers the cursors in their own colors.
+        bool found1 = false, found2 = false;
+        const QVariantList styles = panel.root->property("panel").value<QObject*>()->property("traceStyles").toList();
+        for (const QVariant& entry : styles) {
+            const QVariantMap m = entry.toMap();
+            if (m.value(u"name"_s).toString() == u"Cursor C1"_s)
+                found1 = m.value(u"color"_s).value<QColor>() == color1;
+            if (m.value(u"name"_s).toString() == u"Cursor C2"_s)
+                found2 = m.value(u"color"_s).value<QColor>() == color2;
+        }
+        QVERIFY(found1 && found2);
+    }
+
+    // Screenshots of busy states for review (SCOPE_SHOTS=<dir>): everything on, FFT view.
+    void reviewShots()
+    {
+        const QString dir = qEnvironmentVariable("SCOPE_SHOTS");
+        if (dir.isEmpty())
+            QSKIP("SCOPE_SHOTS not set");
+        ScopeController scope;
+        scope.initialize();
+        scope.setChannelEnabled(1, true);
+        scope.math()->setEnabled(true);
+        scope.setCursorsOn(true);
+        scope.setLevelCursorsOn(true);
+        Panel panel;
+        if (!createPanel(scope, panel))
+            QSKIP("no graphics device");
+        QSignalSpy frames(&scope, &ScopeController::recordChanged);
+        scope.run();
+        QTRY_VERIFY_WITH_TIMEOUT(frames.count() >= 3, 20000);
+        for (int i = 0; i < 3; ++i) {
+            panel.window->renderFrame();
+            QCoreApplication::processEvents();
+        }
+        QVERIFY(panel.window->grab().save(dir + u"/scope-all-on.png"_s));
+        panel.root->setProperty("tool", u"cursors"_s);
+        panel.find(u"triggerCard"_s)->setProperty("advanced", true);
+        scope.math()->setEnabled(false);
+        scope.setLevelCursorsOn(false);
+        scope.setFftSource(ScopeController::FftChannel0);
+        const int seen = frames.count();
+        QTRY_VERIFY_WITH_TIMEOUT(frames.count() >= seen + 3, 20000);
+        for (int i = 0; i < 3; ++i) {
+            panel.window->renderFrame();
+            QCoreApplication::processEvents();
+        }
+        QVERIFY(panel.window->grab().save(dir + u"/scope-fft-cursors.png"_s));
+        panel.root->setProperty("tool", QString());
+        for (int i = 0; i < 3; ++i) {
+            panel.window->renderFrame();
+            QCoreApplication::processEvents();
+        }
+        QVERIFY(panel.window->grab().save(dir + u"/scope-fft.png"_s));
+        scope.stop();
+        QTRY_VERIFY(scope.isIdle());
     }
 
     // The measurement strip is the only place to choose measurements: "+" adds a row for every
@@ -429,8 +655,8 @@ private slots:
         Panel panel;
         if (!createPanel(scope, panel))
             QSKIP("no graphics device");
-        QCOMPARE(panel.find(u"fftSource"_s)->property("currentIndex").toInt(), 2);
-        QVERIFY(!panel.find(u"mathSwitch"_s)->property("checked").toBool());
+        QCOMPARE(panel.find(u"fftSource"_s)->property("currentIndex").toInt(), 1);   // CH0, CH1
+        QVERIFY(!panel.find(u"mathCard"_s)->property("checked").toBool());
         QVERIFY(panel.find(u"fftPlot"_s)->property("visible").toBool());
     }
 };

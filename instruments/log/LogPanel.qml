@@ -11,10 +11,12 @@ import MyBench.Plot
 // - pane header: Run/Stop, Record (Pause while recording), sampling-rate knob;
 // - display (left, largest): the multi-channel trend (10 s … All in its toolbar), the DMM's own
 //   chart when it is logged next to AI channels, and an overview of the whole run;
-// - right column: recording state, one ChannelCard per input (AI 0, AI 1, DMM with function and
-//   range buttons), tool palette (Log File, Limits, Display) whose panels float over the display;
-// - bottom strip: per-channel value + statistics cards.
-// Channel and sampling settings are locked while the logger runs; their tooltips say why.
+// - right column (shared InstrumentColumn): the recording card while a file is written, one
+//   ChannelCard per input (AI 0, AI 1, DMM with function pictures and a range knob), tool palette
+//   (Log File, Limits, Display) pinned at the bottom, its panels float over the display;
+// - bottom strip: per-channel value + statistics cards (same cards as every instrument).
+// Channel and sampling settings are locked while the logger runs: the DMM card then shows its
+// function and range as facts (no disabled button grid); tooltips say why.
 Item {
     id: root
 
@@ -24,8 +26,17 @@ Item {
     readonly property bool analog: controller.ai0Enabled || controller.ai1Enabled
     readonly property bool elvismx: controller.fileLayout === LogController.ElvismxLayout
     readonly property bool narrow: width < Theme.instrumentCompactWidth
+    // The DMM channel's color (card, trace, value card).
+    readonly property color dmmColor: Theme.signalRef
+    // DMM functions of the logger (LogController.dmmFunctionNames order) as pictures.
+    readonly property var dmmFunctions: [
+        { icon: "dmm-vdc", caption: qsTr("DC V") },
+        { icon: "dmm-vac", caption: qsTr("AC V") },
+        { icon: "dmm-adc", caption: qsTr("DC A") },
+        { icon: "dmm-aac", caption: qsTr("AC A") },
+        { icon: "dmm-ohm", caption: qsTr("Ohms") }
+    ]
     readonly property string lockedText: qsTr("Stop the logger to change this")
-    readonly property var spans: [10, 60, 600, 3600, 0]
     readonly property var rates: [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000]
     property int spanIndex: 1
     property string tool: ""
@@ -39,40 +50,12 @@ Item {
         }
         return null
     }
-    function latestX(): real {
-        let last = NaN
-        for (const b of [root.controller.ai0, root.controller.ai1, root.controller.dmm]) {
-            if (b.count > 0) {
-                const x = b.xMaximum()
-                if (isNaN(last) || x > last)
-                    last = x
-            }
-        }
-        return isNaN(last) ? Date.now() / 1000 : last
-    }
-    function firstX(): real {
-        let first = NaN
-        for (const b of [root.controller.ai0, root.controller.ai1, root.controller.dmm]) {
-            if (b.count > 0) {
-                const x = b.xMinimum()
-                if (isNaN(first) || x < first)
-                    first = x
-            }
-        }
-        return isNaN(first) ? Date.now() / 1000 - 60 : first
-    }
+    // A time window of the chart: TrendView fits the axis to the data (starts at the first sample,
+    // grows with the run up to the window, then slides) while it follows.
     function showSpan(index: int) {
         root.spanIndex = index
-        const axis = trend.plot.xAxis
-        const last = root.latestX()
-        const span = root.spans[index]
-        if (span <= 0) {
-            axis.follow = false
-            axis.setViewRange(root.firstX(), Math.max(last, root.firstX() + 1))
-        } else {
-            axis.setViewRange(last - span, last)
-            axis.follow = true
-        }
+        trend.following = true
+        trend.fit()
     }
     function duration(seconds: real): string {
         const s = Math.floor(seconds)
@@ -224,7 +207,6 @@ Item {
                     plot.leftMargin: Math.max(trend.plot.implicitLeftMargin, dmmPlot.visible ? dmmPlot.implicitLeftMargin : 0)
                     plot.placeholderText: root.controller.running ? qsTr("Waiting for samples…") : qsTr("Press Run to start logging")
                     plot.xAxis.labelFormat: PlotAxis.Time
-                    plot.xAxis.follow: true
                     plot.xAxis.tickSpacing: 110
                     plot.yAxis.autoScale: true
                     plot.yAxis.min: root.controller.minimum
@@ -233,7 +215,7 @@ Item {
                     plot.yAxis.unitInLabels: true
                     PlotTrace { visible: root.controller.ai0Enabled; name: "AI 0"; unit: "V"; buffer: root.controller.ai0; color: Theme.signalCh0; width: 1.3 }
                     PlotTrace { visible: root.controller.ai1Enabled; name: "AI 1"; unit: "V"; buffer: root.controller.ai1; color: Theme.signalCh1; width: 1.3 }
-                    Component.onCompleted: trend.plot.xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
+                    buffers: [root.controller.ai0, root.controller.ai1, root.controller.dmm]
                 }
 
                 BenchPlot {
@@ -242,15 +224,16 @@ Item {
                     visible: root.controller.dmmEnabled
                     Layout.fillWidth: true
                     Layout.fillHeight: !root.analog
-                    Layout.preferredHeight: root.analog ? Math.max(Theme.controlHeightL * 3, trend.height * 0.35) : -1
+                    Layout.preferredHeight: root.analog ? Math.max(Theme.controlHeightL * 3, display.height * 0.26) : -1   // not trend.height: polish loop
                     interactive: !root.analog
                     hoverReadout: true
+                    legendVisible: true      // names the chart ("DMM") in its trace color
                     leftMargin: trend.visible ? trend.plot.leftMargin : -1
                     placeholderText: qsTr("DMM")
                     xAxis { labelFormat: PlotAxis.Time; follow: !root.analog; tickSpacing: 110 }
-                    yAxis { autoScale: true; unit: root.controller.dmmUnit; unitInLabels: true; title: qsTr("DMM") }
+                    yAxis { autoScale: true; unit: root.controller.dmmUnit; unitInLabels: true }
                     Component.onCompleted: xAxis.setRange(Date.now() / 1000 - 60, Date.now() / 1000)
-                    PlotTrace { name: qsTr("DMM"); unit: root.controller.dmmUnit; buffer: root.controller.dmm; color: Theme.text; width: 1.3; pointsVisible: true }
+                    PlotTrace { name: qsTr("DMM"); unit: root.controller.dmmUnit; buffer: root.controller.dmm; color: root.dmmColor; width: 1.3; pointsVisible: true }
                     Connections {
                         target: trend.plot.xAxis
                         enabled: root.analog
@@ -278,7 +261,7 @@ Item {
                         draggable: true
                         color: Theme.alpha(Theme.accent, 0.20)
                         onMoved: (from, to) => {
-                            trend.plot.xAxis.follow = false
+                            trend.following = false
                             trend.plot.xAxis.setViewRange(from, to)
                         }
                     }
@@ -286,196 +269,165 @@ Item {
             }
 
             // --- Right column ---------------------------------------------------------------------
-            Rectangle {
+            InstrumentColumn {
                 id: column
                 objectName: "logControls"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                // Split screen: the column shrinks with the pane so the display stays the larger part.
-                width: root.narrow ? Math.round(Math.max(150, Math.min(Theme.instrumentColumnCompactWidth, root.width * 0.42)))
-                                   : Theme.instrumentColumnWidth
-                color: Theme.window
-                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+                compact: root.narrow
 
-                Flickable {
-                    id: columnFlick
-                    anchors { fill: parent; leftMargin: 1 }
-                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { }
-
+                // Recording: only while a file is written (the Record button shows the rest).
+                Rectangle {
+                    objectName: "logRecordState"
+                    readonly property bool active: root.controller.recording && !root.controller.recordPaused
+                    visible: root.controller.recording
+                    Layout.fillWidth: true
+                    implicitHeight: recColumn.implicitHeight + 2 * Theme.spacingS
+                    radius: Theme.radiusPopup
+                    color: active ? Theme.alpha(Theme.negative, Theme.dark ? 0.14 : 0.08) : Theme.cardFill
+                    border.color: active ? Theme.alpha(Theme.negative, 0.55) : Theme.cardBorder
                     ColumnLayout {
-                        id: columnLayout
-                        x: Theme.spacingS
-                        y: Theme.spacingS
-                        width: columnFlick.width - 2 * Theme.spacingS
-                        spacing: Theme.spacingS
-
-                        // Recording state.
-                        Rectangle {
-                            objectName: "logRecordState"
-                            readonly property bool active: root.controller.recording && !root.controller.recordPaused
-                            Layout.fillWidth: true
-                            implicitHeight: recColumn.implicitHeight + 2 * Theme.spacingS
-                            radius: Theme.radiusPopup
-                            color: active ? Theme.alpha(Theme.negative, Theme.dark ? 0.14 : 0.08) : Theme.cardFill
-                            border.color: active ? Theme.alpha(Theme.negative, 0.55) : Theme.cardBorder
-                            ColumnLayout {
-                                id: recColumn
-                                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Theme.spacingS }
-                                spacing: 2
-                                RowLayout {
-                                    spacing: Theme.spacingS
-                                    Rectangle {
-                                        id: recDot
-                                        implicitWidth: Theme.spacingS
-                                        implicitHeight: Theme.spacingS
-                                        radius: width / 2
-                                        color: root.controller.recording ? (root.controller.recordPaused ? Theme.caution : Theme.negative)
-                                                                         : Theme.textTertiary
-                                        SequentialAnimation on opacity {
-                                            running: root.controller.recording && !root.controller.recordPaused && Theme.animations
-                                            loops: Animation.Infinite
-                                            NumberAnimation { to: 0.25; duration: 700 }
-                                            NumberAnimation { to: 1; duration: 700 }
-                                            onStopped: recDot.opacity = 1
-                                        }
-                                    }
-                                    Text {
-                                        text: root.controller.recording ? (root.controller.recordPaused ? qsTr("Paused") : qsTr("Recording"))
-                                                                        : root.controller.running ? qsTr("Monitoring") : qsTr("Not recording")
-                                        color: root.controller.recording ? (root.controller.recordPaused ? Theme.caution : Theme.negative)
-                                                                         : Theme.textSecondary
-                                        font.pixelSize: Theme.fontSizeCaption
-                                        font.weight: Font.DemiBold
-                                    }
-                                    Item { Layout.fillWidth: true }
-                                    Text {
-                                        text: root.controller.recording ? root.duration(root.controller.recordSeconds) : ""
-                                        color: Theme.text
-                                        font.pixelSize: Theme.fontSizeBody
-                                        font.features: Theme.tabularFigures
-                                    }
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    visible: root.controller.recordFile.length > 0
-                                    text: root.fileName(root.controller.recordFile) + (root.controller.recording
-                                              ? "  ·  " + Units.format(root.controller.recordBytes, "B", 3) : "")
-                                    color: Theme.textTertiary
-                                    font.pixelSize: Theme.fontSizeCaption
-                                    elide: Text.ElideMiddle
-                                }
-                            }
-                        }
-
-                        // The channel cards are locked while the logger runs; hovering them says why.
-                        ColumnLayout {
-                            Layout.fillWidth: true
+                        id: recColumn
+                        anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Theme.spacingS }
+                        spacing: 2
+                        RowLayout {
                             spacing: Theme.spacingS
-                            HoverHandler { id: channelsHover }
-                            ToolTip.visible: root.controller.running && channelsHover.hovered
-                            ToolTip.text: root.lockedText
-
-                            ChannelCard {
-                                objectName: "logCardAi0"
-                                Layout.fillWidth: true
-                                title: "AI 0"
-                                color: Theme.signalCh0
-                                compact: root.narrow
-                                checked: root.controller.ai0Enabled
-                                enabled: !root.controller.running
-                                facts: [qsTr("±%1 V").arg(root.controller.hardwareRange)]
-                                onToggled: on => root.controller.ai0Enabled = on
-                            }
-                            ChannelCard {
-                                objectName: "logCardAi1"
-                                Layout.fillWidth: true
-                                title: "AI 1"
-                                color: Theme.signalCh1
-                                compact: root.narrow
-                                checked: root.controller.ai1Enabled
-                                enabled: !root.controller.running
-                                facts: [qsTr("±%1 V").arg(root.controller.hardwareRange)]
-                                onToggled: on => root.controller.ai1Enabled = on
-                            }
-                            ChannelCard {
-                                objectName: "logCardDmm"
-                                Layout.fillWidth: true
-                                title: qsTr("DMM")
-                                // The function shows once: as the checked button, or here while off.
-                                subtitle: root.controller.dmmEnabled ? "" : root.controller.dmmFunctionNames[root.controller.dmmFunction] ?? ""
-                                color: Theme.textSecondary
-                                compact: root.narrow
-                                checked: root.controller.dmmEnabled
-                                enabled: !root.controller.running
-                                onToggled: on => root.controller.dmmEnabled = on
-
-                                GridLayout {
-                                    Layout.fillWidth: true
-                                    columns: 2
-                                    rowSpacing: Theme.spacingXs
-                                    columnSpacing: Theme.spacingXs
-                                    Repeater {
-                                        model: root.controller.dmmFunctionNames
-                                        delegate: Button {
-                                            required property string modelData
-                                            required property int index
-                                            Layout.fillWidth: true
-                                            Layout.preferredWidth: 1
-                                            text: modelData
-                                            checkable: true
-                                            highlighted: checked
-                                            checked: index === root.controller.dmmFunction
-                                            focusPolicy: Qt.TabFocus
-                                            onClicked: {
-                                                root.controller.dmmFunction = index
-                                                checked = Qt.binding(() => index === root.controller.dmmFunction)
-                                            }
-                                        }
-                                    }
+                            Rectangle {
+                                id: recDot
+                                implicitWidth: Theme.spacingS
+                                implicitHeight: Theme.spacingS
+                                radius: width / 2
+                                color: root.controller.recordPaused ? Theme.caution : Theme.negative
+                                SequentialAnimation on opacity {
+                                    running: root.controller.recording && !root.controller.recordPaused && Theme.animations
+                                    loops: Animation.Infinite
+                                    NumberAnimation { to: 0.25; duration: 700 }
+                                    NumberAnimation { to: 1; duration: 700 }
+                                    onStopped: recDot.opacity = 1
                                 }
-                                GridLayout {
-                                    Layout.fillWidth: true
-                                    columns: 3
-                                    rowSpacing: Theme.spacingXs
-                                    columnSpacing: Theme.spacingXs
-                                    Repeater {
-                                        model: root.controller.dmmRangeNames
-                                        delegate: Button {
-                                            required property string modelData
-                                            required property int index
-                                            Layout.fillWidth: true
-                                            Layout.preferredWidth: 1
-                                            text: modelData
-                                            checkable: true
-                                            highlighted: checked
-                                            checked: index === root.controller.dmmRange
-                                            focusPolicy: Qt.TabFocus
-                                            onClicked: {
-                                                root.controller.dmmRange = index
-                                                checked = Qt.binding(() => index === root.controller.dmmRange)
-                                            }
-                                        }
-                                    }
-                                }
+                            }
+                            Text {
+                                text: root.controller.recordPaused ? qsTr("Paused") : qsTr("Recording")
+                                color: root.controller.recordPaused ? Theme.caution : Theme.negative
+                                font.pixelSize: Theme.fontSizeCaption
+                                font.weight: Font.DemiBold
+                            }
+                            Item { Layout.fillWidth: true }
+                            Text {
+                                text: root.duration(root.controller.recordSeconds)
+                                color: Theme.text
+                                font.pixelSize: Theme.fontSizeBody
+                                font.features: Theme.tabularFigures
                             }
                         }
-
-                        ToolPalette {
-                            objectName: "logTools"
+                        Text {
                             Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingXs
-                            columns: 3
-                            currentId: root.tool
-                            model: [
-                                { id: "file", text: root.narrow ? "" : qsTr("Log File"), icon: "folder-open" },
-                                { id: "limits", text: root.narrow ? "" : qsTr("Limits"), icon: "sliders" },
-                                { id: "display", text: root.narrow ? "" : qsTr("Display"), icon: "settings" }
-                            ]
-                            onActivated: id => root.toggleTool(id)
+                            text: root.fileName(root.controller.recordFile) + "  ·  " + Units.format(root.controller.recordBytes, "B", 3)
+                            color: Theme.textTertiary
+                            font.pixelSize: Theme.fontSizeCaption
+                            elide: Text.ElideMiddle
                         }
                     }
+                }
+
+                // The channel cards are locked while the logger runs; hovering them says why.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingS
+                    HoverHandler { id: channelsHover }
+                    ToolTip.visible: root.controller.running && channelsHover.hovered
+                    ToolTip.text: root.lockedText
+
+                    ChannelCard {
+                        objectName: "logCardAi0"
+                        Layout.fillWidth: true
+                        title: "AI 0"
+                        color: Theme.signalCh0
+                        compact: root.narrow
+                        checked: root.controller.ai0Enabled
+                        enabled: !root.controller.running
+                        facts: [qsTr("±%1 V").arg(root.controller.hardwareRange)]
+                        onToggled: on => root.controller.ai0Enabled = on
+                    }
+                    ChannelCard {
+                        objectName: "logCardAi1"
+                        Layout.fillWidth: true
+                        title: "AI 1"
+                        color: Theme.signalCh1
+                        compact: root.narrow
+                        checked: root.controller.ai1Enabled
+                        enabled: !root.controller.running
+                        facts: [qsTr("±%1 V").arg(root.controller.hardwareRange)]
+                        onToggled: on => root.controller.ai1Enabled = on
+                    }
+                    ChannelCard {
+                        id: dmmCard
+                        objectName: "logCardDmm"
+                        Layout.fillWidth: true
+                        title: qsTr("DMM")
+                        color: root.dmmColor
+                        compact: root.narrow
+                        collapseWhenOff: true          // off = header only (no dimmed button grid)
+                        checked: root.controller.dmmEnabled
+                        enabled: !root.controller.running
+                        // While running (settings locked) and while off: function and range as facts.
+                        readonly property bool editable: root.controller.dmmEnabled && !root.controller.running
+                        facts: editable ? [] : [root.dmmFunctions[root.controller.dmmFunction]?.caption ?? "",
+                                                root.controller.dmmRangeNames[root.controller.dmmRange] ?? ""]
+                        onToggled: on => root.controller.dmmEnabled = on
+
+                        GridLayout {
+                            objectName: "logDmmFunctions"
+                            visible: dmmCard.editable
+                            Layout.fillWidth: true
+                            columns: 3
+                            rowSpacing: Theme.spacingXs
+                            columnSpacing: Theme.spacingXs
+                            Repeater {
+                                model: root.dmmFunctions
+                                delegate: PictureButton {
+                                    required property var modelData
+                                    required property int index
+                                    objectName: "logDmmFunction" + index
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitWidth: 56
+                                    text: modelData.caption
+                                    iconName: modelData.icon
+                                    accentColor: root.dmmColor
+                                    checked: index === root.controller.dmmFunction
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: root.controller.dmmFunctionNames[index] ?? ""
+                                    onClicked: root.controller.dmmFunction = index
+                                }
+                            }
+                        }
+                        KnobField {
+                            objectName: "logDmmRange"
+                            visible: dmmCard.editable
+                            Layout.fillWidth: true
+                            label: qsTr("Range")
+                            knobSize: 34
+                            compact: root.narrow
+                            accentColor: root.dmmColor
+                            values: root.controller.dmmRangeNames.map((n, i) => i)
+                            labels: root.controller.dmmRangeNames
+                            currentIndex: root.controller.dmmRange
+                            toolTip: qsTr("Auto, or a fixed range of the function")
+                            onIndexActivated: index => root.controller.dmmRange = index
+                        }
+                    }
+                }
+
+                tools: ToolPalette {
+                    objectName: "logTools"
+                    columns: 3
+                    currentId: root.tool
+                    model: [
+                        { id: "file", text: qsTr("Log File"), icon: "folder-open" },
+                        { id: "limits", text: qsTr("Limits"), icon: "sliders" },
+                        { id: "display", text: qsTr("Display"), icon: "settings" }
+                    ]
+                    onActivated: id => root.toggleTool(id)
                 }
             }
 
@@ -650,13 +602,10 @@ Item {
                     onCloseRequested: root.tool = ""
                     Switch {
                         text: qsTr("Follow the latest data")
-                        checked: trend.plot.xAxis.follow
+                        checked: trend.following
                         onToggled: {
-                            if (checked)
-                                root.showSpan(root.spanIndex === 4 ? 1 : root.spanIndex)
-                            else
-                                trend.plot.xAxis.follow = false
-                            checked = Qt.binding(() => trend.plot.xAxis.follow)
+                            trend.following = checked
+                            checked = Qt.binding(() => trend.following)
                         }
                     }
                     Switch {
@@ -670,41 +619,41 @@ Item {
 
         // --- Bottom: per-channel value + statistics cards ----------------------------------------
         measurements: [
-            RowLayout {
+            Flow {
                 objectName: "logCards"
+                width: parent ? parent.width : 0
                 spacing: Theme.spacingS
-                MeasurementCard {
+                padding: Theme.spacingS
+                component ChannelValue: MeasurementCard {
+                    property string key
+                    removable: false
+                    width: Math.max(implicitWidth, root.narrow ? 160 : 220)
+                    value: root.cardValue(key, unit)
+                    stats: root.cardStats(key, unit)
+                }
+                ChannelValue {
+                    objectName: "logValueAi0"
                     visible: root.controller.ai0Enabled
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
+                    key: "ai0"
                     title: "AI 0"
                     color: Theme.signalCh0
-                    removable: false
                     unit: "V"
-                    value: root.cardValue("ai0", "V")
-                    stats: root.cardStats("ai0", "V")
                 }
-                MeasurementCard {
+                ChannelValue {
+                    objectName: "logValueAi1"
                     visible: root.controller.ai1Enabled
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
+                    key: "ai1"
                     title: "AI 1"
                     color: Theme.signalCh1
-                    removable: false
                     unit: "V"
-                    value: root.cardValue("ai1", "V")
-                    stats: root.cardStats("ai1", "V")
                 }
-                MeasurementCard {
+                ChannelValue {
+                    objectName: "logValueDmm"
                     visible: root.controller.dmmEnabled
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
+                    key: "dmm"
                     title: qsTr("DMM")
-                    color: Theme.textSecondary
-                    removable: false
+                    color: root.dmmColor
                     unit: root.controller.dmmUnit
-                    value: root.cardValue("dmm", root.controller.dmmUnit)
-                    stats: root.cardStats("dmm", root.controller.dmmUnit)
                 }
             }
         ]

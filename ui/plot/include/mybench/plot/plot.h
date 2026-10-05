@@ -84,6 +84,7 @@ class Plot : public QQuickItem
     Q_PROPERTY(bool interactive READ interactive WRITE setInteractive NOTIFY interactionChanged FINAL)
     Q_PROPERTY(DragMode dragMode READ dragMode WRITE setDragMode NOTIFY interactionChanged FINAL)
     Q_PROPERTY(bool hoverReadout READ hoverReadout WRITE setHoverReadout NOTIFY interactionChanged FINAL)
+    Q_PROPERTY(bool cursorDeltaVisible READ cursorDeltaVisible WRITE setCursorDeltaVisible NOTIFY interactionChanged FINAL)
     Q_PROPERTY(bool legendVisible READ legendVisible WRITE setLegendVisible NOTIFY styleChanged FINAL)
     Q_PROPERTY(Corner legendPosition READ legendPosition WRITE setLegendPosition NOTIFY styleChanged FINAL)
     Q_PROPERTY(ZoomAxes zoomAxes READ zoomAxes WRITE setZoomAxes NOTIFY interactionChanged FINAL)
@@ -173,6 +174,10 @@ public:
     // Crosshair + tooltip with every trace's value at the pointer.
     bool hoverReadout() const;
     void setHoverReadout(bool on);
+    // The Δ chip between the first two vertical cursors (default on; off when the instrument
+    // shows the difference elsewhere, e.g. the Oscilloscope's cursor card).
+    bool cursorDeltaVisible() const;
+    void setCursorDeltaVisible(bool on);
     bool legendVisible() const;
     void setLegendVisible(bool on);
     Corner legendPosition() const;

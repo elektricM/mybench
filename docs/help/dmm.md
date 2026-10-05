@@ -9,9 +9,9 @@ It opens in DC Voltage on the 60V range and waits for you to press **Run** (an o
 **Options** tool starts it automatically when the panel is shown).
 
 The panel has the readout and the trend on the left, the controls in a column on the right
-(function, range, tools) and the statistics cards at the bottom. Run, Single, Hold and Relative sit
-in the bar at the top. In a narrow pane (split screen) the column gets narrower and the tool
-buttons show icons only.
+(function and range picture buttons, the tools at its bottom) and the statistics cards at the
+bottom. Run, Single, Hold and Relative sit in the bar at the top. In a narrow pane (split screen)
+the column gets narrower and the tool buttons show icons only.
 
 ## Connections
 
@@ -45,7 +45,8 @@ Measure resistance, diodes and continuity only on circuits that are switched off
 
 - **Function** – DC V, AC V, DC A, AC A, Ω (resistance), Diode and Continuity. (The myDAQ
   cannot measure capacitance or inductance, so there are no buttons for them.)
-- **Range** – **Auto**, then the ranges of the function from the smallest to the largest. Auto is
+- **Range** – picture buttons with a small gauge (the needle further right for a larger range):
+  **Auto**, then the ranges of the function from the smallest to the largest. Auto is
   kept when you change the function. Continuity always ranges automatically (only Auto is shown):
   - DC voltage: 200mV, 2V, 20V, 60V · AC voltage (RMS): 200mV, 2V, 20V
   - DC and AC current: 20mA, 200mA, 1A
@@ -55,22 +56,28 @@ Measure resistance, diodes and continuity only on circuits that are switched off
   Changing the function selects its largest range again. In Auto the line under the readout
   shows the range in use.
 - **Relative** (top bar) – null offset. When you switch it on, the next valid reading becomes the
-  null value (shown under the readout) and later readings are shown minus that value.
+  null value (shown once under the readout as `Δ from 1.236 V`) and later readings are shown minus
+  that value. The Relative button is drawn in the accent color while it is on.
   Use it to cancel the resistance of the test leads or an offset. Switch it off and on again to take
   a new null value; changing the function switches it off.
 
 ## The display
 
-- **Readout** – the value with the resolution of the range (3½ digits: e.g. `1.235 V` on 2V,
+- **Readout** – the value with the resolution of the range, green when a continuity is closed or a
+  diode conducts, red on overload, dimmed and marked `Hold` while held (3½ digits: e.g. `1.235 V` on 2V,
   `12.3 mA` on 200mA, `4.70 kΩ` on 20kΩ, `12.34 V` on 60V). `---` means no reading yet.
 - **% FS** – how much of the range the raw reading uses (0 – 100 %). A small percentage means a
-  smaller range would give more resolution.
+  smaller range would give more resolution; from 90 % the bar turns amber (the next range is near),
+  on overload red.
 - **+Over** – the input is beyond the range: choose a larger range or Auto.
 - **Under the readout** – only what the controls do not show: the range Auto picked, the null
   value while Relative is on, and the diode state.
 - **Trend** – the readings over the last 1 min, 10 min, 1 h or everything (time window and Clear
-  in the chart's toolbar). Overloads leave gaps. Drag to pan, scroll to zoom, double-click to
-  return. The trend restarts when you change the function.
+  in the chart's toolbar). After Run the time axis starts at the first reading and grows with the
+  run (at least 10 s) up to the chosen window, then slides; the vertical axis leaves room above and
+  below the trace. Overloads leave gaps. Drag to pan or scroll to zoom (the axis then stays where you
+  put it); choosing a time window follows the readings again. The trend restarts when you change the
+  function.
 
 ### Diode
 
@@ -88,14 +95,17 @@ the **Options** tool.
 
 - **Run / Stop** – measure continuously (at most five readings per second; the real myDAQ delivers two per second for V, A and Ω, about ten for diode and continuity), or stop. The last
   reading stays displayed.
-- **Single** – take one reading and stop.
-- **Hold** – freezes the readout; measuring, trend, statistics and logging continue.
+- **Single** – take one reading and stop; while measuring, stop after the next reading.
+- **Hold** – freezes the readout (accent button, `Hold` beside the value); measuring, trend,
+  statistics and logging continue.
 - **Relative** – null offset (see above).
+- **↺** (right of the bar) – reset the Multimeter's settings to their defaults (asks first).
 
 ## Statistics cards
 
 Minimum, maximum, mean, standard deviation σ and count of the displayed values since the last
-**Reset** or function change (relative values while Relative is on). Overloads are counted
+**Restart statistics** (the button right of the cards, an icon in narrow panes; it touches
+nothing else) or function change (relative values while Relative is on). Overloads are counted
 separately (shown with the count) and left out of the numbers.
 
 ## Logging (tool)

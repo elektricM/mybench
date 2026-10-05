@@ -91,6 +91,7 @@ struct PlotPrivate {
     bool interactive = true;
     Plot::DragMode dragMode = Plot::Pan;
     bool hoverReadout = false;
+    bool cursorDeltaVisible = true;
     bool legendVisible = false;
     Plot::Corner legendPosition = Plot::TopRight;
 

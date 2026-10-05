@@ -781,61 +781,38 @@ Item {
                 }
             }
 
-            Rectangle {
-                Layout.fillHeight: true
-                implicitWidth: 1
-                color: Theme.separator
-            }
-
-            // --- Right column: Document and Segment cards, then the tool palette ---------------------
-            ScrollView {
+            // --- Right column (InstrumentColumn): Document and Segment cards, palette pinned below -----
+            InstrumentColumn {
                 id: controlsColumn
                 objectName: "editorControls"
                 Layout.fillHeight: true
-                Layout.preferredWidth: root.compact ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
-                contentWidth: availableWidth
-                clip: true
-
-                ColumnLayout {
-                    width: controlsColumn.availableWidth
-                    spacing: Theme.spacingS
-
-                    Item { implicitHeight: Theme.spacingXs }
-                    EditorDocumentCard {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.spacingS
-                        Layout.rightMargin: Theme.spacingS
-                        controller: root.controller
-                        editor: root.editor
-                        compact: root.compact
-                    }
-                    EditorSegmentCard {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.spacingS
-                        Layout.rightMargin: Theme.spacingS
-                        editor: root.editor
-                        compact: root.compact
-                    }
-                    ToolPalette {
-                        objectName: "editorTools"
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.spacingS
-                        Layout.rightMargin: Theme.spacingS
-                        Layout.bottomMargin: Theme.spacingS
-                        columns: root.compact ? 5 : 4
-                        cellHeight: root.compact ? 36 : 52
-                        currentId: root.editor.drawMode ? "draw" : root.tool
-                        model: [
-                            { id: "draw", text: root.compact ? "" : qsTr("Draw"), toolTip: root.compact ? qsTr("Draw") : "", icon: "edit" },
-                            { id: "functions", text: root.compact ? "" : qsTr("Functions"), toolTip: root.compact ? qsTr("Functions") : "", icon: "wave-sine" },
-                            { id: "import", text: root.compact ? "" : qsTr("Import"), toolTip: root.compact ? qsTr("Import") : "", icon: "upload" },
-                            { id: "export", text: root.compact ? "" : qsTr("Export"), toolTip: root.compact ? qsTr("Export") : "", icon: "export" },
-                            { id: "display", text: root.compact ? "" : qsTr("Display"), toolTip: root.compact ? qsTr("Display") : "", icon: "eye" },
-                            { id: "scale", text: root.compact ? "" : qsTr("Scale"), toolTip: root.compact ? qsTr("Scale") : "", icon: "ruler" },
-                            { id: "info", text: root.compact ? "" : qsTr("Info"), toolTip: root.compact ? qsTr("Info") : "", icon: "info" }
-                        ]
-                        onActivated: id => root.activateTool(id)
-                    }
+                compact: root.compact
+                EditorDocumentCard {
+                    Layout.fillWidth: true
+                    controller: root.controller
+                    editor: root.editor
+                    compact: root.compact
+                }
+                EditorSegmentCard {
+                    Layout.fillWidth: true
+                    editor: root.editor
+                    compact: root.compact
+                }
+                tools: ToolPalette {
+                    objectName: "editorTools"
+                    columns: 4
+                    cellHeight: root.compact ? 36 : 52
+                    currentId: root.editor.drawMode ? "draw" : root.tool
+                    model: [
+                        { id: "draw", text: root.compact ? "" : qsTr("Draw"), toolTip: root.compact ? qsTr("Draw") : "", icon: "edit" },
+                        { id: "functions", text: root.compact ? "" : qsTr("Functions"), toolTip: root.compact ? qsTr("Functions") : "", icon: "wave-sine" },
+                        { id: "import", text: root.compact ? "" : qsTr("Import"), toolTip: root.compact ? qsTr("Import") : "", icon: "upload" },
+                        { id: "export", text: root.compact ? "" : qsTr("Export"), toolTip: root.compact ? qsTr("Export") : "", icon: "export" },
+                        { id: "display", text: root.compact ? "" : qsTr("Display"), toolTip: root.compact ? qsTr("Display") : "", icon: "eye" },
+                        { id: "scale", text: root.compact ? "" : qsTr("Scale"), toolTip: root.compact ? qsTr("Scale") : "", icon: "ruler" },
+                        { id: "info", text: root.compact ? "" : qsTr("Info"), toolTip: root.compact ? qsTr("Info") : "", icon: "info" }
+                    ]
+                    onActivated: id => root.activateTool(id)
                 }
             }
         }

@@ -6,8 +6,8 @@ import MyBench.Controls
 
 // One input channel in the right column (PicoScope style), on the shared ChannelCard: colored
 // header with the on/off switch (the only place to switch a channel), Scale (1-2-5 V/div knob),
-// Position knob, Source and Input range, and one fact: the range in effect (coupling and wiring are
-// in the Source tooltip).
+// Position knob, Source and Input range (Auto's tooltip names the range in effect; coupling and
+// wiring are in the Source tooltip). Audio sources have no range choice: the card states ±2 V AC.
 ChannelCard {
     id: card
 
@@ -24,7 +24,10 @@ ChannelCard {
     subtitle: channel.enabled ? "" : sourceNames[channel.source] ?? ""
     color: channelColor
     checked: channel.enabled
-    facts: [qsTr("±%1 V").arg(channel.effectiveRange)]
+    // Off = header only (the source in the subtitle): the column keeps the trigger in view.
+    collapseWhenOff: true
+    // The range is shown by the range buttons; audio inputs have none, so it is stated once here.
+    facts: channel.audio ? [qsTr("±%1 V · AC").arg(channel.effectiveRange)] : []
     // The controller refuses to switch off the last channel while running.
     onToggled: on => {
         if (!controller.setChannelEnabled(channel.index, on))
@@ -91,7 +94,7 @@ ChannelCard {
             Layout.fillWidth: true
             compact: true
             // ScopeChannel.InputRange order. Auto: ±10 V from 500 mV/div, ±2 V below (ELVISmx).
-            model: [{ text: qsTr("Auto"), toolTip: qsTr("Input range: ±10 V from 500 mV/div, ±2 V below") },
+            model: [{ text: qsTr("Auto"), toolTip: qsTr("Input range ±10 V from 500 mV/div, ±2 V below (now ±%1 V)").arg(card.channel.effectiveRange) },
                     { text: "±10", toolTip: qsTr("Input range ±10 V") }, { text: "±2", toolTip: qsTr("Input range ±2 V") }]
             currentIndex: card.channel.inputRange
             onActivated: index => card.channel.inputRange = index

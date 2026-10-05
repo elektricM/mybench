@@ -85,7 +85,7 @@ class GenChannel : public QObject
     Q_PROPERTY(mybench::plot::TraceBuffer* spectrum READ spectrum CONSTANT)   // frequency (Hz, dBV)
     Q_PROPERTY(mybench::plot::TraceBuffer* thumbnail READ thumbnail CONSTANT) // arbitrary waveform, sample index
     Q_PROPERTY(mybench::plot::TraceBuffer* history READ history CONSTANT)     // DC level vs time
-    Q_PROPERTY(double previewSpan READ previewSpan NOTIFY previewChanged)     // s
+    Q_PROPERTY(double previewSpan READ previewSpan NOTIFY previewChanged)     // s (the shared window, see setPreviewWindow)
     Q_PROPERTY(double previewMin READ previewMin NOTIFY previewChanged)       // V
     Q_PROPERTY(double previewMax READ previewMax NOTIFY previewChanged)
     Q_PROPERTY(bool previewStep READ previewStep NOTIFY previewChanged)       // draw as steps (coarse samples)
@@ -124,6 +124,9 @@ public:
 
     Mode mode() const { return m_mode; }
     void setMode(Mode mode);
+    // The waveform the channel had before it was set Off (Function by default): switching the
+    // output of an Off channel on brings it back instead of refusing.
+    Mode lastActiveMode() const { return m_lastActiveMode; }
     Shape shape() const { return m_function.shape == gen::Shape::Sine ? Sine : m_function.shape == gen::Shape::Triangle ? Triangle : Square; }
     void setShape(Shape shape);
     double frequency() const { return m_function.frequency; }
@@ -216,6 +219,12 @@ public:
     void appendHistory(double t);   // DC chart: current level at time t (s)
     void clearHistory();
     void updatePreview();
+    // Time span this channel's own preview needs (two periods, one pass of the waveform; 0 for DC
+    // and Off). The controller shows both channels on one time axis: it gives every channel the
+    // longest natural span as its window (0 = own span).
+    double naturalSpan() const;
+    void setPreviewWindow(double seconds);
+    double previewWindow() const { return m_previewWindow; }
     // Persistent properties (settings) of this class.
     static QList<QMetaProperty> settingProperties();
 
@@ -236,6 +245,7 @@ signals:
     void settingChanged();          // any setting (persist + live update)
     void updateRateEdited(double rate);   // the user changed the Update Rate (linked rates)
     void modeAboutToChange();       // stop the channel before switching
+    void naturalSpanChanged();      // after a preview update that changed naturalSpan()
 
 private:
     void changed();
@@ -245,6 +255,7 @@ private:
     int m_index;
     gen::OutputPair m_pair = gen::OutputPair::AnalogOutputs;
     Mode m_mode = Off;
+    Mode m_lastActiveMode = Function;
     gen::FunctionSettings m_function;
     gen::SweepSettings m_sweep;
     double m_gain = 1.0;
@@ -275,6 +286,8 @@ private:
     mybench::plot::TraceBuffer m_thumbnail;
     mybench::plot::TraceBuffer m_history;
     double m_previewSpan = 0.02;
+    double m_previewWindow = 0;        // 0: own span
+    double m_lastNaturalSpan = -1;
     double m_previewMin = -1;
     double m_previewMax = 1;
     bool m_previewStep = false;

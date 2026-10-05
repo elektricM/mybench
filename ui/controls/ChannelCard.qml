@@ -67,7 +67,14 @@ Item {
                 topRightRadius: card.radius - 1
                 bottomLeftRadius: card.expanded ? 0 : card.radius - 1
                 bottomRightRadius: card.expanded ? 0 : card.radius - 1
-                color: card.active ? Theme.alpha(card.color, Theme.dark ? 0.09 : 0.07) : "transparent"
+                color: card.active ? Theme.alpha(card.color, Theme.dark ? 0.18 : 0.12) : "transparent"
+            }
+            // The channel's color along the top edge: the card reads as that channel at a glance.
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; top: parent.top; leftMargin: card.radius - 2; rightMargin: card.radius - 2 }
+                height: 2
+                color: card.color
+                opacity: card.active ? 1 : 0.35
             }
             TapHandler {
                 enabled: card.checkable

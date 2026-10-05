@@ -6,9 +6,11 @@ spreadsheet. It is MYBENCH's version of the NI "Data Logger" featured applicatio
 
 ## Quick start
 
-The panel has the chart on the left, a column of channel cards and tools on the right, and a card
-per channel with its latest value and statistics at the bottom. Run, Record and the sampling-rate
-knob sit in the bar at the top.
+The panel has the chart on the left, the right column with the channel cards (the tools **Log File**,
+**Limits** and **Display** stay at its bottom), and a card per channel with its latest value and
+statistics at the bottom (the same cards as in every instrument). Run, Record and the sampling-rate
+knob sit in the bar at the top. While a file is written, a **Recording** card at the top of the
+column shows the file name, its size and the recording time (it pulses red; amber while paused).
 
 1. Connect the signal to **AI 0+ / AI 0−** (and AI 1 if needed).
 2. Switch on the channels to log on their cards (AI 0, AI 1, DMM). Set the **Sampling Rate** with
@@ -22,9 +24,12 @@ knob sit in the bar at the top.
 ## Channels and ranges
 
 - **AI 0 / AI 1**: differential inputs, sampled together at the same rate.
-- **DMM** logs the multimeter too: pick the function (DC/AC voltage, DC/AC current, resistance)
-  and a range, or *Auto*, with the buttons on its card. The meter delivers 2 readings per second, independently of the
-  sampling rate; a range change (also an automatic one) makes it pause for about 2.6 s. Use the meter's banana jacks.
+- **DMM** logs the multimeter too: switch its card on, pick the function with the pictures (DC V,
+  AC V, DC A, AC A, Ohms) and the range with the knob (*Auto* or a fixed range). Switched off, the
+  card is just its header; while the logger runs, the function and range show as chips on the card
+  (they cannot change then). The meter delivers 2 readings per second, independently of the
+  sampling rate; a range change (also an automatic one) makes it pause for about 2.6 s. Use the
+  meter's banana jacks. Its chart and value card are drawn in violet.
 - **Limits** tool, **Maximum / Minimum (V)**: limits within ±2 V use the more precise ±2 V range,
   otherwise ±10 V (the AI cards show the range in use, e.g. `±10 V`). The chart scales itself; lock its vertical
   scale with the chart toolbar.
@@ -36,8 +41,10 @@ knob sit in the bar at the top.
 - The chart holds the whole recording (up to 20 million samples per channel, shown in the
   Display tool; the file has no limit). Choose the visible span (10 s … 1 h, All) in the chart's
   toolbar or zoom with the wheel.
-- **Follow the latest data** (Display tool) keeps the newest data at the right edge. Dragging or
-  zooming to look at older data turns it off; choosing a span turns it on again.
+- **Follow the latest data** (Display tool) keeps the newest data in view: right after Run the time
+  axis starts at the first sample and grows with the recording (at least 10 s) until it reaches the
+  chosen span, then slides with the newest data. Dragging or zooming to look at older data turns it
+  off; choosing a span turns it on again.
 - The strip below the chart shows everything recorded, with the visible window: drag the
   window to jump through the recording (it can be hidden in the Display tool).
 - The cards at the bottom show each channel's latest value and its minimum, maximum, mean and

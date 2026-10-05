@@ -216,6 +216,23 @@ private slots:
         QVERIFY(ctl.statDeviation() < 1e-7);
     }
 
+    // Single while running continuously (Buffered): stops after the current read instead of
+    // running on (round 5: Single is live while running, not a grey slab).
+    void bufferedLiveSingleStops()
+    {
+        resetSim();
+        sim()->setDigitalSource(1, clock(1000));
+        CtrController ctl;
+        ctl.initialize();
+        ctl.setMeasurement(CtrController::Period);
+        ctl.setSampling(CtrController::Buffered);
+        ctl.run();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isRunning() && ctl.statCount() > 0, 5000);
+        ctl.runOnce();
+        QTRY_VERIFY_WITH_TIMEOUT(ctl.isIdle(), 3000);
+        QVERIFY(!ctl.hasError());
+    }
+
     void countsDownThroughZero()
     {
         resetSim();

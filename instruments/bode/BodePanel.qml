@@ -6,10 +6,12 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Bode Analyzer panel (docs/instruments/bode.md), PicoScope-7 pattern: Sweep button and
-// Start/Stop/Amplitude knobs on top; gain and phase plots sharing one frequency axis on the left;
-// the Sweep card (steps, mode, polarity, averages) and the tool palette (Graph, Markers, Cursor,
-// References, Export) on the right; result cards below. All state and logic live in BodeController.
+// Bode Analyzer panel (docs/instruments/bode.md), PicoScope-7 pattern: Sweep button, Keep as
+// Reference and the Start/Stop/Amplitude knobs on top; gain and phase plots sharing one frequency
+// axis on the left; the InstrumentColumn on the right with the Sweep card (steps, mode, polarity,
+// averages) and the tool palette (Graph, Cursors, References, Connections); result cards and the
+// cursor readout (C1, C2, their difference and slope) in one row below. All state and logic live
+// in BodeController.
 Item {
     id: root
 
@@ -22,8 +24,13 @@ Item {
     // option is gone; a restored value is ignored).
     readonly property color gainColor: Theme.signalColor("ai0")
     readonly property color phaseColor: Theme.signalColor("ai1")
-    readonly property color cursorColor: Theme.signalCursor
-    readonly property bool narrow: width < 1100     // compact knobs and column
+    // The cursor pair: C1 and C2 in the shared cursor colors.
+    readonly property color cursor1Color: Theme.cursor1
+    readonly property color cursor2Color: Theme.cursor2
+    // Stability margins (GM, PM): a caution tone, distinct from the cursors and the −3 dB markers.
+    readonly property color marginColor: Theme.caution
+    readonly property bool narrow: width < Theme.instrumentCompactWidth   // compact knobs and column
+    readonly property bool referencesShown: controller.references.some(r => r.visible)
     property string tool                            // the open tool panel ("" = none)
     // Steps per decade on the stepped knob; a restored odd value stays selectable.
     readonly property var stepValues: {
@@ -39,17 +46,8 @@ Item {
         return qsTr("%1/%2").arg(Math.min(c.pointCount + 1, c.totalPoints)).arg(c.totalPoints) + left
     }
     readonly property bool measurementLocked: controller.running
-    readonly property bool cursorValid: controller.cursorsOn && controller.cursorIndex >= 0
     readonly property real leftMargin: Math.max(gainPlot.implicitLeftMargin, phasePlot.implicitLeftMargin)
 
-    // "2 decimals" ELVISmx readout format; -Inf / Inf spelled out.
-    function fixed2(value: real): string {
-        if (isNaN(value))
-            return "—"
-        if (!isFinite(value))
-            return value < 0 ? "-Inf" : "Inf"
-        return value.toFixed(2)
-    }
     function duration(seconds: real): string {
         if (!(seconds > 0))
             return ""
@@ -233,7 +231,7 @@ Item {
                         trace: gainTrace
                         shape: PlotMarker.TriangleDown
                         size: 10
-                        color: Theme.cursor2
+                        color: root.marginColor
                         labelPosition: PlotMarker.Above
                         label: qsTr("GM")
                     }
@@ -248,13 +246,24 @@ Item {
                     }
                     PlotCursor {
                         id: gainCursor
+                        objectName: "gainCursor1"
                         visible: root.controller.cursorsOn && root.hasPoints
                         position: root.controller.cursorFrequency
                         trace: gainTrace
                         snap: true
-                        label: "C"
-                        color: root.cursorColor
+                        label: "C1"
+                        color: root.cursor1Color
                         onMoved: position => root.controller.setCursorFrequency(position)
+                    }
+                    PlotCursor {
+                        objectName: "gainCursor2"
+                        visible: gainCursor.visible
+                        position: root.controller.cursor2Frequency
+                        trace: gainTrace
+                        snap: true
+                        label: "C2"
+                        color: root.cursor2Color
+                        onMoved: position => root.controller.setCursor2Frequency(position)
                     }
                 }
 
@@ -322,7 +331,7 @@ Item {
                     PlotLine {
                         visible: root.controller.showMarginMarkers
                         value: -180
-                        color: Theme.alpha(Theme.cursor2, 0.6)
+                        color: Theme.alpha(root.marginColor, 0.6)
                         style: PlotElement.Dash
                         width: 1
                         draggable: false
@@ -334,7 +343,7 @@ Item {
                         trace: phaseTrace
                         shape: PlotMarker.TriangleUp
                         size: 10
-                        color: Theme.cursor2
+                        color: root.marginColor
                         guides: true
                         labelPosition: PlotMarker.Left
                         label: qsTr("PM")
@@ -358,199 +367,148 @@ Item {
                         position: root.controller.cursorFrequency
                         trace: phaseTrace
                         snap: true
-                        label: "C"
-                        color: root.cursorColor
+                        label: "C1"
+                        color: root.cursor1Color
                         onMoved: position => root.controller.setCursorFrequency(position)
                     }
+                    PlotCursor {
+                        visible: gainCursor.visible
+                        position: root.controller.cursor2Frequency
+                        trace: phaseTrace
+                        snap: true
+                        label: "C2"
+                        color: root.cursor2Color
+                        onMoved: position => root.controller.setCursor2Frequency(position)
+                    }
                 }
             }
 
-            // Empty state: how to wire the circuit (AO 0 drives it and AI 0, AI 1 reads its output).
-            Item {
-                id: wiring
-                objectName: "wiringDiagram"
-                anchors.centerIn: plots
-                visible: !root.hasPoints && !root.controller.running
-                width: 300
-                height: 96
-                readonly property color lineColor: Theme.textMuted
-
-                component Chip: Rectangle {
-                    id: chip
-                    property alias text: chipText.text
-                    property color tone: Theme.text
-                    width: 56
-                    height: 24
-                    radius: Theme.radiusM
-                    color: Theme.alpha(tone, 0.14)
-                    border.width: 1
-                    border.color: tone
-                    Text {
-                        id: chipText
-                        anchors.centerIn: parent
-                        color: chip.tone
-                        font.pixelSize: Theme.fontSizeS
-                        font.weight: Font.DemiBold
-                    }
-                }
-
-                Chip { id: ao0Chip; x: 0; y: 12; text: qsTr("AO 0"); tone: Theme.signalColor("ao0") }
-                Chip { id: ai0Chip; x: 0; y: 64; text: qsTr("AI 0"); tone: Theme.signalColor("ai0") }
-                Rectangle {   // AO 0 → circuit
-                    x: ao0Chip.width; y: ao0Chip.y + ao0Chip.height / 2; width: dut.x - x; height: 1
-                    color: wiring.lineColor
-                }
-                Rectangle {   // tap down to AI 0
-                    x: ao0Chip.width + 24; y: ao0Chip.y + ao0Chip.height / 2; width: 1; height: ai0Chip.y + ai0Chip.height / 2 - y
-                    color: wiring.lineColor
-                }
-                Rectangle {
-                    x: ai0Chip.width; y: ai0Chip.y + ai0Chip.height / 2; width: 25; height: 1
-                    color: wiring.lineColor
-                }
-                Rectangle {
-                    x: ao0Chip.width + 22; y: ao0Chip.y + ao0Chip.height / 2 - 2; width: 5; height: 5; radius: 2.5
-                    color: wiring.lineColor
-                }
-                Rectangle {
-                    id: dut
-                    x: 122; y: 4
-                    width: 84; height: 40
-                    radius: Theme.radiusM
-                    color: "transparent"
-                    border.width: 1
-                    border.color: Theme.textSecondary
-                    Icon {
-                        anchors.centerIn: parent
-                        name: "activity"
-                        color: Theme.textSecondary
-                    }
-                }
-                Rectangle {   // circuit → AI 1
-                    x: dut.x + dut.width; y: ao0Chip.y + ao0Chip.height / 2; width: ai1Chip.x - x; height: 1
-                    color: wiring.lineColor
-                }
-                Chip { id: ai1Chip; x: 244; y: 12; text: qsTr("AI 1"); tone: Theme.signalColor("ai1") }
-            }
-
-            // Right column: the Sweep card, then the tool palette.
+            // Empty plot (no sweep, no reference shown): how to wire the circuit, small, in the gain
+            // plot's top-left corner. Always available in the Connections tool.
             Rectangle {
+                id: wiringHint
+                objectName: "wiringDiagram"
+                x: plots.x + root.leftMargin + Theme.spacingS
+                y: plots.y + Theme.spacingS
+                visible: !root.hasPoints && !root.controller.running && !root.referencesShown
+                width: hintDiagram.implicitWidth + 2 * Theme.spacingS
+                height: hintDiagram.implicitHeight + 2 * Theme.spacingS
+                radius: Theme.radiusL
+                color: Theme.alpha(Theme.display, 0.9)
+                border.width: 1
+                border.color: Theme.displayBorder
+                BodeWiring {
+                    id: hintDiagram
+                    x: Theme.spacingS
+                    y: Theme.spacingS
+                }
+            }
+
+            // Right column (fixed width): the Sweep card, the tool palette pinned at the bottom.
+            InstrumentColumn {
                 id: column
+                objectName: "bodeColumn"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
-                color: Theme.window
-                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+                compact: root.narrow
 
-                Flickable {
-                    id: columnFlick
-                    anchors { fill: parent; leftMargin: 1 }
-                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { }
+                ChannelCard {
+                    objectName: "sweepCard"
+                    Layout.fillWidth: true
+                    title: qsTr("Sweep")
+                    color: Theme.signalColor("ao0")
+                    checkable: false
+                    compact: root.narrow
 
-                    ColumnLayout {
-                        id: columnLayout
-                        x: Theme.spacingS
-                        y: Theme.spacingS
-                        width: columnFlick.width - 2 * Theme.spacingS
-                        spacing: Theme.spacingS
-
-                        ChannelCard {
-                            objectName: "sweepCard"
-                            Layout.fillWidth: true
-                            title: qsTr("Sweep")
-                            color: Theme.signalColor("ao0")
-                            checkable: false
-                            compact: root.narrow
-
-                            KnobField {
-                                objectName: "stepsKnob"
+                    KnobField {
+                        objectName: "stepsKnob"
+                        Layout.fillWidth: true
+                        knobSize: 34
+                        compact: root.narrow
+                        enabled: !root.measurementLocked
+                        label: qsTr("Steps / decade")
+                        accentColor: Theme.signalColor("ao0")
+                        values: root.stepValues
+                        labels: root.stepValues.map(v => String(v))
+                        currentIndex: Math.max(0, root.stepValues.indexOf(root.controller.stepsPerDecade))
+                        caption: root.controller.settingsValid ? qsTr("%1 points").arg(root.controller.plannedPoints) : ""
+                        onIndexActivated: index => root.controller.stepsPerDecade = root.stepValues[index]
+                    }
+                    RowLayout {
+                        objectName: "modeButtons"
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Repeater {
+                            // Standard: play speed (one chevron); Fast: fast-forward (two chevrons).
+                                                        model: [{ text: qsTr("Standard"), tip: qsTr("Each point first measures both inputs briefly on ±10 V to choose their ranges"),
+                                      glyph: "M12 3l7 6-7 6" },
+                                    { text: qsTr("Fast"), tip: qsTr("No pre-measurement: ranges follow the previous point, clipped records are measured again"),
+                                      glyph: "M8 3l7 6-7 6 M16 3l7 6-7 6" }]
+                            delegate: PictureButton {
+                                required property var modelData
+                                required property int index
                                 Layout.fillWidth: true
-                                knobSize: 34
-                                compact: root.narrow
                                 enabled: !root.measurementLocked
-                                label: qsTr("Steps / decade")
-                                accentColor: Theme.signalColor("ao0")
-                                values: root.stepValues
-                                labels: root.stepValues.map(v => String(v))
-                                currentIndex: Math.max(0, root.stepValues.indexOf(root.controller.stepsPerDecade))
-                                caption: root.controller.settingsValid ? qsTr("%1 points").arg(root.controller.plannedPoints) : ""
-                                onIndexActivated: index => root.controller.stepsPerDecade = root.stepValues[index]
+                                text: modelData.text
+                                glyph: modelData.glyph
+                                checked: (root.controller.sweepMode === BodeController.Fast ? 1 : 0) === index
+                                ToolTip.visible: hovered
+                                ToolTip.text: modelData.tip
+                                onClicked: root.controller.sweepMode = index === 1 ? BodeController.Fast : BodeController.Standard
                             }
-                            RowLayout {
-                                objectName: "modeButtons"
-                                Layout.fillWidth: true
-                                spacing: 4
-                                Repeater {
-                                    model: [{ text: qsTr("Standard"), tip: qsTr("Each point first measures both inputs briefly on ±10 V to choose their ranges") },
-                                            { text: qsTr("Fast"), tip: qsTr("No pre-measurement: ranges follow the previous point, clipped records are measured again") }]
-                                    delegate: PictureButton {
-                                        required property var modelData
-                                        required property int index
-                                        Layout.fillWidth: true
-                                        enabled: !root.measurementLocked
-                                        text: modelData.text
-                                        checked: (root.controller.sweepMode === BodeController.Fast ? 1 : 0) === index
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: modelData.tip
-                                        onClicked: root.controller.sweepMode = index === 1 ? BodeController.Fast : BodeController.Standard
-                                    }
-                                }
-                            }
-                            RowLayout {
-                                objectName: "polarityButtons"
-                                Layout.fillWidth: true
-                                spacing: 4
-                                Repeater {
-                                    model: [{ text: qsTr("Normal"), tip: qsTr("Response as measured") },
-                                            { text: qsTr("Inverted"), tip: qsTr("Flips the response's sign: inverting amplifiers read about 0°") }]
-                                    delegate: PictureButton {
-                                        required property var modelData
-                                        required property int index
-                                        Layout.fillWidth: true
-                                        accentColor: root.phaseColor
-                                        text: modelData.text
-                                        checked: (root.controller.polarity === BodeController.Inverted ? 1 : 0) === index
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: modelData.tip
-                                        onClicked: root.controller.polarity = index === 1 ? BodeController.Inverted : BodeController.Normal
-                                    }
-                                }
-                            }
-                            KnobField {
-                                objectName: "averagesKnob"
-                                Layout.fillWidth: true
-                                knobSize: 34
-                                compact: root.narrow
-                                enabled: !root.measurementLocked
-                                label: qsTr("Averages")
-                                accentColor: Theme.signalColor("ao0")
-                                from: 1
-                                to: 16
-                                stepSize: 1
-                                value: root.controller.averagesPerPoint
-                                formatter: v => String(Math.round(v))
-                                toolTip: qsTr("Records averaged at each frequency (complex average)")
-                                onValueModified: v => root.controller.averagesPerPoint = Math.round(v)
-                            }
-                        }
-
-                        ToolPalette {
-                            objectName: "bodeTools"
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingXs
-                            columns: 3
-                            cellHeight: root.narrow ? 40 : 52
-                            currentId: root.tool
-                            model: [{ id: "graph", text: qsTr("Graph"), icon: "grid" },
-                                    { id: "markers", text: qsTr("Markers"), icon: "marker" },
-                                    { id: "cursor", text: qsTr("Cursor"), icon: "crosshair" },
-                                    { id: "references", text: qsTr("References"), icon: "layers" },
-                                    { id: "export", text: qsTr("Export"), icon: "export" }]
-                            onActivated: id => root.toggleTool(id)
                         }
                     }
+                    RowLayout {
+                        objectName: "polarityButtons"
+                        Layout.fillWidth: true
+                        spacing: 4
+                        Repeater {
+                            // Polarity of the response: a sine as measured, or flipped (inverting amplifier).
+                            model: [{ text: qsTr("Normal"), tip: qsTr("Response as measured"),
+                                      glyph: "M2 9h28 M2 9c4-10 9-10 14 0s9 10 14 0" },
+                                    { text: qsTr("Inverted"), tip: qsTr("Flips the response's sign: inverting amplifiers read about 0°"),
+                                      glyph: "M2 9h28 M2 9c4 10 9 10 14 0s9-10 14 0" }]
+                            delegate: PictureButton {
+                                required property var modelData
+                                required property int index
+                                Layout.fillWidth: true
+                                accentColor: root.phaseColor
+                                text: modelData.text
+                                glyph: modelData.glyph
+                                checked: (root.controller.polarity === BodeController.Inverted ? 1 : 0) === index
+                                ToolTip.visible: hovered
+                                ToolTip.text: modelData.tip
+                                onClicked: root.controller.polarity = index === 1 ? BodeController.Inverted : BodeController.Normal
+                            }
+                        }
+                    }
+                    KnobField {
+                        objectName: "averagesKnob"
+                        Layout.fillWidth: true
+                        knobSize: 34
+                        compact: root.narrow
+                        enabled: !root.measurementLocked
+                        label: qsTr("Averages")
+                        accentColor: Theme.signalColor("ao0")
+                        from: 1
+                        to: 16
+                        stepSize: 1
+                        value: root.controller.averagesPerPoint
+                        formatter: v => String(Math.round(v))
+                        toolTip: qsTr("Records averaged at each frequency (complex average)")
+                        onValueModified: v => root.controller.averagesPerPoint = Math.round(v)
+                    }
+                }
+
+                tools: ToolPalette {
+                    objectName: "bodeTools"
+                    columns: root.narrow ? 4 : 2
+                    cellHeight: root.narrow ? 40 : 46
+                    currentId: root.tool
+                    model: [{ id: "graph", text: root.narrow ? "" : qsTr("Graph"), toolTip: qsTr("Graph"), icon: "grid" },
+                            { id: "cursors", text: root.narrow ? "" : qsTr("Cursors"), toolTip: qsTr("Cursors and markers"), icon: "crosshair" },
+                            { id: "references", text: root.narrow ? "" : qsTr("References"), toolTip: qsTr("References"), icon: "layers" },
+                            { id: "connections", text: root.narrow ? "" : qsTr("Wiring"), toolTip: qsTr("Connections"), icon: "activity" }]
+                    onActivated: id => root.toggleTool(id)
                 }
             }
 
@@ -602,72 +560,70 @@ Item {
                     }
                 }
 
+                // Cursors (C1 / C2) and the automatic markers in one tool.
                 ToolPanel {
-                    objectName: "markersPanel"
-                    visible: root.tool === "markers"
+                    objectName: "cursorsPanel"
+                    visible: root.tool === "cursors"
                     width: parent.width
                     maximumHeight: parent.height
-                    title: qsTr("Markers")
+                    title: qsTr("Cursors")
                     onCloseRequested: root.tool = ""
-                    CheckBox {
-                        text: qsTr("−3 dB")
-                        checked: root.controller.showCutoffMarkers
-                        onToggled: root.controller.showCutoffMarkers = checked
+                    Switch {
+                        objectName: "cursorsSwitch"
+                        Layout.fillWidth: true
+                        text: qsTr("Cursors C1 and C2")
+                        checked: root.controller.cursorsOn
+                        onToggled: root.controller.cursorsOn = checked
                     }
-                    CheckBox {
-                        text: qsTr("0 dB crossover")
-                        checked: root.controller.showUnityGainMarker
-                        onToggled: root.controller.showUnityGainMarker = checked
-                    }
-                    CheckBox {
-                        text: qsTr("Gain / phase margin")
-                        checked: root.controller.showMarginMarkers
-                        onToggled: root.controller.showMarginMarkers = checked
-                    }
-                }
-
-                ToolPanel {
-                    objectName: "cursorPanel"
-                    visible: root.tool === "cursor"
-                    width: parent.width
-                    maximumHeight: parent.height
-                    title: qsTr("Cursor")
-                    onCloseRequested: root.tool = ""
+                    // C1 steps point by point (drag either cursor on the plot); Re-measure replaces C1's point.
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.spacingS
-                        CheckBox {
-                            text: qsTr("Show")
-                            checked: root.controller.cursorsOn
-                            onToggled: root.controller.cursorsOn = checked
+                        spacing: Theme.spacingXs
+                        enabled: root.controller.cursorsOn
+                        Rectangle { implicitWidth: 10; implicitHeight: 10; radius: 3; color: root.cursor1Color }
+                        Text {
+                            text: qsTr("C1")
+                            color: Theme.text
+                            font.pixelSize: Theme.fontSizeS
+                            font.weight: Font.DemiBold
                         }
                         Item { Layout.fillWidth: true }
                         IconButton {
                             iconName: "chevron-left"
-                            bordered: true
-                            size: Theme.controlHeight
-                            enabled: root.controller.cursorsOn && root.controller.cursorIndex > 0
+                            enabled: root.controller.cursorIndex > 0
                             toolTip: qsTr("Previous point")
                             onClicked: root.controller.cursorLeft()
                         }
                         IconButton {
                             iconName: "chevron-right"
-                            bordered: true
-                            size: Theme.controlHeight
-                            enabled: root.controller.cursorsOn && root.controller.cursorIndex < root.controller.pointCount - 1
+                            enabled: root.controller.cursorIndex < root.controller.pointCount - 1
                             toolTip: qsTr("Next point")
                             onClicked: root.controller.cursorRight()
                         }
+                        IconButton {
+                            iconName: "refresh"
+                            enabled: root.controller.cursorIndex >= 0 && root.controller.canRun && !root.controller.paused
+                            toolTip: qsTr("Measure C1's frequency again and replace that point")
+                            onClicked: root.controller.remeasureCursorPoint()
+                        }
                     }
-                    Button {
-                        Layout.fillWidth: true
-                        text: qsTr("Re-measure")
-                        icon.source: Theme.icon("refresh")
-                        enabled: root.controller.cursorsOn && root.controller.cursorIndex >= 0 && root.controller.canRun
-                                 && !root.controller.paused
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Measure the cursor's frequency again and replace that point")
-                        onClicked: root.controller.remeasureCursorPoint()
+                    ToolRow {
+                        label: qsTr("Markers")
+                        CheckBox {
+                            text: qsTr("−3 dB")
+                            checked: root.controller.showCutoffMarkers
+                            onToggled: root.controller.showCutoffMarkers = checked
+                        }
+                        CheckBox {
+                            text: qsTr("0 dB crossover")
+                            checked: root.controller.showUnityGainMarker
+                            onToggled: root.controller.showUnityGainMarker = checked
+                        }
+                        CheckBox {
+                            text: qsTr("Gain / phase margin")
+                            checked: root.controller.showMarginMarkers
+                            onToggled: root.controller.showMarginMarkers = checked
+                        }
                     }
                 }
 
@@ -678,12 +634,12 @@ Item {
                     maximumHeight: parent.height
                     title: qsTr("References")
                     onCloseRequested: root.tool = ""
-                    Button {
-                        Layout.fillWidth: true
-                        text: qsTr("Keep as Reference")
-                        icon.source: Theme.icon("plus")
-                        enabled: root.hasPoints && !root.controller.running && root.controller.references.length < root.controller.maxReferences
-                        onClicked: root.controller.keepAsReference()
+                    // Kept with the header's Keep as Reference button.
+                    Text {
+                        visible: root.controller.references.length === 0
+                        text: qsTr("None kept yet")
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeS
                     }
                     Repeater {
                         model: root.controller.references
@@ -737,16 +693,19 @@ Item {
                 }
 
                 ToolPanel {
-                    objectName: "exportPanel"
-                    visible: root.tool === "export"
+                    objectName: "connectionsPanel"
+                    visible: root.tool === "connections"
                     width: parent.width
                     maximumHeight: parent.height
-                    title: qsTr("Export")
+                    title: qsTr("Connections")
                     onCloseRequested: root.tool = ""
-                    Button { Layout.fillWidth: true; text: qsTr("Export Data…"); icon.source: Theme.icon("download"); onClicked: { root.tool = ""; panel.exportData() } }
-                    Button { Layout.fillWidth: true; text: qsTr("Export Image…"); icon.source: Theme.icon("image"); onClicked: { root.tool = ""; panel.exportImage(false) } }
-                    Button { Layout.fillWidth: true; text: qsTr("Export PDF…"); icon.source: Theme.icon("file"); onClicked: { root.tool = ""; panel.exportImage(true) } }
-                    Button { Layout.fillWidth: true; text: qsTr("Print…"); icon.source: Theme.icon("printer"); onClicked: { root.tool = ""; panel.printPanel() } }
+                    BodeWiring {
+                        Layout.alignment: Qt.AlignHCenter
+                        scale: Math.min(1, (parent ? parent.width : 300) / implicitWidth)
+                        transformOrigin: Item.TopLeft
+                        Layout.preferredHeight: implicitHeight * scale
+                        Layout.preferredWidth: implicitWidth * scale
+                    }
                 }
             }
         }
@@ -775,7 +734,6 @@ Item {
                 }
                 KnobField {
                     objectName: "startKnob"
-                    Layout.preferredWidth: root.narrow ? 140 : 180
                     compact: root.narrow
                     enabled: !root.measurementLocked
                     label: qsTr("Start")
@@ -790,7 +748,6 @@ Item {
                 }
                 KnobField {
                     objectName: "stopKnob"
-                    Layout.preferredWidth: root.narrow ? 140 : 180
                     compact: root.narrow
                     enabled: !root.measurementLocked
                     label: qsTr("Stop")
@@ -805,7 +762,6 @@ Item {
                 }
                 KnobField {
                     objectName: "amplitudeKnob"
-                    Layout.preferredWidth: root.narrow ? 140 : 170
                     compact: root.narrow
                     enabled: !root.measurementLocked
                     label: qsTr("Amplitude")
@@ -821,17 +777,22 @@ Item {
             }
         ]
 
+        // One row of result cards (wraps only in a narrow pane), then the cursor readout: C1, C2
+        // and C2 − C1 with the slope when the cursors are on, else the last measured point.
         measurements: [
             Flow {
+                id: cards
                 objectName: "bodeCards"
                 readonly property string summaryText: root.controller.cutoffFrequencies.length > 0
                     ? qsTr("f−3dB %1").arg(Units.format(root.controller.cutoffFrequencies[0], "Hz", 3)) : ""
+                readonly property real readoutWidth: 360
+                readonly property real cardWidth: Math.max(120, Math.floor((width - 2 * padding - 6 * spacing - readoutWidth) / 6))
                 width: parent ? parent.width : 0
                 spacing: Theme.spacingS
                 padding: Theme.spacingS
                 component Card: MeasurementCard {
                     removable: false
-                    width: root.narrow ? 120 : 168
+                    width: cards.cardWidth
                 }
                 Card {
                     objectName: "cardCutoff"
@@ -850,20 +811,20 @@ Item {
                 Card {
                     objectName: "cardGainMargin"
                     title: qsTr("Gain margin")
-                    color: root.gainColor
+                    color: root.marginColor
                     value: isFinite(root.controller.gainMargin) ? Units.decibels(root.controller.gainMargin, 1) : "—"
                 }
                 Card {
                     objectName: "cardGainMarginFrequency"
                     title: qsTr("GM at f")
-                    color: root.gainColor
+                    color: root.marginColor
                     value: isFinite(root.controller.phaseCrossoverFrequency) && root.controller.phaseCrossoverFrequency > 0
                            ? Units.format(root.controller.phaseCrossoverFrequency, "Hz", 3) : "—"
                 }
                 Card {
                     objectName: "cardPhaseMargin"
                     title: qsTr("Phase margin")
-                    color: root.phaseColor
+                    color: root.marginColor
                     value: isFinite(root.controller.phaseMargin) ? root.controller.phaseMargin.toFixed(1) + "°" : "—"
                 }
                 Card {
@@ -872,15 +833,13 @@ Item {
                     color: root.gainColor
                     value: root.hasPoints && isFinite(root.controller.maxGainDb) ? Units.decibels(root.controller.maxGainDb, 2) : "—"
                 }
-                Card {
+                BodeReadout {
                     objectName: "cardCursor"
-                    width: root.narrow ? 200 : 270
-                    title: root.cursorValid ? qsTr("Cursor") : qsTr("Last point")
-                    color: root.cursorValid ? root.cursorColor : Theme.textSecondary
-                    value: root.controller.readoutValid
-                           ? qsTr("%1 · %2 dB · %3°").arg(Units.format(root.controller.readoutFrequency, "Hz", 4))
-                                 .arg(root.fixed2(root.controller.readoutGainDb)).arg(root.fixed2(root.controller.readoutPhase))
-                           : "—"
+                    width: cards.readoutWidth
+                    controller: root.controller
+                    linearGain: root.linearGain
+                    cursor1Color: root.cursor1Color
+                    cursor2Color: root.cursor2Color
                 }
             }
         ]

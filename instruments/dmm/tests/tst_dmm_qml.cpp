@@ -6,12 +6,14 @@
 #include <mybench/offscreen.h>
 
 #include <QHash>
+#include <QSet>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QStandardPaths>
 #include <QTest>
 
+#include <cmath>
 #include <memory>
 
 using namespace Qt::StringLiterals;
@@ -70,7 +72,8 @@ private slots:
         };
         const QRectF pane(0, 0, item->width(), item->height());
         QHash<QString, QRectF> rects;
-        for (const auto* name : {"dmmReadout", "dmmControls", "trendPlot", "functionGrid", "dmmStatistics", "dmmRunButton"}) {
+        for (const auto* name : {"dmmReadout", "dmmControls", "trendPlot", "functionGrid", "dmmStatistics", "dmmRunButton",
+                                  "dmmResetStatistics"}) {
             auto* child = root->findChild<QQuickItem*>(QString::fromLatin1(name));
             QVERIFY2(child, name);
             QVERIFY2(child->isVisible(), name);
@@ -151,6 +154,126 @@ private slots:
         // Review aid: MYBENCH_TEST_SHOT_DIR=<dir> saves the frame with the tool panel open.
         if (const QString dir = qEnvironmentVariable("MYBENCH_TEST_SHOT_DIR"); !dir.isEmpty())
             offscreen.grab().save(u"%1/%2-%3.png"_s.arg(dir, u"dmm-tool"_s, QString::fromLatin1(QTest::currentDataTag())));
+        offscreen.setRootItem(nullptr);
+    }
+
+    // Round 5: the column is the shared InstrumentColumn (fixed width, tools pinned); the ranges
+    // are picture buttons with gauge pictograms whose labels fit, also with the 6 resistance
+    // ranges in the compact column; Single works while measuring (stops after the next reading,
+    // never a permanently grey button); the statistics restart is named apart from the header ↺.
+    void round5Controls_data()
+    {
+        QTest::addColumn<QSize>("size");
+        QTest::newRow("1440") << QSize(1440, 900);
+        QTest::newRow("compact") << QSize(900, 700);
+    }
+
+    void round5Controls()
+    {
+        QFETCH(QSize, size);
+        mybench::DeviceHub::instance()->select(u"sim:0"_s);
+        QTRY_VERIFY(mybench::DeviceHub::instance()->isConnected());
+        DmmController dmm;
+        dmm.initialize();
+        QQmlEngine engine;
+        engine.addImportPath(QStringLiteral(MYBENCH_QML_DIR));
+        mybench::OffscreenWindow offscreen(size);
+        if (!offscreen.isValid())
+            QSKIP("no graphics device");
+        QQmlComponent component(&engine);
+        component.setData("import QtQuick\nimport MyBench.Instruments.Dmm\nDmmPanel { }\n", QUrl());
+        std::unique_ptr<QObject> root(component.beginCreate(engine.rootContext()));
+        QVERIFY2(root, qPrintable(component.errorString()));
+        root->setProperty("controller", QVariant::fromValue(&dmm));
+        component.completeCreate();
+        auto* item = qobject_cast<QQuickItem*>(root.get());
+        offscreen.setRootItem(item);
+        offscreen.renderFrame();
+
+        auto* column = root->findChild<QQuickItem*>(u"dmmControls"_s);
+        auto* tools = root->findChild<QQuickItem*>(u"dmmTools"_s);
+        QVERIFY(column && tools);
+        QCOMPARE(column->width(), size.width() >= 1000 ? 260.0 : 220.0);
+        QVERIFY(tools->parentItem());
+        QCOMPARE(tools->parentItem()->objectName(), u"instrumentColumnTools"_s);
+
+        // Ranges: picture buttons with a pictogram each, labels never elided.
+        dmm.setSelectedFunction(DmmController::Resistance);
+        offscreen.renderFrame();
+        auto* grid = root->findChild<QQuickItem*>(u"rangeGrid"_s);
+        QVERIFY(grid);
+        QList<QQuickItem*> ranges;
+        for (auto* child : grid->childItems())
+            if (child->objectName().startsWith(u"range"_s))
+                ranges.append(child);
+        QCOMPARE(ranges.size(), dmm.rangeLabels().size() + 1);
+        QVERIFY(ranges.size() >= 7);
+        QSet<QString> glyphs;
+        for (auto* button : std::as_const(ranges)) {
+            const QString glyph = button->property("glyph").toString();
+            QVERIFY2(!glyph.isEmpty(), qPrintable(button->property("text").toString()));
+            glyphs.insert(glyph);
+            const auto texts = button->findChildren<QQuickItem*>();
+            for (auto* t : texts)
+                if (t->property("truncated").isValid())
+                    QVERIFY2(!t->property("truncated").toBool(), qPrintable(button->property("text").toString() + u" elided"_s));
+        }
+        QCOMPARE(glyphs.size(), ranges.size());   // one pictogram per range
+        QVERIFY(QMetaObject::invokeMethod(ranges.at(2), "clicked"));
+        QVERIFY(!dmm.autoRange());
+        QCOMPARE(dmm.rangeIndex(), 1);
+        offscreen.renderFrame();
+        QVERIFY(ranges.at(2)->property("checked").toBool());
+        QVERIFY(!ranges.at(0)->property("checked").toBool());
+        QVERIFY(QMetaObject::invokeMethod(ranges.at(0), "clicked"));
+        QVERIFY(dmm.autoRange());
+        dmm.setSelectedFunction(DmmController::DcVoltage);
+
+        // Statistics restart: its own name and icon (the header ↺ resets settings).
+        auto* restart = root->findChild<QQuickItem*>(u"dmmResetStatistics"_s);
+        QVERIFY(restart);
+        QCOMPARE(restart->property("text").toString(), u"Restart statistics"_s);
+
+        // Single while measuring: enabled, and it ends the run after the next reading.
+        auto* single = root->findChild<QQuickItem*>(u"dmmSingleButton"_s);
+        QVERIFY(single);
+        QVERIFY(single->isEnabled());
+        dmm.run();
+        QTRY_VERIFY_WITH_TIMEOUT(dmm.state() == mybench::InstrumentController::Running, 10000);
+        offscreen.renderFrame();
+        QVERIFY2(single->isEnabled(), "Single is grey while measuring");
+        // Follow-up: the trend's time axis starts at the first reading and spans the run (≥ 10 s),
+        // not the whole window with the trace squeezed at its right edge.
+        {
+            QObject* plot = root->findChild<QObject*>(u"trendPlot"_s);
+            auto* xAxis = plot->property("xAxis").value<QObject*>();
+            auto* buffer = dmm.property("trend").value<QObject*>();
+            QTRY_VERIFY_WITH_TIMEOUT(buffer->property("count").toInt() >= 3, 10000);
+            offscreen.renderFrame();
+            double first = 0;
+            QVERIFY(QMetaObject::invokeMethod(buffer, "xMinimum", Q_RETURN_ARG(double, first)));
+            const double lo = xAxis->property("min").toDouble();
+            const double hi = xAxis->property("max").toDouble();
+            QVERIFY2(std::abs(lo - first) < 0.5, qPrintable(u"axis starts %1 s before the data"_s.arg(first - lo)));
+            QVERIFY2(hi - lo <= 15, qPrintable(u"span %1 s for a few readings"_s.arg(hi - lo)));
+        }
+        // Hold and Relative: the accent (highlighted) while on; Relative states its reference once.
+        auto* hold = root->findChild<QQuickItem*>(u"dmmHoldButton"_s);
+        auto* relative = root->findChild<QQuickItem*>(u"dmmRelativeButton"_s);
+        QVERIFY(hold && relative);
+        QVERIFY(!hold->property("highlighted").toBool());
+        dmm.setHold(true);
+        QVERIFY(hold->property("highlighted").toBool());
+        dmm.setHold(false);
+        dmm.setNullOffset(true);
+        QVERIFY(relative->property("highlighted").toBool());
+        QTRY_VERIFY_WITH_TIMEOUT(!dmm.nullArmed(), 10000);
+        auto* status = root->findChild<QQuickItem*>(u"dmmStatusLine"_s);
+        QVERIFY(status->property("text").toString().contains(u"Δ from "_s + dmm.nullText()));
+        dmm.setNullOffset(false);
+
+        QVERIFY(QMetaObject::invokeMethod(single, "clicked"));
+        QTRY_VERIFY_WITH_TIMEOUT(dmm.isIdle(), 15000);
         offscreen.setRootItem(nullptr);
     }
 };

@@ -119,6 +119,22 @@ Item {
             onAccepted: root.answer(true)
             onOpened: acceptButton.forceActiveFocus()
 
+            // Our own title row: some platform styles (KDE's) add a red × close button to a
+            // Dialog header; a confirmation closes with Cancel or Esc only.
+            header: Text {
+                objectName: "confirmTitle"
+                text: dialog.title
+                visible: text.length > 0
+                elide: Text.ElideRight
+                color: Theme.text
+                font.pixelSize: Theme.fontSizeHeading + 1
+                font.weight: Font.DemiBold
+                leftPadding: dialog.leftPadding
+                rightPadding: dialog.rightPadding
+                topPadding: Theme.spacingL + 2
+                bottomPadding: Theme.spacingXs
+            }
+
             contentItem: Text {
                 text: root.text
                 color: Theme.textSecondary

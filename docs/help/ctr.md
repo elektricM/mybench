@@ -7,8 +7,8 @@ its separate square-wave generator (FREQOUT). There is no equivalent in the clas
 ## Connections
 
 All signals use the DIO screw terminals (3.3 V logic, 5 V tolerant inputs; connect the signal
-ground to **DGND**). The **Connections** tool (at the bottom of the right column) opens the pin
-map of the current settings over the display:
+ground to **DGND**). The **Connections** tool (at the bottom of the right column, beside
+**Export**) opens the pin map of the current settings over the display:
 
 | Terminal | Counter signal | Used by |
 |---|---|---|
@@ -37,10 +37,12 @@ instead of failing on the device. The simulator supports everything.
 
 ## Quick start
 
-The pane is laid out like a bench instrument: **Run**, **Single** and **Reset** at the top, the
-display on the left (big readout, trend, statistics cards), the controls in a column on the
-right: the **Counter** card with one picture button per mode, the card of the active mode's
-settings, the **Pulse Train** and **FREQOUT** cards, then the tools.
+The pane is laid out like a bench instrument: **Run**, **Single** and **Reset Stats** at the top
+(**Single** while running stops after the next reading; **Reset Stats** clears the statistics, the
+header's ↺ resets the settings), the display on the left (big readout, trend), the statistics cards
+under it, the controls in the right column: the **Counter** card with one picture button per mode,
+the card of the active mode's settings, the **Pulse Train** and **FREQOUT** cards; the tools
+(**Connections**, **Export**) stay at the bottom of the column.
 
 - **Measure a frequency**: connect the signal to DIO 1, click **Frequency**, press **Run**.
 - **Generate PWM**: click **Pulse Train**, turn the frequency and duty-cycle knobs (or type a
@@ -63,18 +65,21 @@ field beside them, or use − / +.
   up and down pulses). Linear: distance per pulse and a unit; angular: pulses per revolution
   (degrees). *Z Index* on DIO 1 reloads the *Z Index Value* once per turn. The secondary line
   shows velocity or rpm.
-- **Expected Range**: three buttons, one per counter timebase (100 MHz, 20 MHz, 100 kHz): the
-  slower the slowest expected value, the slower the timebase. Frequency: 1 Hz – 1 MHz,
-  10 mHz – 1 MHz, 100 µHz – 1 kHz; times: 100 ns – 10 s, 1 µs – 100 s, 100 µs – 10 ks. The
-  tooltip shows the timebase's resolution and the longest interval it can time.
+- **Lowest expected frequency** / **Longest expected interval** (the expected range): three
+  picture buttons, one per counter timebase (100 MHz, 20 MHz, 100 kHz): the slower the slowest
+  expected value, the slower the timebase. The label is the bound that decides (frequency: 1 Hz,
+  10 mHz, 100 µHz; times: 10 s, 100 s, 10 ks), the pictogram shows the decades covered, the
+  tooltip the whole range and the timebase. Ranges: 1 Hz – 1 MHz, 10 mHz – 1 MHz,
+  100 µHz – 1 kHz; times 100 ns – 10 s, 1 µs – 100 s, 100 µs – 10 ks.
 - **Acquisition**: *On Demand* takes the latest measurement every *Update interval* (knob); *Buffered*
   measures every single period (best for statistics and jitter; Single measures the number of
   *Samples* and stops). Edge counts and encoders are always on demand.
 - The big readout shows the value with its unit and the secondary quantity, then a trend chart
-  (time window 10 s, 1 min, 10 min or All in its toolbar; drag or scroll to look back) and the
-  statistics cards: Min, Max, Mean, σ and Count. **Reset
-  Stats** (or **Reset Count**) starts over. The trend also starts empty with every new run. The
-  Run button says **No input** while no complete measurement has arrived.
+  (time window 10 s, 1 min, 10 min or All in its toolbar; drag or scroll to look back). Under the
+  display, the measurement cards (as in every instrument): the measurement with its min, max, mean
+  and σ, and **Readings** (or **Intervals** when buffered), the number of values in the statistics.
+  **Reset Stats** (or **Reset Count**) starts over. The trend also starts empty with every new run.
+  The Run button says **No input** while no complete measurement has arrived.
 
 ## Pulse Train (DIO 3)
 
@@ -87,11 +92,13 @@ cycle are shown, and the diagram draws the first pulses.
 
 A square wave of 20 MHz, 10 MHz or 100 kHz divided by 1 to 16, so from 20 MHz down to 6.25 kHz
 in fixed steps. Switch it on in the header of its card; the knob steps through the available
-frequencies, and a typed frequency snaps to the nearest one. While it runs, its actual frequency
-is shown at the top right of the display. FREQOUT runs together with a measurement or a pulse
-train, or alone (*FREQOUT Only*). When a finite
+frequencies (it stays usable, dimmed, while the output is off, so you can choose first), and a typed
+frequency snaps to the nearest one; the frequency shows once, on the knob. FREQOUT runs together
+with a measurement or a pulse train, or alone (*FREQOUT Only*, then it is also the big readout).
+When a finite
 pulse train has sent its last pulse, the run stays active while FREQOUT is on, until you press Stop.
 
 ## Export
 
-**Export ▸ Export data** saves the trend (time and value) with the settings and statistics.
+The **Export** tool (or the ⋯ menu) saves the trend (time and value) with the settings and
+statistics, an image or a PDF of the panel, or prints it.

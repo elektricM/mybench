@@ -25,6 +25,17 @@ Item {
         windowIndex: 1
     }
     SignalSpy { id: windowSpy; target: trend; signalName: "windowActivated" }
+    TraceBuffer { id: samples }
+    TrendView {
+        id: dataTrend
+        y: 300
+        x: 400
+        width: 200
+        height: 100
+        windows: [{ text: "10 s", seconds: 10 }, { text: "1 min", seconds: 60 }, { text: "All", seconds: 0 }]
+        windowIndex: 1
+        buffers: [samples]
+    }
 
     TestCase {
         name: "PlotTheme"
@@ -54,6 +65,39 @@ Item {
             compare(plot.paletteColor(1), Theme.signalCh1)
             compare(plot.font.pixelSize, Theme.fontSizeCaption)
             compare(plot.colorScheme, Theme.displayDark ? Plot.Dark : Plot.Light)
+        }
+
+        // With `buffers`, the time axis starts at the first sample and grows with the data (≥ 10 s)
+        // up to the window, then slides (no trace squeezed at the right of an empty axis).
+        function test_trendAxisFromData() {
+            // changed() of a TraceBuffer is queued (coalesced): wait for the axis.
+            const axis = dataTrend.plot.xAxis
+            samples.setUniformValues(1000, 1, [1, 2, 3])
+            tryCompare(axis, "min", 1000)
+            compare(axis.max, 1010)
+            samples.setUniformValues(1000, 1, Array.from({ length: 30 }, (_, i) => i))
+            tryCompare(axis, "max", 1029)
+            compare(axis.min, 1000)
+            samples.setUniformValues(1000, 1, Array.from({ length: 100 }, (_, i) => i))
+            tryCompare(axis, "max", 1099)
+            compare(axis.min, 1039)           // the 1 min window, sliding with the last sample
+            dataTrend.windowIndex = 2         // All
+            compare(axis.min, 1000)
+            compare(axis.max, 1099)
+            dataTrend.windowIndex = 0         // 10 s
+            compare(axis.max - axis.min, 10)
+            dataTrend.following = false
+            samples.setUniformValues(2000, 1, [1, 2, 3])
+            wait(50)
+            compare(axis.max, 1099, "not following: the axis stays")
+            dataTrend.following = true
+            compare(axis.min, 2000)
+            dataTrend.windowIndex = 1
+            // A zoom by the user stops following; choosing a window follows again.
+            dataTrend.plot.zoomAt(Qt.point(100, 50), 0.5, 1)
+            verify(!dataTrend.following)
+            dataTrend.plot.timeWindowActivated(1)     // the toolbar's time window
+            verify(dataTrend.following)
         }
 
         function test_followsTheme() {

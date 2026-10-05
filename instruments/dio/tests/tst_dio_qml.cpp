@@ -178,7 +178,52 @@ private slots:
         QVERIFY(!find(u"dioTimelinePanel"_s));
         QObject* tools = find(u"dioTools"_s);
         QVERIFY(tools);
-        QCOMPARE(tools->property("model").toList().size(), 1);
+        QCOMPARE(tools->property("model").toList().size(), 2);   // Labels, Export
+    }
+
+    // Round 5: one place per line. The tile sets the direction (the Lines card keeps only the
+    // Read / Write group shortcuts), shows HIGH / LOW in the direction's color and flips an output
+    // on a click in the Manual pattern.
+    void linesOnTheTiles()
+    {
+        DioController& dio = controller();
+        if (!createPanel(dio))
+            QSKIP("no graphics device");
+        auto* linesCard = qobject_cast<QQuickItem*>(find(u"dioLinesCard"_s));
+        QVERIFY(linesCard);
+        int directionControls = 0;
+        std::function<void(QQuickItem*)> walk = [&](QQuickItem* item) {
+            if (item->objectName().startsWith(u"dioDirection"_s))
+                ++directionControls;
+            for (QQuickItem* child : item->childItems())
+                walk(child);
+        };
+        walk(linesCard);
+        QCOMPARE(directionControls, 0);
+        walk(qobject_cast<QQuickItem*>(m_root.get()));
+        QCOMPARE(directionControls, 8);   // one per tile
+
+        // Direction from the tile.
+        QObject* direction5 = find(u"dioDirection5"_s);
+        QVERIFY(direction5);
+        QMetaObject::invokeMethod(direction5, "activated", Q_ARG(int, 1));
+        render();
+        QVERIFY((dio.outputMask() >> 5) & 1);
+        QCOMPARE(direction5->property("currentIndex").toInt(), 1);
+
+        // An output tile toggles its line (Manual pattern).
+        QCOMPARE(dio.pattern(), DioController::Manual);
+        QObject* state0 = find(u"dioState0"_s);
+        QVERIFY(state0);
+        QVERIFY((dio.outputMask() >> 0) & 1);
+        const int before = dio.manualValue();
+        QVERIFY(QMetaObject::invokeMethod(find(u"dioLine0"_s), "activate"));
+        render();
+        QCOMPARE(dio.manualValue(), before ^ 1);
+        QCOMPARE(find(u"dioLine0"_s)->property("level").toBool(), bool(dio.manualValue() & 1));
+        // Review aid: MYBENCH_SHOT_DIR=<dir> saves the tiles with a HIGH output.
+        if (const QString dir = qEnvironmentVariable("MYBENCH_SHOT_DIR"); !dir.isEmpty())
+            m_window->grab().save(dir + u"/dio-tiles.png"_s);
     }
 };
 

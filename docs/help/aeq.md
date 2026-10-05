@@ -20,8 +20,10 @@ and shape the sound with the Bass, Midtone and Treble faders. It is MYBENCH's ve
 - **Display**: the tone response (top), the spectrum or the waveforms with the three band regions,
   and the console — the faders are the only place where the bands and the volume are set — with the
   IN and OUT level meters and the Clip light.
-- **Right column**: the **Routing** card, then the tools **Streaming** and **Display**, which open a
-  small panel over the display (click again to close).
+- **Right column**: the **Input** and **Output** cards, then the tools **Streaming** and **Display**
+  (at the bottom), which open a small panel over the display (click again to close).
+- Colours: **Bass** red, **Midtone** yellow, **Treble** violet (low to high, as in the light
+  spectrum) on the faders, the response curves and the band regions.
 
 ## Bands
 
@@ -37,9 +39,10 @@ is not perfectly flat around the band edges, like the original.
 
 ## Inputs and outputs
 
-- **Routing** card: first pick the input kind, **Audio in** or **AI 0 / AI 1**, then for each side
-  (**L**, **R**) one of that kind's channels or **Off**; the same for the output (**Audio out** or
-  **AO 0 / AO 1**). The two inputs (and the two outputs) share the converters, so they are always
+- **Input** card: first pick the input kind, **Audio in** or **AI 0 / AI 1**, then for each channel
+  of the equalizer (**L**, **R**) where it comes from: **In L**, **In R** (or **AI 0**, **AI 1**) or
+  **Off**. The **Output** card does the same with **Audio out** (**Out L**, **Out R**) or **AO 0 /
+  AO 1**. The two inputs (and the two outputs) share the converters, so they are always
   of one kind: a mixed setting cannot be chosen. Switching the kind sets L and R to the kind's two
   channels. With a single input, both outputs play it. If another instrument holds the analog inputs
   or outputs, the arbiter banner says which one; the equalizer pauses and can be resumed afterwards.
@@ -67,7 +70,8 @@ The **Display** tool chooses the view (**Spectrum | Time**), the channel (**L | 
 ## With the simulated device
 
 The simulator wires the audio outputs back to the audio inputs (and AO 0 to AI 0/AI 1), so the
-equalizer would only hear its own output. Click **Use AI 0 / AI 1** next to the simulator note to process the
-simulator's test signals (a 1 kHz sine and a 200 Hz square wave) instead.
+equalizer would only hear its own output; the Input card then reads *Simulator: the outputs loop
+back here*. Choose **AI 0 / AI 1** as input and **Audio out** as output to process the simulator's
+test signals (a 1 kHz sine and a 200 Hz square wave) instead.
 
 **Export ▸ Export data** saves the current spectrum and tone response with the settings.

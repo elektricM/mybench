@@ -82,11 +82,11 @@ private slots:
         QCOMPARE(dsa::magnitudeUnit(f), u"dBm/Hz"_s);
         f.unit = dsp::SpectrumUnit::Linear;
         f.mode = dsp::SpectrumMode::Rms;
-        QCOMPARE(dsa::magnitudeUnit(f), u"Vrms^2/Hz"_s);   // Linear is power (ELVISmx)
+        QCOMPARE(dsa::magnitudeUnit(f), u"Vrms²/Hz"_s);   // Linear is power (ELVISmx)
         f.density = false;
         f.mode = dsp::SpectrumMode::Peak;
-        QCOMPARE(dsa::magnitudeUnit(f), u"Vpk^2"_s);
-        QCOMPARE(dsa::powerUnit(dsp::SpectrumUnit::Linear, dsp::SpectrumMode::Rms), u"Vrms^2"_s);
+        QCOMPARE(dsa::magnitudeUnit(f), u"Vpk²"_s);
+        QCOMPARE(dsa::powerUnit(dsp::SpectrumUnit::Linear, dsp::SpectrumMode::Rms), u"Vrms²"_s);
         QCOMPARE(dsa::powerUnit(dsp::SpectrumUnit::Db, dsp::SpectrumMode::Peak), u"dBVpk"_s);
     }
 
@@ -296,7 +296,11 @@ private slots:
         QVERIFY(near(c->fundamentalFrequency(), 1000, 1.0));
         // Fundamental power is always linear V^2 (0.5 for 1 V peak), whatever the Units.
         QVERIFY2(near(c->fundamentalPower(), 0.5, 0.01), qPrintable(QString::number(c->fundamentalPower())));
-        QCOMPARE(c->powerUnit(), u"Vrms^2"_s);
+        QCOMPARE(c->powerUnit(), u"Vrms²"_s);
+        QVERIFY2(c->fundamentalPowerText().endsWith(u" Vrms²"_s), qPrintable(c->fundamentalPowerText()));   // no "^2" (round 5)
+        // Readable button labels (round 5: "AudioInputLeft" and "+/- 10V" were elided / ELVISmx text).
+        QCOMPARE(c->sourceLabels(), QStringList({u"AI 0"_s, u"AI 1"_s, u"Audio L"_s, u"Audio R"_s}));
+        QCOMPARE(c->rangeLabels(), QStringList({u"±10 V"_s, u"±2 V"_s}));
         QVERIFY2(near(c->thd(), 1.0, 0.1), qPrintable(QString::number(c->thd())));
         QVERIFY2(c->sinad() > 38 && c->sinad() < 41, qPrintable(QString::number(c->sinad())));
         QVERIFY2(c->snr() > c->sinad() + 10, qPrintable(QString::number(c->snr())));   // harmonics excluded
@@ -321,13 +325,13 @@ private slots:
         c->setMagnitudeMode(DsaController::RmsMagnitude);
         c->setUnits(DsaController::LinearUnits);
         QVERIFY(near(c->fundamentalPower(), 0.5, 0.01));
-        QCOMPARE(c->powerUnit(), u"Vrms^2"_s);
-        QCOMPARE(c->magnitudeUnit(), u"Vrms^2"_s);
+        QCOMPARE(c->powerUnit(), u"Vrms²"_s);
+        QCOMPARE(c->magnitudeUnit(), u"Vrms²"_s);
         QVERIFY(near(c->spectrum()->valueAt(1000), 0.5, 0.01));   // Linear = power in V^2
         c->setMagnitudeMode(DsaController::PeakMagnitude);
         QVERIFY(near(c->spectrum()->valueAt(1000), 1.0, 0.01));
         QVERIFY(near(c->fundamentalPower(), 1.0, 0.02));
-        QCOMPARE(c->powerUnit(), u"Vpk^2"_s);
+        QCOMPARE(c->powerUnit(), u"Vpk²"_s);
         c->setScaleMode(DsaController::ManualScale);
         QCOMPARE(c->spectrumMaximum(), 1.0);
         QCOMPARE(c->spectrumMinimum(), 0.0);
@@ -368,6 +372,13 @@ private slots:
         // 400 rows, 0 ... 39900 Hz (dsa.md 13), then the end of the file.
         QVERIFY(lines.value(fft + 2 + 399).startsWith(u"39900.00\t"_s));
         QVERIFY(lines.value(fft + 2 + 400).isEmpty());
+        // Linear units: the UI writes Vrms², the ELVISmx log keeps ELVISmx's ASCII "Vrms^2".
+        c->setUnits(DsaController::LinearUnits);
+        QVERIFY(c->exportData(QUrl::fromLocalFile(txtDir.filePath(u"dsa-linear.txt"_s))));
+        QFile linearTxt(txtDir.filePath(u"dsa-linear.txt"_s));
+        QVERIFY(linearTxt.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(linearTxt.readAll()).contains(u"\r\nUnits: Vrms^2\r\n"_s));
+        c->setUnits(DsaController::DbUnits);
 
         QTemporaryDir dir;
         QVERIFY(c->exportData(QUrl::fromLocalFile(dir.filePath(u"dsa.csv"_s))));

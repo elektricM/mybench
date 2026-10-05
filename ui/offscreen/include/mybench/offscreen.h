@@ -26,7 +26,7 @@
 //   --dpr <ratio>             device pixel ratio of the screenshot (default 1; 2 = retina)
 //   --samples <n>             MSAA sample count of the offscreen target (default 1, like a window)
 //   --style <name>            Qt Quick Controls style: native (the platform's: macOS, FluentWinUI3,
-//                             org.kde.desktop or Fusion), mybench (MyBench.Style), or any style name
+//                             or Fusion), mybench (MyBench.Style), or any style name
 //   --grab <file.png>         run on the REAL platform (e.g. cocoa, native style), show the window
 //                             transparent and without focus, grab it with QQuickWindow::grabWindow()
 //                             after --delay, write the PNG and exit (verifies native looks)
@@ -73,8 +73,8 @@ struct LaunchOptions {
     bool capture() const { return screenshot() || grab(); }   // a one-shot image run
 };
 
-// The platform's own Qt Quick Controls style: "macOS", "FluentWinUI3" (Windows), "org.kde.desktop"
-// when its QML module is installed (KDE Plasma), else "Fusion".
+// The platform's own Qt Quick Controls style: "macOS", "FluentWinUI3" (Windows), else "Fusion"
+// (org.kde.desktop only on request: --style org.kde.desktop).
 QString nativeQuickStyle();
 
 // Resolves a style request: "native" -> nativeQuickStyle(), "mybench" -> "MyBench.Style", any other

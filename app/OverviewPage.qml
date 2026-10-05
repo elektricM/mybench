@@ -281,6 +281,7 @@ Rectangle {
                                   : controller.running ? "running" : controller.hasError ? "error" : ""
                             running: controller !== null && controller.running
                             canToggle: controller !== null && (controller.running || controller.canRun)
+                            idle: controller !== null && !controller.running && !controller.hasData
                             pinned: Launcher.favorites.indexOf(modelData) >= 0
                             preview: (info.tileUrl ?? "").toString().length > 0 ? tilePreview : null
                             menu: tileMenu

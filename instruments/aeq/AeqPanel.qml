@@ -9,25 +9,28 @@ import MyBench.Plot
 // Audio Equalizer panel (docs/instruments/aeq.md), PicoScope-7 pattern: Run, Bypass and Flat on
 // top; the display holds the tone response, the before/after spectrum (1/24 octave) or the
 // waveforms with the band regions, and the console (band faders, volume, level meters) — the
-// faders are the only place to edit the bands and the volume. The right column holds the Routing
-// card (one input kind and one output kind, so the shared converters can never be mixed) and the
+// faders are the only place to edit the bands and the volume. The right column (InstrumentColumn)
+// holds the Input and Output cards (one kind each — audio jack or AI/AO terminals — so the shared
+// converters can never be mixed; then where the equalizer's L and R come from / go to) and the
 // Streaming / Display tools.
 Item {
     id: root
 
     required property AeqController controller
 
-    readonly property color bassColor: Theme.ref
-    readonly property color midColor: Theme.math
-    readonly property color trebleColor: Theme.cursor2
+    // The bands follow the light spectrum: low = warm red-orange, mid = yellow, high = violet.
+    // Their own colors (not the cursor, channel or accent colors), readable on both themes.
+    readonly property color bassColor: Theme.displayDark ? "#EE6A5F" : "#C0392B"
+    readonly property color midColor: Theme.signalMath
+    readonly property color trebleColor: Theme.signalRef
     readonly property real topFrequency: Math.min(25000, 0.49 * controller.streamRate)
-    readonly property bool narrow: width < 1100
+    readonly property bool narrow: width < Theme.instrumentCompactWidth
     readonly property bool wide: width - column.width >= 760    // console beside the plots
     property string tool                                       // the open tool panel ("" = none)
 
     // Short labels of the routing choices (controller order: AI 0, AI 1, audio L, audio R, none).
-    readonly property var sourceShort: [qsTr("AI 0"), qsTr("AI 1"), qsTr("Left"), qsTr("Right"), qsTr("Off")]
-    readonly property var sinkShort: [qsTr("AO 0"), qsTr("AO 1"), qsTr("Left"), qsTr("Right"), qsTr("Off")]
+    readonly property var sourceShort: [qsTr("AI 0"), qsTr("AI 1"), qsTr("In L"), qsTr("In R"), qsTr("Off")]
+    readonly property var sinkShort: [qsTr("AO 0"), qsTr("AO 1"), qsTr("Out L"), qsTr("Out R"), qsTr("Off")]
     function isAudioSource(s: int): bool { return s === AeqController.SourceAudioInLeft || s === AeqController.SourceAudioInRight }
     function isAudioSink(s: int): bool { return s === AeqController.SinkAudioOutLeft || s === AeqController.SinkAudioOutRight }
     readonly property bool audioIn: isAudioSource(controller.inputLeft) || isAudioSource(controller.inputRight)
@@ -84,11 +87,14 @@ Item {
         Layout.fillWidth: true
         spacing: Theme.spacingS
         Text {
-            Layout.preferredWidth: 10
+            Layout.preferredWidth: 12
             text: side.sideName
-            color: Theme.textSecondary
+            color: Theme.text
             font.pixelSize: Theme.fontSizeS
             font.weight: Font.DemiBold
+            ToolTip.visible: sideHover.hovered
+            ToolTip.text: side.sideName === "L" ? qsTr("Equalizer channel L") : qsTr("Equalizer channel R")
+            HoverHandler { id: sideHover }
         }
         SegmentedControl {
             Layout.fillWidth: true
@@ -152,22 +158,6 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     spacing: Theme.spacingS
-
-                    // Simulator: the outputs loop back to the audio inputs (silence in, silence out).
-                    RowLayout {
-                        visible: root.controller.feedbackInSimulator
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingS
-                        Banner {
-                            Layout.fillWidth: true
-                            tone: "info"
-                            text: qsTr("Simulator: the outputs loop back to these inputs")
-                        }
-                        Button {
-                            text: qsTr("Use AI 0 / AI 1")
-                            onClicked: root.controller.useAnalogInputs()
-                        }
-                    }
 
                     // Tone response of the equalizer and its bands.
                     BenchPlot {
@@ -357,104 +347,99 @@ Item {
                 }
             }
 
-            // Right column: the Routing card, then the tool palette.
-            Rectangle {
+            // Right column (fixed width): the Input and Output cards, the tool palette pinned below.
+            InstrumentColumn {
                 id: column
+                objectName: "aeqColumn"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
-                color: Theme.window
-                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+                compact: root.narrow
 
-                Flickable {
-                    id: columnFlick
-                    anchors { fill: parent; leftMargin: 1 }
-                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { }
+                ChannelCard {
+                    objectName: "inputCard"
+                    Layout.fillWidth: true
+                    title: qsTr("Input")
+                    color: Theme.signalColor(root.audioIn ? "audioInL" : "ai0")
+                    checkable: false
+                    compact: root.narrow
 
-                    ColumnLayout {
-                        id: columnLayout
-                        x: Theme.spacingS
-                        y: Theme.spacingS
-                        width: columnFlick.width - 2 * Theme.spacingS
-                        spacing: Theme.spacingS
-
-                        ChannelCard {
-                            objectName: "routingCard"
-                            Layout.fillWidth: true
-                            title: qsTr("Routing")
-                            color: Theme.signalColor(root.audioIn ? "audioInL" : "ai0")
-                            checkable: false
-                            compact: root.narrow
-                            facts: [qsTr("±2 V")]
-
-                            ToolRow {
-                                label: qsTr("Input")
-                                SegmentedControl {
-                                    objectName: "inputKind"
-                                    Layout.fillWidth: true
-                                    model: [qsTr("Audio in"), qsTr("AI 0 / AI 1")]
-                                    currentIndex: root.audioIn ? 0 : 1
-                                    onActivated: index => root.setInputKind(index === 0)
-                                }
-                                SideChoices {
-                                    objectName: "inputLeft"
-                                    sideName: "L"
-                                    choices: root.sourceChoices
-                                    names: root.sourceShort
-                                    current: root.controller.inputLeft
-                                    onChosen: choice => root.controller.inputLeft = choice
-                                }
-                                SideChoices {
-                                    objectName: "inputRight"
-                                    sideName: "R"
-                                    choices: root.sourceChoices
-                                    names: root.sourceShort
-                                    current: root.controller.inputRight
-                                    onChosen: choice => root.controller.inputRight = choice
-                                }
-                            }
-                            ToolRow {
-                                label: qsTr("Output")
-                                SegmentedControl {
-                                    objectName: "outputKind"
-                                    Layout.fillWidth: true
-                                    model: [qsTr("Audio out"), qsTr("AO 0 / AO 1")]
-                                    currentIndex: root.audioOut ? 0 : 1
-                                    onActivated: index => root.setOutputKind(index === 0)
-                                }
-                                SideChoices {
-                                    objectName: "outputLeft"
-                                    sideName: "L"
-                                    choices: root.sinkChoices
-                                    names: root.sinkShort
-                                    current: root.controller.outputLeft
-                                    onChosen: choice => root.controller.outputLeft = choice
-                                }
-                                SideChoices {
-                                    objectName: "outputRight"
-                                    sideName: "R"
-                                    choices: root.sinkChoices
-                                    names: root.sinkShort
-                                    current: root.controller.outputRight
-                                    onChosen: choice => root.controller.outputRight = choice
-                                }
-                            }
-                        }
-
-                        ToolPalette {
-                            objectName: "aeqTools"
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingXs
-                            columns: 3
-                            cellHeight: root.narrow ? 40 : 52
-                            currentId: root.tool
-                            model: [{ id: "streaming", text: qsTr("Streaming"), icon: "activity" },
-                                    { id: "display", text: qsTr("Display"), icon: "grid" }]
-                            onActivated: id => root.toggleTool(id)
-                        }
+                    SegmentedControl {
+                        objectName: "inputKind"
+                        Layout.fillWidth: true
+                        model: [{ text: qsTr("Audio in"), toolTip: qsTr("AUDIO IN jack, left / right (±2 V)") },
+                                { text: qsTr("AI 0 / AI 1"), toolTip: qsTr("Analog input terminals AI 0 / AI 1 (±2 V range)") }]
+                        currentIndex: root.audioIn ? 0 : 1
+                        onActivated: index => root.setInputKind(index === 0)
                     }
+                    SideChoices {
+                        objectName: "inputLeft"
+                        sideName: "L"
+                        choices: root.sourceChoices
+                        names: root.sourceShort
+                        current: root.controller.inputLeft
+                        onChosen: choice => root.controller.inputLeft = choice
+                    }
+                    SideChoices {
+                        objectName: "inputRight"
+                        sideName: "R"
+                        choices: root.sourceChoices
+                        names: root.sourceShort
+                        current: root.controller.inputRight
+                        onChosen: choice => root.controller.inputRight = choice
+                    }
+                    // Simulator: the outputs loop back to these inputs (the routing above changes it).
+                    Text {
+                        objectName: "feedbackHint"
+                        visible: root.controller.feedbackInSimulator
+                        Layout.fillWidth: true
+                        text: qsTr("Simulator: the outputs loop back here")
+                        color: Theme.caution
+                        font.pixelSize: Theme.fontSizeS
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                ChannelCard {
+                    objectName: "outputCard"
+                    Layout.fillWidth: true
+                    title: qsTr("Output")
+                    color: Theme.signalColor(root.audioOut ? "audioOutL" : "ao0")
+                    checkable: false
+                    compact: root.narrow
+
+                    SegmentedControl {
+                        objectName: "outputKind"
+                        Layout.fillWidth: true
+                        model: [{ text: qsTr("Audio out"), toolTip: qsTr("AUDIO OUT jack, left / right (±2 V)") },
+                                { text: qsTr("AO 0 / AO 1"), toolTip: qsTr("Analog output terminals AO 0 / AO 1 (±2 V used)") }]
+                        currentIndex: root.audioOut ? 0 : 1
+                        onActivated: index => root.setOutputKind(index === 0)
+                    }
+                    SideChoices {
+                        objectName: "outputLeft"
+                        sideName: "L"
+                        choices: root.sinkChoices
+                        names: root.sinkShort
+                        current: root.controller.outputLeft
+                        onChosen: choice => root.controller.outputLeft = choice
+                    }
+                    SideChoices {
+                        objectName: "outputRight"
+                        sideName: "R"
+                        choices: root.sinkChoices
+                        names: root.sinkShort
+                        current: root.controller.outputRight
+                        onChosen: choice => root.controller.outputRight = choice
+                    }
+                }
+
+                tools: ToolPalette {
+                    objectName: "aeqTools"
+                    columns: 2
+                    cellHeight: root.narrow ? 40 : 46
+                    currentId: root.tool
+                    model: [{ id: "streaming", text: qsTr("Streaming"), icon: "activity" },
+                            { id: "display", text: qsTr("Display"), icon: "grid" }]
+                    onActivated: id => root.toggleTool(id)
                 }
             }
 

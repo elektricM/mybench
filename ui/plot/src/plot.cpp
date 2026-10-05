@@ -303,6 +303,8 @@ Plot::DragMode Plot::dragMode() const { return d->dragMode; }
 void Plot::setDragMode(DragMode m) { if (d->dragMode == m) return; d->dragMode = m; emit interactionChanged(); }
 bool Plot::hoverReadout() const { return d->hoverReadout; }
 void Plot::setHoverReadout(bool on) { if (d->hoverReadout == on) return; d->hoverReadout = on; emit interactionChanged(); }
+bool Plot::cursorDeltaVisible() const { return d->cursorDeltaVisible; }
+void Plot::setCursorDeltaVisible(bool on) { if (d->cursorDeltaVisible == on) return; d->cursorDeltaVisible = on; emit interactionChanged(); }
 bool Plot::legendVisible() const { return d->legendVisible; }
 void Plot::setLegendVisible(bool on) { if (d->legendVisible == on) return; d->legendVisible = on; emit styleChanged(); }
 Plot::Corner Plot::legendPosition() const { return d->legendPosition; }

@@ -1086,6 +1086,9 @@ InstrumentController::WorkerFunction CtrController::measureLoop(std::shared_ptr<
             ctx.acquisitionDone();
             if (single && received >= singleCount)
                 break;
+            // Single pressed while running continuously (ctx.once() turns true): stop after this read.
+            if (!single && ctx.once())
+                break;
         }
     };
 }

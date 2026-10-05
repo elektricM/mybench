@@ -131,6 +131,9 @@ Rectangle {
         model: sidebar.entries
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        // Vertical only: a sideways touchpad swipe never shifts the rows.
+        flickableDirection: Flickable.VerticalFlick
+        contentWidth: width
         activeFocusOnTab: true
         keyNavigationEnabled: false
         highlightFollowsCurrentItem: false

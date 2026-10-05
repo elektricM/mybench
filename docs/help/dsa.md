@@ -23,16 +23,19 @@ meter.
 
 ## Layout
 
-- **Instrument bar** (top): **Run / Stop** (with the state under the verb), **Single** (acquires
-  enough records to complete the averaging, then stops), **Restart** (averaging), the **Span** and
-  **Resolution** knobs, and **Spectrum | Octave**.
-- **Display** (left): the spectrum, optionally the spectrogram and the time record under it.
-- **Right column**: the **Input** card (source and range) and the tools — **Window**, **Averaging**,
-  **Display**, **Cursors**, **Export** (in Octave mode: **Octave**, **Export**). A tool opens a
-  panel that floats over the display; click the tool again or × to close it.
+- **Instrument bar** (top): **Run / Stop** (with the state under the verb), **Single** (stopped:
+  acquires enough records to complete the averaging, then stops; running: stops after the current
+  record or average), the **Span** and **Resolution** knobs, and **Spectrum | Octave** (in a narrow
+  pane this choice moves to an **Analysis** card at the top of the right column).
+- **Display** (left): the spectrum, optionally the spectrogram and the time record under it. Under
+  the spectrum, while they apply: the averaging progress `Avg n/N` and **Restart**.
+- **Right column** (the same fixed width in every instrument): the **Input** card (source and
+  range); the tools — **Window**, **Averaging**, **Display**, **Cursors**, **Export** (in Octave
+  mode: **Octave**, **Export**) — stay at its bottom. A tool opens a panel that floats over the
+  display; click the tool again or × to close it.
 - **Measurement cards** (bottom): Fundamental, Fundamental power, THD, SINAD, SNR, Peak, and the
-  cursors while they are shown. The result cards show min / max / mean / σ over the last 100 results
-  of the run.
+  cursor card (C1, C2 and their difference) while the cursors are shown; in Octave mode Overall level
+  and Loudest band. The result cards show min / max / mean / σ over the last 100 results of the run.
 
 Settings that do not apply are hidden (for example *RMS / Peak* with dBm, the weighting without
 RMS or Vector averaging, Minimum / Maximum with an automatic scale).
@@ -47,8 +50,9 @@ RMS or Vector averaging, Minimum / Maximum with an automatic scale).
 - **Time record** (Display tool): the latest record. With a window selected it is shown multiplied
   by the window (scaled so the average level is kept), which shows what the FFT actually sees.
 - Hovering over a plot shows the values under the mouse; the mouse wheel zooms, dragging pans and a
-  double-click restores the view. The magnitude axis cannot leave the spectrum (plus a margin), and
-  the frequency axis stays inside 0 Hz to the span with a minimum zoom of a few hundred bins.
+  double-click restores the view. The magnitude axis stays inside the vertical scale (automatic or
+  Manual): it can be zoomed in, never panned or zoomed out into an empty region; the frequency axis
+  stays inside 0 Hz to the span with a minimum zoom of a few hundred bins.
 
 ## Controls
 
@@ -63,9 +67,10 @@ RMS or Vector averaging, Minimum / Maximum with an automatic scale).
 
 ### Input card
 
-The source (AI 0, AI 1, Audio In L, Audio In R) as buttons, and for AI inputs the range (±10 V or
-±2 V; ±2 V gives better resolution for small signals). Audio inputs have a fixed range, so the range
-buttons are hidden. The plot follows the source's colour.
+The source as picture buttons — **AI 0**, **AI 1** (a signal into a terminal) and **Audio L**,
+**Audio R** (the audio jack) — and for AI inputs the range **±10 V | ±2 V** (±2 V gives better
+resolution for small signals). Audio inputs have a fixed ±2 V range, shown on the card instead of
+the range buttons. The spectrum and time record follow the source's colour.
 
 ### Window tool
 
@@ -75,14 +80,15 @@ Shapes each record before the FFT. *None* is exact for signals that fit the reco
 
 ### Averaging tool
 
-- **Mode** – *None* (latest spectrum), *Vector* (averages the complex spectra: only useful for
-  signals synchronised with the acquisition), *RMS* (averages power: smooths the noise), *Peak Hold*
-  (keeps the maximum of each line).
+- **Mode** (picture buttons) – *None* (latest spectrum), *Vector* (averages the complex spectra: only
+  useful for signals synchronised with the acquisition), *RMS* (averages power: smooths the noise),
+  *Peak Hold* (keeps the maximum of each line).
 - **Weighting** (RMS and Vector only) – *Linear*: averages the first N spectra, then holds the result
   until you restart. *Exponential*: a running average where each new spectrum counts 1/N.
 - **Averages** – N (knob). While the average fills, `Avg n/N` shows under the spectrum.
-- **Restart** (instrument bar) starts the averaging again. Changing the window or an averaging
-  setting also restarts it; changing the source, range, span or lines restarts the acquisition.
+- **Restart** (under the spectrum, shown while running with Linear weighting) starts the averaging
+  again. Changing the window or an averaging setting also restarts it; changing the source, range,
+  span or lines restarts the acquisition.
 
 ### Display tool
 
@@ -90,25 +96,32 @@ Shapes each record before the FFT. *None* is exact for signals that fit the reco
   and dB *RMS* or *Peak*: a sine of 1 V peak reads 0.5 Vrms² (−3.01 dBVrms) or 1 Vpk² (0 dBVpk).
 - **Spectrum** – *Power* (power spectrum) or *Density* (power spectral density, for noise).
 - **Vertical scale** – *Auto* fits the spectrum; *Manual* shows Minimum … Maximum.
-- Logarithmic frequency axis, **Max hold** / **Min hold**, harmonic markers, the **Harmonics and
-  peaks** tables, the **Time record**, the **Spectrogram** and its depth.
+- Logarithmic frequency axis, **Max hold** / **Min hold**, the **Time record**, the **Spectrogram**
+  and its depth.
 
 These only change the display, also of a stopped result.
 
 ### Cursors tool
 
-- **Show cursors** – C1 and C2; drag them on the plot (they snap to lines or samples).
+Every marker and cursor control is here, once:
+
+- **Harmonic markers** – the F and H2 … H10 markers on the spectrum.
+- **Harmonics and peaks table** – the table beside the spectrum.
+- **Cursors C1 · C2** – two cursors (C1 red, C2 blue); drag them on the plot (they snap to lines or
+  samples).
 - **Selected cursor** – the one that ‹ › (one line or sample) and the peak buttons move.
 - **Cursor plots** (with the time record shown) – the plot each cursor is on.
 - **Peak search** – *Highest*, *Next lower*, nearest peak *Left* / *Right*.
 
-The cursor card at the bottom shows the difference between the cursors.
+The cursor card at the bottom shows C1 and C2 (position and level) and their difference (Δx, Δy;
+on the time record also 1/Δx).
 
 ## Measurements
 
 - **Detected Fundamental Frequency** – the strongest peak, refined between lines.
-- **Fundamental Frequency Power** – power of that peak summed over ±3 lines. It is always a linear
-  power, in Vrms² (Vpk² when Mode is Peak), and does not follow the Units setting.
+- **Fundamental power** – power of that peak summed over ±3 lines. It is always a linear power, in
+  Vrms² (Vpk² when Mode is Peak), and does not follow the Units setting. (The ELVISmx-style text
+  log writes these units the ELVISmx way, `Vrms^2`.)
 - **THD** – total harmonic distortion: power of harmonics 2 to 10 relative to the fundamental.
 - **SINAD** – signal to noise-and-distortion ratio.
 - **SNR** – signal to noise ratio: like SINAD, but harmonics 2 to 10 are not counted as noise.
@@ -126,9 +139,10 @@ source at 50 kS/s.
   20 Hz … 20 kHz (band 0 = 20 Hz … band 30 = 20 kHz; default all of them).
 - **Weighting** – *Linear* (none), or the *A*, *B* and *C* frequency weightings of sound level meters,
   applied to the band levels.
-- **Display** – band levels in dBV as bars, the overall level (sum of the bands shown), the loudest
-  band, and a **Settled** light: the lowest bands' filters need a moment after a start or a change
-  before their levels are valid.
+- **Display** – band levels in dBV as bars; the cards show the overall level (sum of the bands
+  shown) and the loudest band; a **Settled** light above the bars: the lowest bands' filters need a
+  moment after a start or a change before their levels are valid. **Restart** (beside it, while
+  running) restarts the band averaging.
 
 ## Export
 
@@ -153,6 +167,7 @@ line exactly as displayed. In 1/3 Octave mode the second block lists the band ce
 ## Troubleshooting
 
 - **Peaks are wide or have "skirts"**: choose a window (Hanning, Blackman-Harris).
-- **Spectrum frozen**: Linear weighting finished its average — press Restart, or use Exponential.
+- **Spectrum frozen**: Linear weighting finished its average — press Restart (under the spectrum), or
+  use Exponential.
 - **Components above the span appear at wrong frequencies**: signals above half the sample rate fold
   back (aliasing); increase the span or filter the signal.

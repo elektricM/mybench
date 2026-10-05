@@ -1,20 +1,22 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// FFT display of the Spectrum Analyzer: measurement readouts, spectrum (with harmonic markers,
-// max/min hold, cursors), Power Spectrum / PSD selector, optional spectrogram and analysis
-// tables, time record and the cursor readout row. View only: DsaController holds the state.
+// FFT display of the Spectrum Analyzer: spectrum (with harmonic markers, max/min hold, cursors),
+// optional analysis tables, averaging progress with Restart, optional spectrogram and time record.
+// The measurements and cursor readouts are the panel's cards. View only: DsaController holds the state.
 Item {
     id: root
 
     required property DsaController controller
-    // The panel shows the measurements as cards and the time record on request.
-    property bool showReadouts: true
+    // The time record shows on request (Display tool).
     property bool showTime: true
+    // The source channel's color (spectrum and time record).
+    property color traceColor: Theme.signalCh0
     readonly property bool narrow: width < 720
     readonly property real leftMargin: Math.max(spectrumPlot.implicitLeftMargin, timePlot.implicitLeftMargin,
                                                 root.controller.waterfallVisible ? waterfallPlot.implicitLeftMargin : 0)
@@ -39,50 +41,6 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingS
 
-        // --- Measurements -------------------------------------------------------------------
-        Flow {
-            visible: root.showReadouts
-            Layout.fillWidth: true
-            spacing: root.narrow ? Theme.spacingM : Theme.spacingXl
-            DsaReadout {
-                implicitWidth: 290
-                label: qsTr("Detected Fundamental Frequency (Hz)")
-                valueText: root.controller.hasResult ? root.controller.fundamentalFrequency.toFixed(2) : "0.00"
-                color: Theme.ch0
-                stale: !root.controller.running
-            }
-            DsaReadout {
-                implicitWidth: 310
-                label: qsTr("Fundamental Frequency Power (%1)").arg(root.controller.powerUnit)
-                valueText: root.controller.fundamentalPowerValueText
-                stale: !root.controller.running
-            }
-            DsaReadout {
-                label: qsTr("THD (%)")
-                valueText: root.controller.thd.toFixed(2)
-                color: Theme.math
-                stale: !root.controller.running
-            }
-            DsaReadout {
-                label: qsTr("SINAD (dB)")
-                valueText: root.controller.sinad.toFixed(2)
-                stale: !root.controller.running
-            }
-            DsaReadout {
-                label: qsTr("Vpk (V)")
-                valueText: root.controller.vpk.toFixed(2)
-                color: Theme.ch1
-                stale: !root.controller.running
-            }
-            DsaReadout {
-                visible: !root.narrow
-                label: qsTr("df")
-                valueText: Units.format(root.controller.resultLineSpacing, "Hz", 4)
-                color: Theme.textSecondary
-                stale: true
-            }
-        }
-
         // --- Spectrum + tables --------------------------------------------------------------
         RowLayout {
             Layout.fillWidth: true
@@ -92,6 +50,7 @@ Item {
 
             BenchPlot {
                 id: spectrumPlot
+                objectName: "dsaSpectrumPlot"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 xAxis: frequencyAxis
@@ -102,9 +61,10 @@ Item {
                 yAxis {
                     min: root.controller.spectrumMinimum
                     max: root.controller.spectrumMaximum
-                    // Pan/zoom stay over the data (± half its extent) and cannot zoom in or out endlessly.
-                    limitToData: true
-                    limitMargin: 0.5
+                    // Pan/zoom stay inside the scale (auto or manual): never into an empty region, never
+                    // out past it, and not endlessly in.
+                    lowerLimit: root.controller.spectrumMinimum
+                    upperLimit: root.controller.spectrumMaximum
                     minimumSpan: Math.max(root.controller.spectrumMaximum - root.controller.spectrumMinimum, 1e-9) / 200
                     title: qsTr("Magnitude")
                     unit: root.controller.magnitudeUnit
@@ -134,7 +94,7 @@ Item {
                     buffer: root.controller.spectrum
                     name: root.controller.spectrumDisplay === DsaController.PowerSpectralDensityDisplay ? qsTr("PSD") : qsTr("Spectrum")
                     unit: root.controller.magnitudeUnit
-                    color: Theme.ch0
+                    color: root.traceColor
                     width: 1.4
                     fill: true
                     fillOpacity: 0.16
@@ -239,29 +199,33 @@ Item {
             }
         }
 
-        // --- Display Mode (ELVISmx: under the spectrum) + averaging progress -----------------------
+        // --- Averaging progress and Restart (only while they apply) -----------------------------
         RowLayout {
+            objectName: "averagingRow"
+            visible: averagingProgress.visible || restartButton.visible
             Layout.fillWidth: true
-            spacing: Theme.spacingM
-            SegmentedControl {
-                visible: root.showReadouts
-                compact: true
-                Layout.preferredWidth: Theme.toolPanelWidth
-                model: [qsTr("Power Spectrum"), qsTr("Power Spectral Density")]
-                currentIndex: root.controller.spectrumDisplay === DsaController.PowerSpectralDensityDisplay ? 1 : 0
-                onActivated: index => root.controller.spectrumDisplay = index === 1 ? DsaController.PowerSpectralDensityDisplay
-                                                                                   : DsaController.PowerSpectrumDisplay
-            }
+            spacing: Theme.spacingS
             Item { Layout.fillWidth: true }
-            // Averaging progress only while the average fills (mode and count are in the
-            // Averaging tool).
             Text {
+                id: averagingProgress
                 objectName: "averagingProgress"
                 visible: root.controller.averagesTarget > 1 && root.controller.averagesDone < root.controller.averagesTarget
                 text: qsTr("Avg %1/%2").arg(root.controller.averagesDone).arg(root.controller.averagesTarget)
-                color: Theme.textMuted
+                color: Theme.textSecondary
                 font.pixelSize: Theme.fontSizeM
                 font.features: Theme.tabularFigures
+            }
+            // ELVISmx Restart: live while running with Linear weighting (Vector / RMS averaging).
+            Button {
+                id: restartButton
+                objectName: "dsaRestartButton"
+                visible: root.controller.restartEnabled
+                text: qsTr("Restart")
+                icon.source: Theme.icon("refresh")
+                focusPolicy: Qt.TabFocus
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Restart the averaging")
+                onClicked: root.controller.restartAveraging()
             }
         }
 
@@ -319,7 +283,7 @@ Item {
                 buffer: root.controller.timeSignal
                 name: qsTr("Amplitude")
                 unit: "V"
-                color: Theme.ch1
+                color: root.traceColor
                 width: 1.2
             }
             PlotCursor {
@@ -342,20 +306,6 @@ Item {
                 readoutVisible: false
                 onMoved: position => root.controller.cursor2Position = position
             }
-        }
-
-        // --- Cursor readouts ------------------------------------------------------------------------
-        Flow {
-            visible: root.cursors && root.showReadouts
-            Layout.fillWidth: true
-            spacing: Theme.spacingXl
-            component CursorText: Text {
-                font.pixelSize: Theme.fontSizeM
-                font.features: Theme.tabularFigures
-            }
-            CursorText { text: "C1  " + root.controller.cursor1Text; color: Theme.cursor1 }
-            CursorText { text: "C2  " + root.controller.cursor2Text; color: Theme.cursor2 }
-            CursorText { visible: text.length > 0; text: root.controller.cursorDeltaText; color: Theme.textSecondary }
         }
     }
 }

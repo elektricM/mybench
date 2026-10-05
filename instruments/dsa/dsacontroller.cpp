@@ -417,15 +417,13 @@ void DsaController::setOctaveWeighting(OctaveWeighting weighting)
 
 QStringList DsaController::sourceLabels() const
 {
-    QStringList labels;
-    for (mydaq::AiChannel channel : kChannels)
-        labels.append(mydaq::toString(channel));
-    return labels;
+    // Short, readable names in kChannels order (the buttons of the Input card).
+    return {tr("AI 0"), tr("AI 1"), tr("Audio L"), tr("Audio R")};
 }
 
 QStringList DsaController::rangeLabels() const
 {
-    return {u"+/- 10V"_s, u"+/- 2V"_s};
+    return {u"±10 V"_s, u"±2 V"_s};
 }
 
 QStringList DsaController::resolutionLabels() const
@@ -1286,7 +1284,8 @@ void setLogExtra(DataTable& table, const QDateTime& arrival, double duration, do
 {
     table.extra[QString::fromLatin1(dsa::kLogT0)] = arrival.addMSecs(-qint64(std::llround(duration * 1000.0)));
     table.extra[QString::fromLatin1(dsa::kLogDt)] = dt;
-    table.extra[QString::fromLatin1(dsa::kLogUnits)] = units;
+    // The ELVISmx text log keeps ELVISmx's ASCII unit ("Vrms^2") for scripts written for it.
+    table.extra[QString::fromLatin1(dsa::kLogUnits)] = QString(units).replace(u"²"_s, u"^2"_s);
 }
 
 }  // namespace

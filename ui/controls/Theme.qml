@@ -124,6 +124,9 @@ QtObject {
     readonly property color positive: dark ? "#3FB950" : "#1A7F37"
     readonly property color caution: dark ? "#D29922" : "#9A6700"
     readonly property color negative: dark ? "#F85149" : "#CF222E"
+    // The Run / Stop button fills (round 5): green to start, red to stop, white text ≥ 4.5:1.
+    readonly property color runFill: "#1F883D"
+    readonly property color stopFill: "#CF222E"
 
     // --- Displays (plots, readout surfaces) -----------------------------------------------------
     readonly property color display: !displayDark ? base
@@ -142,6 +145,9 @@ QtObject {
     readonly property color signalMath: displayDark ? "#E8C547" : "#9A7A00"
     readonly property color signalRef: displayDark ? "#A78BFA" : "#6D4FD8"
     readonly property color signalCursor: displayText                          // dashed and labelled
+    // Cursor pairs (C1/C2, A/B): two hues no channel uses, so the pair reads apart at a glance.
+    readonly property color signalCursor1: displayDark ? "#FF7A7A" : "#C62F3A"
+    readonly property color signalCursor2: displayDark ? "#7FA7FF" : "#183F8C"
     // Default trace colors of plots (Plot.seriesColors), in order.
     readonly property var seriesColors: [signalCh0, signalCh1, signalMath, signalRef, signalAo1, signalAo0]
 
@@ -154,6 +160,8 @@ QtObject {
         case "math": return signalMath
         case "ref": return signalRef
         case "cursor": return signalCursor
+        case "cursor1": return signalCursor1
+        case "cursor2": return signalCursor2
         }
         return displayText
     }
@@ -270,8 +278,8 @@ QtObject {
     readonly property color ch1: signalCh1
     readonly property color math: signalMath
     readonly property color ref: signalRef
-    readonly property color cursor1: signalCursor
-    readonly property color cursor2: signalCursor
+    readonly property color cursor1: signalCursor1
+    readonly property color cursor2: signalCursor2
     readonly property var channelColors: [ch0, ch1, math, ref]
     function channelColor(index: int): color {
         return channelColors[Math.max(0, index) % channelColors.length]

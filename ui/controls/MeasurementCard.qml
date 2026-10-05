@@ -47,7 +47,7 @@ Item {
         return String(v)
     }
 
-    implicitWidth: Math.max(180, row.implicitWidth + 2 * 10 + 2)
+    implicitWidth: Math.max(180, row.implicitWidth + 15 + 10 + 2)
     implicitHeight: Math.max(64, column.implicitHeight + 2 * 7 + 2)
     Rectangle {
         anchors.fill: parent
@@ -55,6 +55,13 @@ Item {
         color: Theme.cardFill
         border.width: 1
         border.color: card.selected ? Theme.accent : card.hovered ? Theme.controlBorder : Theme.cardBorder
+        // The source's color down the left edge (which trace a value belongs to, at a glance).
+        Rectangle {
+            width: 3
+            radius: 1.5
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom; leftMargin: 4; topMargin: 8; bottomMargin: 8 }
+            color: card.color
+        }
     }
     Accessible.role: Accessible.StaticText
     Accessible.name: title + ": " + valueText
@@ -69,7 +76,7 @@ Item {
     ColumnLayout {
         id: column
         anchors.fill: parent
-        anchors.leftMargin: 11
+        anchors.leftMargin: 15          // clear of the 3 px source bar at 4 px
         anchors.rightMargin: 6
         anchors.topMargin: 6
         anchors.bottomMargin: 7

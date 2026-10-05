@@ -1,14 +1,17 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
 // Right-column card of one output (AO 0 / AO 1, or audio L / R): the header switch is the only
-// per-channel output on/off; waveform picture buttons (Sine, Square, Triangle, DC, Arbitrary);
-// then the primary parameters of the chosen waveform as knob fields. Values apply live while the
-// channel generates. Sweep, the arbitrary file details and presets live in the tool panels.
+// per-channel output on/off (on an Off channel it brings the last waveform back); waveform picture
+// buttons (Sine, Square, Triangle, DC, Arbitrary); then the parameters of the chosen waveform as
+// knob fields. Arbitrary: the waveform (open a file, a library function, Open in Editor) and its
+// timing, all in the card. An Off channel shows only its pictures (icons only), marked "Off".
+// Values apply live while the channel generates. Sweep and presets live in the tool panels.
 ChannelCard {
     id: root
 
@@ -18,9 +21,8 @@ ChannelCard {
     readonly property bool isFunction: channel.mode === GenChannel.Function
     readonly property bool isArbitrary: channel.mode === GenChannel.Arbitrary
     readonly property bool isDc: channel.mode === GenChannel.Dc
+    readonly property bool isOff: channel.mode === GenChannel.Off
     readonly property real primaryKnob: compact ? 34 : 48
-
-    signal arbitraryToolRequested()
 
     objectName: "genChannelCard" + channel.index
     title: channel.name
@@ -31,7 +33,7 @@ ChannelCard {
               : root.channel.state === GenChannel.Done ? qsTr("Done")
               : root.channel.state === GenChannel.Paused ? qsTr("Paused")
               : root.channel.sweeping ? qsTr("Sweep %1/%2").arg(root.channel.sweepStepIndex).arg(root.channel.sweepStepCount)
-              : root.channel.mode !== GenChannel.Off && !root.channel.outputOn ? qsTr("0 V")
+              : root.isOff ? qsTr("Off")
               : ""   // the switch and the waveform pictures say the rest
 
     // The header switch is the channel's output on/off (ChannelCard's own switch re-binds after a
@@ -62,7 +64,7 @@ ChannelCard {
                 leftPadding: 2
                 rightPadding: 2
                 objectName: "wave" + modelData.id
-                text: root.compact ? "" : modelData.text
+                text: root.compact || root.isOff ? "" : modelData.text
                 Accessible.name: modelData.name
                 iconName: modelData.icon
                 accentColor: root.channelColor
@@ -201,22 +203,67 @@ ChannelCard {
         onValueModified: v => root.channel.dcLevel = levelKnob.knob.dragging ? Math.round(v * 100) / 100 : v
     }
 
-    // --- Arbitrary (compact; file, library and timing details in the Arbitrary tool) --------------
+    // --- Arbitrary: the waveform and its source -----------------------------------------------------
     RowLayout {
         visible: root.isArbitrary
         Layout.fillWidth: true
-        spacing: Theme.spacingS
+        spacing: Theme.spacingXs
         Text {
+            objectName: "waveformName"
             Layout.fillWidth: true
             text: root.channel.hasWaveform ? root.channel.waveformName : qsTr("No waveform loaded")
-            color: root.channel.hasWaveform ? Theme.text : Theme.textMuted
+            color: root.channel.hasWaveform ? Theme.text : Theme.textSecondary
             elide: Text.ElideMiddle
             font.pixelSize: Theme.fontSizeS
+            font.weight: root.channel.hasWaveform ? Font.DemiBold : Font.Normal
+            ToolTip.visible: nameHover.hovered && root.channel.hasWaveform
+            ToolTip.text: root.channel.waveformDetails
+            HoverHandler { id: nameHover }
         }
-        Button {
-            text: qsTr("Choose…")
-            onClicked: root.arbitraryToolRequested()
+        IconButton {
+            objectName: "openWaveform"
+            iconName: "folder-open"
+            toolTip: qsTr("Open a waveform file…")
+            onClicked: openDialog.open()
         }
+        IconButton {
+            objectName: "libraryWaveform"
+            visible: root.controller.libraryNames.length > 0
+            iconName: "book"
+            toolTip: qsTr("Library waveforms")
+            onClicked: libraryMenu.popup(this, 0, height)
+            Menu {
+                id: libraryMenu
+                Instantiator {
+                    model: root.controller.libraryNames
+                    delegate: MenuItem {
+                        required property string modelData
+                        required property int index
+                        text: modelData
+                        onTriggered: root.controller.loadLibraryWaveform(root.channel.index, index)
+                    }
+                    onObjectAdded: (index, object) => libraryMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => libraryMenu.removeItem(object)
+                }
+                MenuSeparator {}
+                MenuItem {
+                    text: qsTr("Clear Waveform")
+                    enabled: root.channel.hasWaveform
+                    onTriggered: root.controller.clearWaveform(root.channel.index)
+                }
+            }
+        }
+    }
+    Button {
+        objectName: "openInEditor"
+        visible: root.isArbitrary
+        Layout.fillWidth: true
+        text: qsTr("Open in Editor")
+        icon.source: Theme.icon("edit")
+        ToolTip.visible: hovered
+        ToolTip.text: root.channel.hasWaveform ? qsTr("Edit this waveform in the Waveform Editor")
+                                               : qsTr("Draw a new waveform in the Waveform Editor")
+        onClicked: root.controller.editChannel(root.channel.index)
     }
     KnobField {
         visible: root.isArbitrary
@@ -250,12 +297,62 @@ ChannelCard {
         value: root.channel.updateRate
         onValueModified: v => root.channel.updateRate = v
     }
+    SegmentedControl {
+        objectName: "generationMode"
+        visible: root.isArbitrary
+        Layout.fillWidth: true
+        compact: true
+        accentColor: root.channelColor
+        model: [ { text: qsTr("Continuous"), toolTip: qsTr("The waveform repeats until the output is switched off") },
+                 { text: qsTr("Once"), toolTip: qsTr("The waveform plays once, then holds its last sample") } ]
+        currentIndex: root.channel.generationMode
+        onActivated: index => root.channel.generationMode = index
+    }
+    SegmentedControl {
+        objectName: "interpolation"
+        visible: root.isArbitrary
+        Layout.fillWidth: true
+        compact: true
+        accentColor: root.channelColor
+        model: [ { text: qsTr("Hold"), toolTip: qsTr("Each sample is held until the next one") },
+                 { text: qsTr("Linear"), toolTip: qsTr("Straight lines between the samples") } ]
+        currentIndex: root.channel.interpolation
+        onActivated: index => root.channel.interpolation = index
+    }
+    Switch {
+        visible: root.isArbitrary && root.channel.generationMode === GenChannel.RunOnce
+        Layout.fillWidth: true
+        text: qsTr("Then 0 V")
+        ToolTip.visible: hovered
+        ToolTip.text: qsTr("After playing once, return to 0 V instead of holding the last sample")
+        checked: root.channel.zeroAfterRunOnce
+        onToggled: root.channel.zeroAfterRunOnce = checked
+    }
+    // Both channels Arbitrary: one shared Update Rate (ELVISmx), shown on the second card.
+    Switch {
+        objectName: "linkRates"
+        visible: root.isArbitrary && root.channel.index === 1 && root.controller.channel0.mode === GenChannel.Arbitrary
+        Layout.fillWidth: true
+        text: qsTr("Same rate as %1").arg(root.controller.channel0.name)
+        ToolTip.visible: hovered
+        ToolTip.text: qsTr("Both Arbitrary channels share one Update Rate")
+        checked: root.controller.linkUpdateRates
+        onToggled: root.controller.linkUpdateRates = checked
+    }
     Text {
         visible: root.isArbitrary && root.channel.clippedSamples > 0
         Layout.fillWidth: true
-        text: qsTr("%1 samples exceed ±%2 V after gain and are clipped.").arg(root.channel.clippedSamples).arg(root.channel.outputRange)
+        text: qsTr("%1 samples clipped at ±%2 V").arg(root.channel.clippedSamples).arg(root.channel.outputRange)
         color: Theme.caution
         font.pixelSize: Theme.fontSizeS
         wrapMode: Text.WordWrap
+    }
+
+    FileDialog {
+        id: openDialog
+        title: qsTr("Open waveform for %1").arg(root.channel.name)
+        currentFolder: root.controller.lastWaveformFolder
+        nameFilters: [qsTr("Waveforms (*.mbw *.wav *.csv *.txt *.bin *.wdt *.wfm)"), qsTr("All files (*)")]
+        onAccepted: root.controller.loadWaveform(root.channel.index, selectedFile)
     }
 }

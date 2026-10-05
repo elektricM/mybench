@@ -12,6 +12,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QQmlEngine>
 #include <QSettings>
 #include <QThreadPool>
 
@@ -100,6 +101,8 @@ GenController::GenController() : InstrumentController(u"gen"_s)
     for (int i = 0; i < 2; ++i) {
         m_channels[size_t(i)] = std::make_unique<GenChannel>(i);
         GenChannel* ch = m_channels[size_t(i)].get();
+        // channel(i) hands it to QML: never let the engine take (and delete) it.
+        QQmlEngine::setObjectOwnership(ch, QQmlEngine::CppOwnership);
         connect(ch, &GenChannel::settingChanged, this, [this, i] { onChannelSettingChanged(i); });
         connect(ch, &GenChannel::modeAboutToChange, this, [this, i] {
             // Mode change while generating: the channel stops (0 V) and stays Ready.
@@ -119,9 +122,11 @@ GenController::GenController() : InstrumentController(u"gen"_s)
         connect(ch, &GenChannel::stateChanged, this, &GenController::updateStatusText);
         ch->setEnginePreference(gen::EnginePreference::Auto);
         connect(ch, &GenChannel::readoutChanged, this, &GenController::updateStatusText);
+        connect(ch, &GenChannel::naturalSpanChanged, this, &GenController::updatePreviewWindow);
     }
     // ELVISmx FGEN defaults on AO 0 (sine, 100 Hz, 1 Vpp, 0 V, 50 %); AO 1 Off.
     m_channels[0]->setMode(GenChannel::Function);
+    updatePreviewWindow();
 
     connect(&m_editor, &WaveformEditor::useInChannelRequested, this, &GenController::onEditorUse);
     connect(&m_editor, &WaveformEditor::rendered, this, &GenController::onEditorRendered);
@@ -314,12 +319,30 @@ bool GenController::validateChannel(int index, bool notifyUser)
     return true;
 }
 
+// Both channels share one time axis: the window is the longest span a channel needs (two periods
+// of the slowest function, one pass of the longest waveform); DC only: 1 s.
+void GenController::updatePreviewWindow()
+{
+    double window = 0;
+    for (auto& ch : m_channels)
+        window = std::max(window, ch->naturalSpan());
+    if (!(window > 0))
+        window = 1.0;
+    for (auto& ch : m_channels)
+        ch->setPreviewWindow(window);
+}
+
 void GenController::setOutput(int index, bool on)
 {
     if (index < 0 || index > 1)
         return;
     GenChannel* ch = m_channels[size_t(index)].get();
     if (on) {
+        // An Off channel switched on gets its last waveform back (DC is not possible on audio).
+        if (ch->mode() == GenChannel::Off) {
+            const GenChannel::Mode last = ch->lastActiveMode();
+            ch->setMode(last == GenChannel::Off || (last == GenChannel::Dc && ch->isAudio()) ? GenChannel::Function : last);
+        }
         if (!validateChannel(index, true))
             return;
         m_forceOnce[size_t(index)] = false;

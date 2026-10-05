@@ -3,9 +3,10 @@ import QtQuick
 import QtQuick.Controls
 import MyBench.Controls
 
-// The measurement cards under the display (PicoScope style): one card per shown measurement and
+// The measurement cards under the display (PicoScope style): first one card per cursor pair while
+// it is on (C1–C2: Δt, 1/Δt, ΔV, C1, C2; H1–H2: ΔV), then one card per shown measurement and
 // trace — the value large, then min / max / mean / σ over the last 100 records or all records —,
-// one card for the cursors while they are on, and "+ Add" (opens the Measure panel). Same model
+// and "+ Add" (opens the Measure panel). Same model
 // API as a MeasurementTable (ScopeMeasurements: columns, rows, available, add/remove requests), so
 // the cards and the Measure panel write the same measurement set.
 Item {
@@ -26,9 +27,9 @@ Item {
     signal openMeasurePanel()
 
     readonly property var measurementRows: rows.filter(r => r.id.startsWith("m"))
-    readonly property var cursorRow: rows.find(r => r.id === "cursorDeltaT") ?? null
-    readonly property var cursorDeltaV: rows.find(r => r.id === "cursorDelta") ?? null
-    readonly property var cursorRate: rows.find(r => r.id === "cursorRate") ?? null
+    function traceName(index: int): string {
+        return index === 2 ? qsTr("Math") : "CH" + index
+    }
     // Stable card keys "<rowId>/<traceIndex>" (a string: the cards keep their statistics while the
     // values update).
     readonly property string cardKeys: {
@@ -70,6 +71,45 @@ Item {
     Row {
         id: flow
         spacing: Theme.spacingS
+
+        // Time cursors C1–C2: Δt large; 1/Δt, ΔV, and the values at C1 and C2 on their traces.
+        ScopeCursorCard {
+            objectName: "cursorCard"
+            visible: strip.controller.cursorsOn
+            readonly property var c1: strip.controller.cursor1
+            readonly property var c2: strip.controller.cursor2
+            // Re-read with every record (the rows follow the records). First in the strip:
+            // what the user is pointing at right now..
+            readonly property var readings: {
+                void strip.rows
+                const v1 = strip.controller.valueAt(c1.channel, c1.position)
+                const v2 = strip.controller.valueAt(c2.channel, c2.position)
+                return { v1: v1, v2: v2, dt: c2.position - c1.position }
+            }
+            function unitOf(index: int): string {
+                return index === 2 ? strip.controller.math.unit : "V"
+            }
+            function fmt(v: real, unit: string): string {
+                return isFinite(v) ? strip.controller.formatMeasurement(v, unit) : ""
+            }
+            title: c1.channel === c2.channel ? qsTr("on %1").arg(strip.traceName(c1.channel)) : ""
+            value: fmt(readings.dt, "s")
+            items: [{ name: "1/Δt", text: Math.abs(readings.dt) > 0 ? fmt(1 / Math.abs(readings.dt), "Hz") : "" },
+                    { name: "ΔV", text: unitOf(c1.channel) === unitOf(c2.channel) ? fmt(readings.v2 - readings.v1, unitOf(c1.channel)) : "" },
+                    { name: "C1", color: Theme.cursor1, text: fmt(readings.v1, unitOf(c1.channel)) },
+                    { name: "C2", color: Theme.cursor2, text: fmt(readings.v2, unitOf(c2.channel)) }]
+        }
+        // Level cursors H1–H2 on one trace: ΔV large, the two levels beside it.
+        ScopeCursorCard {
+            objectName: "levelCursorCard"
+            visible: strip.controller.levelCursorsOn
+            readonly property string unit: strip.controller.levelCursorChannel === 2 ? strip.controller.math.unit : "V"
+            names: ["H1", "H2"]
+            title: qsTr("on %1").arg(strip.traceName(strip.controller.levelCursorChannel))
+            value: strip.controller.formatMeasurement(strip.controller.levelCursor2 - strip.controller.levelCursor1, unit)
+            items: [{ name: "H1", color: Theme.cursor1, text: strip.controller.formatMeasurement(strip.controller.levelCursor1, unit) },
+                    { name: "H2", color: Theme.cursor2, text: strip.controller.formatMeasurement(strip.controller.levelCursor2, unit) }]
+        }
 
         Repeater {
             model: strip.cardKeys.length > 0 ? strip.cardKeys.split("|") : []
@@ -145,16 +185,6 @@ Item {
                 stats: strip.statistics === 0 ? ({}) : ({ min: num(minimum), max: num(maximum), mean: num(mean), stdDev: num(sigma) })
                 onRemoveRequested: strip.removeRequested(card.rowId)
             }
-        }
-
-        // Cursors A–B: Δt large, 1/Δt and ΔV beside it.
-        MeasurementCard {
-            objectName: "cursorCard"
-            visible: strip.controller.cursorsOn
-            title: qsTr("Cursors A–B") + (strip.cursorRate ? "  ·  1/Δt " + (strip.cursorRate.values[0] || "—") : "")
-            color: Theme.signalCursor
-            value: strip.cursorRow ? (strip.cursorRow.values[0] || "—") : "—"
-            removable: false
         }
 
         // "+ Add": the Measure panel.

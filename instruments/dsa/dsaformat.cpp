@@ -51,8 +51,9 @@ QString magnitudeUnit(const dsp::SpectrumFormat& format)
     case dsp::SpectrumUnit::Dbm:
         return format.density ? u"dBm/Hz"_s : u"dBm"_s;
     case dsp::SpectrumUnit::Linear:
-        // ELVISmx: Linear shows power (V^2 per line, V^2/Hz as a density), not amplitude.
-        return (peak ? u"Vpk^2"_s : u"Vrms^2"_s) + (format.density ? u"/Hz"_s : QString());
+        // ELVISmx: Linear shows power (V² per line, V²/Hz as a density), not amplitude. ELVISmx
+        // writes "Vrms^2"; we write the square properly.
+        return (peak ? u"Vpk²"_s : u"Vrms²"_s) + (format.density ? u"/Hz"_s : QString());
     }
     return {};
 }
@@ -63,7 +64,7 @@ QString powerUnit(dsp::SpectrumUnit unit, dsp::SpectrumMode mode)
     switch (unit) {
     case dsp::SpectrumUnit::Db: return peak ? u"dBVpk"_s : u"dBVrms"_s;
     case dsp::SpectrumUnit::Dbm: return u"dBm"_s;
-    case dsp::SpectrumUnit::Linear: return peak ? u"Vpk^2"_s : u"Vrms^2"_s;
+    case dsp::SpectrumUnit::Linear: return peak ? u"Vpk²"_s : u"Vrms²"_s;
     }
     return {};
 }
@@ -123,7 +124,7 @@ QString levelText(double value, const QString& unit, bool logarithmic)
         value = 0.0;
     if (logarithmic)
         return fixedText(value, 2) + u' ' + unit;
-    if (unit.contains(u"^2"_s)) {
+    if (unit.contains(u'²')) {
         // A power in V²: SI prefixes would be ambiguous (mV² ≠ 1e-3 V²).
         if (value == 0.0 || std::abs(value) >= 0.01)
             return fixedText(value, 3) + u' ' + unit;

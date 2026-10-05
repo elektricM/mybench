@@ -149,8 +149,28 @@ Rectangle {
         return running && showRate && controller.sampleRate > 0 ? Units.format(controller.sampleRate, "S/s", 3) : ""
     }
 
-    implicitHeight: Math.max(Theme.paneHeaderHeight,
-                             contentRow.visible ? contentRow.implicitHeight + 2 * Theme.spacingXs + 1 : 0)
+    // The width the row needs to show the content inline with the full title and state text, from
+    // the items' own widths (not row.implicitWidth, which depends on where the content is).
+    readonly property real inlineWidth: {
+        const items = [noteLabel, displayToolsRow, actionsRow, extrasRow, legacyExtrasRow, singleButton,
+                       runButton, releaseButton, inspectorButton, resetButton, moreButton, closeButton]
+        let width = row.anchors.leftMargin + row.anchors.rightMargin + titleArea.implicitWidth
+                    + stateArea.Layout.minimumWidth + stateArea.Layout.leftMargin + row.spacing
+        for (const item of items) {
+            if (item.visible)
+                width += Math.max(item.implicitWidth, item.Layout.minimumWidth) + row.spacing
+        }
+        return width + contentRow.implicitWidth + row.spacing
+    }
+    // Content that does not fit beside the title moves to a second row under it: it is never
+    // clipped or squeezed over its neighbours (Alex, round 4: empty Scope bar, overlapping Bode bar).
+    // (`hasContent`, not contentRow.visible: the effective visibility includes the parent's, which
+    // would keep a hidden slot hidden for good.)
+    readonly property bool hasContent: contentRow.children.length > 0
+    readonly property bool contentWrapped: hasContent && inlineWidth > width
+    readonly property real rowHeight: Math.max(Theme.paneHeaderHeight,
+                                               hasContent && !contentWrapped ? contentRow.implicitHeight + 2 * Theme.spacingXs + 1 : 0)
+    implicitHeight: rowHeight + (contentWrapped ? contentRow.implicitHeight + 2 * Theme.spacingXs : 0)
     implicitWidth: 480
     color: Theme.window
 
@@ -173,12 +193,29 @@ Rectangle {
         color: header.focused ? Theme.accent : Theme.separator
     }
 
-    RowLayout {
-        id: row
-        anchors.fill: parent
+    // Second row: the instrument content when it does not fit beside the title.
+    Item {
+        id: wrapSlot
+        objectName: "paneHeaderWrapRow"
+        visible: header.contentWrapped
+        clip: true
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         anchors.leftMargin: Theme.spacingM
         anchors.rightMargin: Theme.spacingS
         anchors.bottomMargin: 1
+        height: header.contentWrapped ? contentRow.implicitHeight + 2 * Theme.spacingXs : 0
+    }
+
+    RowLayout {
+        id: row
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: header.rowHeight - (header.contentWrapped ? 0 : 1)
+        anchors.leftMargin: Theme.spacingM
+        anchors.rightMargin: Theme.spacingS
         spacing: Theme.spacingS
 
         RowLayout {
@@ -224,6 +261,7 @@ Rectangle {
 
         // State: dot, text and detail. Elides before anything on the right shrinks.
         RowLayout {
+            id: stateArea
             Layout.fillWidth: true
             // The state label's own minimum (+ the dot): squeezed further, it would overlap the
             // items on its right.
@@ -397,7 +435,7 @@ Rectangle {
         Item {
             id: contentClip
             objectName: "paneHeaderContentClip"
-            visible: contentRow.visible
+            visible: header.hasContent && !header.contentWrapped
             clip: true
             implicitWidth: contentRow.implicitWidth
             implicitHeight: contentRow.implicitHeight
@@ -413,6 +451,7 @@ Rectangle {
             Row {
                 id: contentRow
                 objectName: "paneHeaderContent"
+                parent: header.contentWrapped ? wrapSlot : contentClip
                 spacing: Theme.spacingS
                 visible: children.length > 0
                 anchors.verticalCenter: parent.verticalCenter

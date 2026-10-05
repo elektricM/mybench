@@ -7,15 +7,18 @@ import MyBench.Framework
 import MyBench.Controls
 
 // The Oscilloscope pane (docs/instruments/scope.md, docs/UI.md), PicoScope-7 style:
-//   instrument bar  (pane header content) Run/Stop with the trigger state, Single, Timebase knob,
-//                   Trigger level knob + Auto / Normal / None, View YT / XY / FFT, Autoscale, ⋯
-//   display         ScopeDisplay edge to edge (markers, cursors, info line; FFT plot under it)
-//   right column    CH 0 and CH 1 cards (switch, Scale and Position knobs, source, range, facts),
-//                   Math and References cards, the tool palette (Measure, Cursors, Math, FFT,
-//                   References, Display, Trigger, Export); a tool opens a floating panel over the
-//                   right part of the display, next to the column
-//   cards           one measurement card per shown measurement (value + statistics), cursors, + Add
-// Every setting exists once; settings that do not apply are hidden. No inspector.
+//   instrument bar  (pane header content) Run/Stop with the trigger state, Single, the horizontal
+//                   controls (Timebase knob, trigger Position knob), View YT / XY / FFT, Autoscale
+//   display         ScopeDisplay edge to edge (markers, cursors; FFT plot with its source under it)
+//   right column    InstrumentColumn: CH 0 and CH 1 cards (switch, Scale and Position knobs, source,
+//                   range), the Trigger card (type, source, slope, level, mode; advanced settings
+//                   behind its sliders button), the Math card; the tool palette pinned at the bottom
+//                   (Measure, Cursors, References, Display; export and print are in the ⋯ menu).
+//                   An open tool panel pushes the display aside when it has room, else floats
+//                   over its right part.
+//   cards           one card per cursor pair (C1–C2: Δt, 1/Δt, ΔV; H1–H2: ΔV), one measurement
+//                   card per shown measurement (value + statistics), + Add
+// Every setting has exactly one control; settings that do not apply are hidden. No inspector.
 Item {
     id: root
 
@@ -28,16 +31,18 @@ Item {
     readonly property alias panel: panel
     readonly property alias display: display
     readonly property alias measurementModel: measurementModel
-    // The open tool panel ("" = none): measure, cursors, math, fft, references, display, trigger, export.
+    // The open tool panel ("" = none): measure, cursors, references, display.
     // --scope-tool=<id> opens one at start (screenshots of the panels).
     property string tool: AppInfo.value("scope-tool")
     // Split screen / small windows: knobs give way to the fields, the palette shows icons only.
     readonly property bool narrow: width < Theme.instrumentCompactWidth
-    readonly property bool barCompact: width < 1320
-    // The right column fits its widest fixed-width row (the view buttons when compact): native
-    // styles size the buttons differently, and a ColumnLayout never shrinks such a row.
-    readonly property real columnWidth: narrow ? Math.max(Theme.instrumentColumnCompactWidth, narrowViewControls.implicitWidth + 2 * Theme.spacingS + 1)
-                                               : Theme.instrumentColumnWidth
+    // (The bar holds Run, Single, two knobs, the view and Autoscale: labels fit from 1100 px.)
+    readonly property bool barCompact: width < 1100
+    // An open tool panel pushes the display aside (the traces stay visible) while the display
+    // keeps at least this width; in a narrower pane it floats over the display's right part.
+    readonly property bool toolPushes: tool.length > 0
+                                       && width - (narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth)
+                                          - Theme.toolPanelWidth - 2 * Theme.spacingS >= 480
     // Pictograms of the measurement types (SVG paths on 32×18).
     readonly property var measurementGlyphs: ({
         [ScopeChannel.Rms]: "M2 9 C6 1 10 1 14 9 S22 17 26 9 30 5 30 5",
@@ -119,65 +124,6 @@ Item {
     }
 
 
-    // Trigger level and mode: in the bar, or in the right column in a narrow pane.
-    Component {
-        id: triggerControls
-        GridLayout {
-            columns: root.narrow ? 1 : 2
-            columnSpacing: root.barCompact ? Theme.spacingS : Theme.spacingM
-            rowSpacing: Theme.spacingXs
-            KnobField {
-                objectName: "triggerLevel"
-                // The knob covers ±5 div of the source channel; typing takes −100…100 V.
-                readonly property real span: 5 * (root.triggerChannel === 1 ? root.ch1.voltsPerDiv : root.ch0.voltsPerDiv)
-                enabled: root.edge
-                label: qsTr("Trigger level · CH%1 %2").arg(root.triggerChannel)
-                                                       .arg(root.controller.triggerSlope === ScopeController.Rising ? "↑" : "↓")
-                unit: "V"
-                compact: false
-                knobSize: 44
-                valueWidth: root.narrow ? 70 : 80
-                accentColor: display.traceColor(root.triggerChannel)
-                from: -span
-                to: span
-                stepSize: span / 50
-                defaultValue: 0
-                value: root.controller.triggerLevel
-                toolTip: qsTr("−100 to 100 V; drag the T marker at the right edge of the graph")
-                onValueModified: v => root.controller.triggerLevel = Math.max(-100, Math.min(100, Number(v.toPrecision(4))))
-            }
-            ColumnLayout {
-                spacing: 3
-                Text {
-                    text: qsTr("Trigger")
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontSizeCaption
-                }
-                SegmentedControl {
-                    objectName: "triggerMode"
-                    compact: root.narrow
-                    // Auto: Edge, free-runs after the timeout; Normal: Edge, waits; None: Immediate.
-                    model: [{ text: qsTr("Auto"), toolTip: qsTr("Edge trigger; without an edge the signal is shown untriggered after the timeout") },
-                            { text: root.narrow ? qsTr("Norm") : qsTr("Normal"), toolTip: qsTr("Edge trigger; waits for an edge (the last trace stays, faded)") },
-                            { text: qsTr("None"), toolTip: qsTr("Free running: every record is shown") }]
-                    currentIndex: !root.edge ? 2 : root.controller.noTriggerMode === ScopeController.ShowUntriggered ? 0 : 1
-                    onActivated: index => {
-                        if (index === 2) {
-                            root.controller.triggerType = ScopeController.Immediate
-                            return
-                        }
-                        root.controller.triggerType = ScopeController.Edge
-                        if (index === 0)
-                            root.controller.noTriggerMode = ScopeController.ShowUntriggered
-                        else if (root.controller.noTriggerMode === ScopeController.ShowUntriggered)
-                            root.controller.noTriggerMode = ScopeController.KeepLastTrace
-                    }
-                }
-            }
-
-        }
-    }
-
     // View (YT / XY / FFT) and Autoscale: in the bar, or at the top of the right column in a
     // narrow pane (one instance at a time).
     Component {
@@ -190,7 +136,7 @@ Item {
                 readonly property bool fftOn: root.controller.fftSource !== ScopeController.FftOff
                 model: [{ icon: "wave-sine", text: root.barCompact ? "" : "YT", toolTip: qsTr("YT: voltage over time") },
                         { icon: "crosshair", text: root.barCompact ? "" : "XY", toolTip: qsTr("XY: CH1 (Y) over CH0 (X)") },
-                        { icon: "bar-chart", text: root.barCompact ? "" : "FFT", toolTip: qsTr("FFT: time view with the spectrum of a channel under it") }]
+                        { icon: "bar-chart", text: root.barCompact ? "" : "FFT", toolTip: qsTr("FFT: time view with the spectrum of a channel under it (for averaging and distortion, use the Spectrum Analyzer)") }]
                 currentIndex: fftOn ? 2 : root.controller.displayMode
                 onActivated: index => {
                     if (index === 2) {
@@ -277,12 +223,24 @@ Item {
                     onIndexActivated: index => root.controller.timeDivIndex = index
                 }
 
-                Rectangle { visible: !root.barCompact; implicitWidth: 1; Layout.fillHeight: true; Layout.margins: 6; color: Theme.separator }
-
-                Loader {
-                    active: !root.narrow
-                    visible: active
-                    sourceComponent: triggerControls
+                // The trigger's place on the screen (pre-trigger): Edge only, not while rolling.
+                KnobField {
+                    objectName: "horizontalPosition"
+                    visible: root.edge && !root.controller.rolling
+                    label: qsTr("Trigger position")
+                    unit: "%"
+                    compact: root.narrow
+                    knobSize: 44
+                    valueWidth: root.narrow ? 56 : 64
+                    accentColor: display.traceColor(root.triggerChannel)
+                    from: 0
+                    to: 100
+                    stepSize: 1
+                    defaultValue: 50
+                    formatter: v => Math.round(v) + " %"
+                    value: root.controller.horizontalPosition
+                    toolTip: qsTr("Where the trigger point sits on the screen, 0 to 100 %; drag the T marker at the top of the graph")
+                    onValueModified: v => root.controller.horizontalPosition = Math.round(v)
                 }
 
                 Item { Layout.fillWidth: true }
@@ -307,8 +265,8 @@ Item {
             { name: qsTr("Math"), style: root.math.style, color: Theme.signalMath },
             { name: "REF A", style: root.controller.refAStyle, color: Theme.signalRef },
             { name: "REF B", style: root.controller.refBStyle, color: Theme.signalRef },
-            { name: qsTr("Cursor C1"), style: root.controller.cursor1.style, color: Theme.signalCursor },
-            { name: qsTr("Cursor C2"), style: root.controller.cursor2.style, color: Theme.signalCursor }
+            { name: qsTr("Cursor C1"), style: root.controller.cursor1.style, color: Theme.cursor1 },
+            { name: qsTr("Cursor C2"), style: root.controller.cursor2.style, color: Theme.cursor2 }
         ]
 
         Item {
@@ -316,156 +274,68 @@ Item {
 
             ScopeDisplay {
                 id: display
-                anchors { left: parent.left; top: parent.top; bottom: parent.bottom; right: column.left }
+                anchors { left: parent.left; top: parent.top; bottom: parent.bottom
+                          right: root.toolPushes ? toolArea.left : column.left
+                          rightMargin: root.toolPushes ? Theme.spacingS : 0 }
                 controller: root.controller
             }
 
-            // Right column: channel cards, Math, References, tool palette.
-            Rectangle {
+            // Right column: channel cards, Trigger, Math; the tool palette pinned at the bottom.
+            InstrumentColumn {
                 id: column
+                objectName: "scopeColumn"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.columnWidth
-                color: Theme.window
-                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+                compact: root.narrow
 
-                Flickable {
-                    id: columnFlick
-                    anchors { fill: parent; leftMargin: 1 }
-                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { id: columnBar }
+                Loader {
+                    id: narrowViewControls
+                    Layout.alignment: Qt.AlignHCenter
+                    active: root.narrow
+                    visible: active
+                    sourceComponent: viewControls
+                }
+                ScopeChannelCard {
+                    Layout.fillWidth: true
+                    controller: root.controller
+                    channel: root.ch0
+                    channelColor: display.traceColor(0)
+                    compact: root.narrow
+                }
+                ScopeChannelCard {
+                    Layout.fillWidth: true
+                    controller: root.controller
+                    channel: root.ch1
+                    channelColor: display.traceColor(1)
+                    compact: root.narrow
+                }
+                ScopeTriggerCard {
+                    Layout.fillWidth: true
+                    controller: root.controller
+                    ch0Color: display.traceColor(0)
+                    ch1Color: display.traceColor(1)
+                    compact: root.narrow
+                }
+                ScopeMathCard {
+                    Layout.fillWidth: true
+                    controller: root.controller
+                    channelColor: display.traceColor(2)
+                    compact: root.narrow
+                }
 
-                    ColumnLayout {
-                        id: columnLayout
-                        x: Theme.spacingS
-                        y: Theme.spacingS
-                        // Room for the scroll bar when it shows (macOS draws it over the content).
-                        width: columnFlick.width - 2 * Theme.spacingS
-                               - (columnFlick.contentHeight > columnFlick.height ? columnBar.implicitWidth : 0)
-                        spacing: Theme.spacingS
-
-                        Loader {
-                            id: narrowViewControls
-                            Layout.alignment: Qt.AlignHCenter
-                            active: root.narrow
-                            visible: active
-                            sourceComponent: viewControls
-                        }
-                        Loader {
-                            Layout.fillWidth: true
-                            active: root.narrow
-                            visible: active
-                            sourceComponent: triggerControls
-                        }
-                        ScopeChannelCard {
-                            Layout.fillWidth: true
-                            controller: root.controller
-                            channel: root.ch0
-                            channelColor: display.traceColor(0)
-                            compact: root.narrow
-                        }
-                        ScopeChannelCard {
-                            Layout.fillWidth: true
-                            controller: root.controller
-                            channel: root.ch1
-                            channelColor: display.traceColor(1)
-                            compact: root.narrow
-                        }
-
-                        // Math: on/off here, the operation and scales in the Math panel.
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: 40
-                            radius: Theme.radiusM
-                            color: Theme.cardFill
-                            border.color: root.tool === "math" ? display.traceColor(2) : Theme.cardBorder
-                            TapHandler { onTapped: root.toggleTool("math") }
-                            RowLayout {
-                                anchors { fill: parent; leftMargin: Theme.spacingS + 6; rightMargin: Theme.spacingS }
-                                Text {
-                                    text: qsTr("Math")
-                                    color: root.math.enabled ? display.traceColor(2) : Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.weight: Font.DemiBold
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: root.math.functionName
-                                    color: Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeCaption
-                                    elide: Text.ElideRight
-                                }
-                                Switch {
-                                    objectName: "mathSwitch"
-                                    checked: root.math.enabled
-                                    Accessible.name: qsTr("Math")
-                                    onToggled: root.math.enabled = checked
-                                }
-                            }
-                            Rectangle {
-                                width: 3; radius: 1.5
-                                anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 6 }
-                                color: display.traceColor(2)
-                                opacity: root.math.enabled ? 1 : 0.35
-                            }
-                        }
-                        // References: what is stored; the panel saves, shows, imports and clears.
-                        Rectangle {
-                            Layout.fillWidth: true
-                            implicitHeight: 40
-                            radius: Theme.radiusM
-                            color: refHover.hovered ? Theme.hoverFill : Theme.cardFill
-                            border.color: root.tool === "references" ? Theme.signalRef : Theme.cardBorder
-                            HoverHandler { id: refHover }
-                            TapHandler { onTapped: root.toggleTool("references") }
-                            Rectangle {
-                                width: 3; radius: 1.5
-                                anchors { left: parent.left; top: parent.top; bottom: parent.bottom; margins: 6 }
-                                color: Theme.signalRef
-                                opacity: root.controller.refAAvailable || root.controller.refBAvailable ? 1 : 0.35
-                            }
-                            RowLayout {
-                                anchors { fill: parent; leftMargin: Theme.spacingS + 6; rightMargin: Theme.spacingS }
-                                Text {
-                                    text: qsTr("References")
-                                    color: Theme.text
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.weight: Font.DemiBold
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    horizontalAlignment: Text.AlignRight
-                                    text: (root.controller.refAAvailable ? "A" : "–") + " · " + (root.controller.refBAvailable ? "B" : "–")
-                                    color: Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeCaption
-                                }
-                            }
-                        }
-
-                        // Tool palette.
-                        ToolPalette {
-                            objectName: "toolPalette"
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingXs
-                            columns: 4
-                            cellHeight: root.narrow ? 34 : 52
-                            currentId: root.tool
-                            model: [{ id: "measure", text: root.narrow ? "" : qsTr("Measure"), icon: "ruler", toolTip: qsTr("Measurements") },
-                                    { id: "cursors", text: root.narrow ? "" : qsTr("Cursors"), icon: "crosshair", toolTip: qsTr("Cursors") },
-                                    { id: "math", text: root.narrow ? "" : qsTr("Math"), icon: "activity", toolTip: qsTr("Math trace") },
-                                    { id: "fft", text: root.narrow ? "" : qsTr("FFT"), icon: "bar-chart", toolTip: qsTr("Spectrum") },
-                                    { id: "references", text: root.narrow ? "" : qsTr("Refs"), icon: "layers", toolTip: qsTr("Reference traces") },
-                                    { id: "display", text: root.narrow ? "" : qsTr("Display"), icon: "grid", toolTip: qsTr("Persistence, averaging, record length") },
-                                    { id: "trigger", text: root.narrow ? "" : qsTr("Trigger"), icon: "zap", toolTip: qsTr("Trigger source, slope, holdoff, hysteresis, timeout") },
-                                    { id: "export", text: root.narrow ? "" : qsTr("Export"), icon: "export", toolTip: qsTr("Export and print") }]
-                            onActivated: id => root.toggleTool(id)
-                        }
-                    }
+                tools: ToolPalette {
+                    objectName: "toolPalette"
+                    columns: 4
+                    cellHeight: root.narrow ? 34 : 44
+                    currentId: root.tool
+                    model: [{ id: "measure", text: root.narrow ? "" : qsTr("Measure"), icon: "ruler", toolTip: qsTr("Measurements") },
+                            { id: "cursors", text: root.narrow ? "" : qsTr("Cursors"), icon: "crosshair", toolTip: qsTr("Cursors C1, C2 and H1, H2") },
+                            { id: "references", text: root.narrow ? "" : qsTr("Refs"), icon: "layers", toolTip: qsTr("Reference traces") },
+                            { id: "display", text: root.narrow ? "" : qsTr("Display"), icon: "grid", toolTip: qsTr("Persistence, averaging, record length, roll") }]
+                    onActivated: id => root.toggleTool(id)
                 }
             }
 
-            // The open tool panel floats over the right part of the display, next to the column.
+            // The open tool panel: beside the display (toolPushes) or over its right part, next to the column.
             Item {
                 id: toolArea
                 anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
@@ -556,7 +426,7 @@ Item {
                     onCloseRequested: root.tool = ""
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { Layout.fillWidth: true; text: qsTr("Time cursors A, B"); color: Theme.text; font.pixelSize: Theme.fontSizeBody }
+                        Text { Layout.fillWidth: true; text: qsTr("Time cursors C1, C2"); color: Theme.text; font.pixelSize: Theme.fontSizeBody }
                         Switch {
                             objectName: "cursorsSwitch"
                             checked: root.controller.cursorsOn
@@ -566,10 +436,11 @@ Item {
                     }
                     PanelRow {
                         visible: root.controller.cursorsOn
-                        label: qsTr("A follows")
+                        label: qsTr("C1 follows")
                         SegmentedControl {
                             objectName: "cursor1Trace"
                             Layout.fillWidth: true
+                            accentColor: Theme.cursor1
                             model: root.traceChoices
                             currentIndex: root.controller.cursor1.channel
                             onActivated: index => root.controller.cursor1.channel = index
@@ -577,10 +448,11 @@ Item {
                     }
                     PanelRow {
                         visible: root.controller.cursorsOn
-                        label: qsTr("B follows")
+                        label: qsTr("C2 follows")
                         SegmentedControl {
                             objectName: "cursor2Trace"
                             Layout.fillWidth: true
+                            accentColor: Theme.cursor2
                             model: root.traceChoices
                             currentIndex: root.controller.cursor2.channel
                             onActivated: index => root.controller.cursor2.channel = index
@@ -623,105 +495,7 @@ Item {
                             onActivated: index => root.controller.levelCursorChannel = index
                         }
                     }
-                    Caption { text: qsTr("Drag the cursors on the graph. Their readings are a card under the display.") }
-                }
-
-                ToolPanel {
-                    objectName: "mathPanel"
-                    maximumHeight: toolArea.height
-                    onVisibleChanged: if (visible) forceActiveFocus()
-                    visible: root.tool === "math"
-                    width: parent.width
-                    title: qsTr("Math")
-                    onCloseRequested: root.tool = ""
-                    PanelRow {
-                        label: qsTr("Operation")
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 3
-                            rowSpacing: 4
-                            columnSpacing: 4
-                            Repeater {
-                                id: mathOps
-                                // ScopeMath.Operation order (no FFT: that is the FFT view).
-                                model: ["CH0 + CH1", "CH0 − CH1", "CH0 × CH1", "−CH0", "−CH1"]
-                                delegate: Button {
-                                    required property string modelData
-                                    required property int index
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
-                                    checkable: true
-                                    checked: root.math.operation === index
-                                    text: modelData
-                                    font.pixelSize: Theme.fontSizeXs
-                                    focusPolicy: Qt.TabFocus
-                                    onClicked: {
-                                        root.math.operation = index
-                                        root.math.enabled = true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    KnobField {
-                        objectName: "mathScale"
-                        Layout.fillWidth: true
-                        label: qsTr("Scale")
-                        accentColor: display.traceColor(2)
-                        knobSize: 34
-                        values: root.math.scaleValues
-                        labels: root.math.scaleLabels.map(l => l + "/div")
-                        currentIndex: root.math.scaleIndex
-                        onIndexActivated: index => root.math.scaleIndex = index
-                    }
-                    KnobField {
-                        objectName: "mathPosition"
-                        Layout.fillWidth: true
-                        label: qsTr("Position")
-                        unit: "div"
-                        accentColor: display.traceColor(2)
-                        knobSize: 34
-                        from: -5
-                        to: 5
-                        stepSize: 0.1
-                        defaultValue: 0
-                        formatter: v => Number(v.toFixed(2)) + " div"
-                        value: root.math.position
-                        onValueModified: v => root.math.position = Math.round(v * 100) / 100
-                    }
-                    Caption {
-                        readonly property bool needsBoth: root.math.operation <= ScopeMath.Product
-                        readonly property bool missing: needsBoth ? !(root.ch0.enabled && root.ch1.enabled)
-                                                                 : !(root.math.operation === ScopeMath.InvertA ? root.ch0.enabled : root.ch1.enabled)
-                        visible: root.math.enabled && missing
-                        text: needsBoth ? qsTr("Needs Channel 0 and Channel 1 on.")
-                                        : qsTr("Needs Channel %1 on.").arg(root.math.operation === ScopeMath.InvertA ? 0 : 1)
-                    }
-                }
-
-                ToolPanel {
-                    objectName: "fftPanel"
-                    maximumHeight: toolArea.height
-                    onVisibleChanged: if (visible) forceActiveFocus()
-                    visible: root.tool === "fft"
-                    width: parent.width
-                    title: qsTr("FFT")
-                    onCloseRequested: root.tool = ""
-                    PanelRow {
-                        label: qsTr("Spectrum of")
-                        SegmentedControl {
-                            objectName: "fftSource"
-                            Layout.fillWidth: true
-                            model: [{ text: qsTr("Off") },
-                                    { text: "CH0", enabled: root.ch0.enabled || root.controller.fftSource === ScopeController.FftChannel0 },
-                                    { text: "CH1", enabled: root.ch1.enabled || root.controller.fftSource === ScopeController.FftChannel1 }]
-                            currentIndex: root.controller.fftSource
-                            onActivated: index => root.controller.fftSource = index
-                        }
-                    }
-                    Caption {
-                        text: qsTr("Spectrum of the shown record under the graph (Hann window, dBV RMS). For averaging and distortion, use the Spectrum Analyzer.")
-                    }
+                    Caption { text: qsTr("Drag the cursors on the graph; their readings are a card under the display.") }
                 }
 
                 ToolPanel {
@@ -853,132 +627,6 @@ Item {
                             onActivated: index => root.controller.samplingMode = index
                         }
                     }
-                    Switch {
-                        objectName: "autoscaleSetsLevel"
-                        text: qsTr("Autoscale sets the trigger level")
-                        checked: root.controller.autoscaleSetsLevel
-                        onToggled: root.controller.autoscaleSetsLevel = checked
-                    }
-                    Button {
-                        objectName: "traceStylesButton"
-                        text: qsTr("Trace Styles…")
-                        onClicked: panel.openTraceStyleDialog()
-                    }
-                }
-
-                ToolPanel {
-                    objectName: "triggerPanel"
-                    maximumHeight: toolArea.height
-                    onVisibleChanged: if (visible) forceActiveFocus()
-                    visible: root.tool === "trigger"
-                    width: parent.width
-                    title: qsTr("Trigger")
-                    onCloseRequested: root.tool = ""
-                    Caption {
-                        visible: !root.edge
-                        text: qsTr("Trigger is None: every record is shown. Choose Auto or Normal in the bar for an edge trigger.")
-                    }
-                    PanelRow {
-                        visible: root.edge
-                        label: qsTr("Source")
-                        SegmentedControl {
-                            objectName: "triggerSource"
-                            Layout.fillWidth: true
-                            // A channel that is off cannot trigger.
-                            model: [{ text: "CH0", enabled: root.ch0.enabled, toolTip: root.ch0.enabled ? qsTr("Channel 0") : qsTr("Channel 0 is off") },
-                                    { text: "CH1", enabled: root.ch1.enabled, toolTip: root.ch1.enabled ? qsTr("Channel 1") : qsTr("Channel 1 is off") }]
-                            currentIndex: root.triggerChannel
-                            onActivated: index => root.controller.triggerSource = index
-                        }
-                    }
-                    PanelRow {
-                        visible: root.edge
-                        label: qsTr("Slope")
-                        SegmentedControl {
-                            objectName: "triggerSlope"
-                            Layout.fillWidth: true
-                            model: [{ icon: "slope-rising", text: qsTr("Rising") }, { icon: "slope-falling", text: qsTr("Falling") }]
-                            currentIndex: root.controller.triggerSlope
-                            onActivated: index => root.controller.triggerSlope = index
-                        }
-                    }
-                    PanelRow {
-                        visible: root.edge && !root.controller.rolling
-                        label: qsTr("Pre-trigger (position of T)")
-                        SiField {
-                            objectName: "horizontalPosition"
-                            Layout.fillWidth: true
-                            label: qsTr("Horizontal position")
-                            engineering: false
-                            decimals: 0
-                            unit: "%"
-                            from: 0
-                            to: 100
-                            stepSize: 1
-                            value: root.controller.horizontalPosition
-                            toolTip: qsTr("Where the trigger point sits on the screen, 0 to 100 % (drag the T marker at the top)")
-                            onValueModified: v => root.controller.horizontalPosition = v
-                        }
-                    }
-                    RowLayout {
-                        visible: root.edge && root.controller.noTriggerMode !== ScopeController.ShowUntriggered
-                        Layout.fillWidth: true
-                        Text { Layout.fillWidth: true; text: qsTr("Clear the graph while waiting"); color: Theme.text; font.pixelSize: Theme.fontSizeBody; wrapMode: Text.WordWrap }
-                        Switch {
-                            objectName: "triggerClear"
-                            checked: root.controller.noTriggerMode === ScopeController.ClearGraph
-                            Accessible.name: qsTr("Clear the graph while waiting")
-                            onToggled: root.controller.noTriggerMode = checked ? ScopeController.ClearGraph : ScopeController.KeepLastTrace
-                        }
-                    }
-                    PanelRow {
-                        visible: root.edge
-                        label: qsTr("Timeout")
-                        StepSelector {
-                            objectName: "triggerTimeout"
-                            readonly property var values: [0.1, 0.25, 0.5, 1, 2, 5, 10, 0]
-                            Layout.fillWidth: true
-                            label: qsTr("Trigger timeout")
-                            model: values.map(v => ({ value: v, text: v === 0 ? qsTr("Never") : Units.format(v, "s", 3) }))
-                            currentIndex: Math.max(0, values.indexOf(root.controller.triggerTimeout))
-                            onActivated: index => root.controller.triggerTimeout = values[index]
-                        }
-                    }
-                    PanelRow {
-                        visible: root.edge
-                        label: qsTr("Holdoff")
-                        SiField {
-                            objectName: "triggerHoldoff"
-                            Layout.fillWidth: true
-                            label: qsTr("Holdoff")
-                            unit: "s"
-                            from: 0
-                            to: 10
-                            stepSize: 0.01
-                            digits: 3
-                            value: root.controller.triggerHoldoff
-                            toolTip: qsTr("Minimum time between two shown triggers, 0 to 10 s (steadies bursts)")
-                            onValueModified: v => root.controller.triggerHoldoff = v
-                        }
-                    }
-                    PanelRow {
-                        visible: root.edge
-                        label: qsTr("Hysteresis")
-                        SiField {
-                            objectName: "triggerHysteresis"
-                            Layout.fillWidth: true
-                            label: qsTr("Hysteresis")
-                            engineering: false
-                            decimals: 2
-                            unit: "div"
-                            from: 0
-                            to: 2
-                            stepSize: 0.05
-                            value: root.controller.triggerHysteresis
-                            toolTip: qsTr("0 to 2 div of the source channel; larger values ignore noise around the level")
-                            onValueModified: v => root.controller.triggerHysteresis = v
-                        }
-                    }
                     RowLayout {
                         visible: root.controller.rollAvailable
                         Layout.fillWidth: true
@@ -990,21 +638,17 @@ Item {
                             onToggled: root.controller.rollMode = checked
                         }
                     }
-                }
-
-                ToolPanel {
-                    objectName: "exportPanel"
-                    maximumHeight: toolArea.height
-                    onVisibleChanged: if (visible) forceActiveFocus()
-                    visible: root.tool === "export"
-                    width: parent.width
-                    title: qsTr("Export")
-                    onCloseRequested: root.tool = ""
-                    Button { Layout.fillWidth: true; text: qsTr("Export Data…"); icon.source: Theme.icon("download"); onClicked: { root.tool = ""; panel.exportData() } }
-                    Button { Layout.fillWidth: true; text: qsTr("Export Image…"); icon.source: Theme.icon("image"); onClicked: { root.tool = ""; panel.exportImage(false) } }
-                    Button { Layout.fillWidth: true; text: qsTr("Export PDF…"); icon.source: Theme.icon("file"); onClicked: { root.tool = ""; panel.exportImage(true) } }
-                    Button { Layout.fillWidth: true; text: qsTr("Print…"); icon.source: Theme.icon("printer"); onClicked: { root.tool = ""; panel.printPanel() } }
-                    Caption { text: qsTr("Data: CSV / TSV of the shown record, or the ELVISmx log format.") }
+                    Switch {
+                        objectName: "autoscaleSetsLevel"
+                        text: qsTr("Autoscale sets the trigger level")
+                        checked: root.controller.autoscaleSetsLevel
+                        onToggled: root.controller.autoscaleSetsLevel = checked
+                    }
+                    Button {
+                        objectName: "traceStylesButton"
+                        text: qsTr("Trace Styles…")
+                        onClicked: panel.openTraceStyleDialog()
+                    }
                 }
             }
         }

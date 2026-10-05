@@ -77,8 +77,39 @@ private slots:
             QCOMPARE(o->property("displayInfo").toString(), QString());
         }
         QVERIFY(panels > 0);
-        for (const char* name : { "aeqRunButton", "bypassButton", "flatButton", "routingCard", "aeqTools", "console" })
+        for (const char* name : { "aeqRunButton", "bypassButton", "flatButton", "inputCard", "outputCard", "aeqTools", "console" })
             QVERIFY2(root->findChild<QObject*>(QString::fromLatin1(name)), name);
+        // The shared right column (fixed width).
+        auto* column = root->findChild<QQuickItem*>(u"aeqColumn"_s);
+        QVERIFY(column);
+        QCOMPARE(column->width(), 260.0);
+
+        // Round 5: bass / midtone / treble have their own colors — distinct from each other, from
+        // the cursor pair (treble was Theme.cursor2) and from the accent of the After trace.
+        {
+            const QColor bass = root->property("bassColor").value<QColor>();
+            const QColor mid = root->property("midColor").value<QColor>();
+            const QColor treble = root->property("trebleColor").value<QColor>();
+            QObject* theme = engine.singletonInstance<QObject*>(u"MyBench.Controls"_s, u"Theme"_s);
+            QVERIFY(theme);
+            const QColor cursor1 = theme->property("cursor1").value<QColor>();
+            const QColor cursor2 = theme->property("cursor2").value<QColor>();
+            const QColor accent = theme->property("accent").value<QColor>();
+            QVERIFY(cursor2.isValid());
+            for (const QColor& band : { bass, mid, treble }) {
+                QVERIFY(band.isValid());
+                QVERIFY(band != cursor1 && band != cursor2 && band != accent);
+            }
+            QVERIFY(bass != mid && mid != treble && bass != treble);
+        }
+
+        // One control per action: the routing's input kind, no extra "Use AI 0 / AI 1" button.
+        {
+            QList<QQuickItem*> everything;
+            collect(item, everything);
+            for (QQuickItem* child : everything)
+                QVERIFY(child->property("text").toString() != u"Use AI 0 / AI 1"_s);
+        }
 
         // Bypass button toggles the controller.
         QObject* bypass = root->findChild<QObject*>(u"bypassButton"_s);
@@ -113,14 +144,14 @@ private slots:
         offscreen.renderFrame();
         QCOMPARE(ctl.inputLeft(), AeqController::SourceAudioInLeft);
         QCOMPARE(ctl.inputRight(), AeqController::SourceAudioInRight);
-        QCOMPARE(choices(root.get(), u"inputLeft"_s), QStringList({ u"Left"_s, u"Off"_s, u"Right"_s }));
-        QCOMPARE(choices(root.get(), u"inputRight"_s), QStringList({ u"Left"_s, u"Off"_s, u"Right"_s }));
+        QCOMPARE(choices(root.get(), u"inputLeft"_s), QStringList({ u"In L"_s, u"In R"_s, u"Off"_s }));
+        QCOMPARE(choices(root.get(), u"inputRight"_s), QStringList({ u"In L"_s, u"In R"_s, u"Off"_s }));
         QObject* outputKind = root->findChild<QObject*>(u"outputKind"_s);
         QVERIFY(QMetaObject::invokeMethod(outputKind, "activated", Q_ARG(int, 0)));  // Audio out
         offscreen.renderFrame();
         QCOMPARE(ctl.outputLeft(), AeqController::SinkAudioOutLeft);
         QCOMPARE(ctl.outputRight(), AeqController::SinkAudioOutRight);
-        QCOMPARE(choices(root.get(), u"outputRight"_s), QStringList({ u"Left"_s, u"Off"_s, u"Right"_s }));
+        QCOMPARE(choices(root.get(), u"outputRight"_s), QStringList({ u"Off"_s, u"Out L"_s, u"Out R"_s }));
         QVERIFY(ctl.routingError().isEmpty());
 
         // The faders are the only EQ editors: four of them, no slider / spin box / SI field.

@@ -17,6 +17,16 @@ one calm, dense, professional window that behaves like a native Qt application.
 > QtQuick.Templates. No sentence-style summary text: a value appears once, in its control.
 > Drag-and-drop to split is required. This overrides the "own MyBench.Style" decision below.
 
+> **Round 5 (2026-10-05, Martin and Alex: "a downgrade"):** fix, don't redesign. Every instrument's
+> controls are complete and visible (Scope timebase + trigger, not behind a tool); **one control per
+> action** (no header button and tool for the same thing); no permanently disabled controls; every
+> picture button has a pictogram. Color is used more, with meaning: **green filled Run, red filled
+> Stop** (overrides "no green or red filled buttons" in §1), channel colors on cards, knob arcs and
+> measurement-card bars, the two cursors of a pair in two hues (`Theme.cursor1/2`), accent-tinted
+> sidebar icons. Every panel's right column is the shared `InstrumentColumn` (fixed width, palette
+> pinned). A pane header's instrument bar wraps to a second row instead of clipping. Linux uses
+> Fusion unless `--style org.kde.desktop`.
+
 This document is the **contract** for every UI change. It supersedes UI v1 (2026-09) and
 `docs/ui-proposal.md`. Migration progress: `docs/audit.md`, section "UI v2". If code and this
 document disagree, this document wins; change it first if it is wrong.

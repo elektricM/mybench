@@ -157,6 +157,7 @@ private:
     void onEditorUse(int channel);
     void onEditorRendered();
     void notify(int level, const QString& title, const QString& message = {});
+    void updatePreviewWindow();       // the shared time window of both previews
     void releaseDone(uint8_t mask);   // Done (holding) channels of `mask` back to 0 V
     void updateHolds();               // singleEnabled / holdsOutputs from the channel states
     void addPaletteCommands();

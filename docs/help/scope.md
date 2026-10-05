@@ -29,30 +29,32 @@ channel moves the other channel to an audio input too (and back to AI when you c
 2. Press **Run** (or Space). The CH0 trace appears, with its RMS, frequency and peak-to-peak as
    cards under the graph.
 3. Press **Autoscale** — or turn the **Scale** knob (CH 0 card) and the **Timebase** knob by hand.
-4. For a stable picture of a repetitive signal, choose **Auto** or **Normal** next to the trigger in
-   the bar and turn the **Trigger level** knob (or drag the **T** marker on the right edge of the
+4. For a stable picture of a repetitive signal, choose the **Edge** trigger in the **Trigger** card
+   (right column) and turn its **Level** knob (or drag the **T** marker on the right edge of the
    graph) to a level the signal crosses.
 
 ## The pane
 
 - **Bar** (top): **Run / Stop** with the state under it — *Running*, *Triggered*, *Waiting for
   trigger* (Normal, no edge within the timeout), *Timeout — free running* (Auto) —, **Single**, the
-  **Timebase** knob (with the sample rate and record length under it), the **Trigger level** knob
-  (colored like its source channel, with source and slope) and the trigger mode **Auto / Normal /
-  None**, the view **YT / XY / FFT**, **Autoscale** and **⋯** (Export Data…, Export Image…, Print…,
-  Trace Style…, Show Measurements, Center Cursors, Reset Settings…, Help).
+  horizontal controls — the **Timebase** knob (with the sample rate and record length under it) and
+  the **Trigger position** knob —, the view **YT / XY / FFT**, **Autoscale** and **⋯** (Export
+  Data…, Export Image…, Print…, Trace Style…, Show Measurements, Center Cursors, Reset Settings…,
+  Help).
 - **Display**: the graph has 10 × 10 divisions and no axis numbers. The timebase and the trigger are
   read on their knobs; the line at the top left only appears for Roll, averaging (`Avg ×4`) or
   persistence. The legend under the graph gives the scale of every shown trace (`CH0 1 V/div`).
-- **Right column**: a card per channel (switch, **Scale** and **Position** knobs, source, input
-  range, and what is in effect: coupling, range, differential), the **Math** and **References**
-  cards, and the tool palette — **Measure, Cursors, Math, FFT, Refs, Display, Trigger, Export**. A
-  tool opens a panel over the right part of the graph; click the tool again or × (Esc) to close it.
-- **Measurement cards** under the display: the value large, with min / max / mean / σ (4 significant
-  digits) over the last 100 records (or all records, or none: Measure › Statistics). **+ Add** opens the Measure panel.
+- **Right column** (always the same width): a card per channel (switch, **Scale** and **Position**
+  knobs, source, input range; a channel that is off folds to its header), the **Trigger** card, the
+  **Math** card, and at the bottom the tools — **Measure, Cursors, Refs, Display**. A tool opens its
+  panel beside the graph (the graph makes room for it; in a narrow pane the panel lies over the
+  graph's right part); click the tool again or × (Esc) to close it.
+- **Cards** under the display: first the cursor readings while the cursors are on, then one card per
+  measurement — the value large, with min / max / mean / σ (4 significant digits) over the last 100
+  records (or all records, or none: Measure › Statistics). **+ Add** opens the Measure panel.
 - Every knob can be turned (drag, wheel), stepped with − / +, or typed (`2m`, `500u`, `1.5k`).
-  In a narrow pane (split screen) the knobs give way to their values, and the view and trigger mode
-  move to the top of the right column.
+  In a narrow pane (split screen) the knobs give way to their values, and the view buttons move to
+  the top of the right column.
 
 ## The graph
 
@@ -66,16 +68,17 @@ channel moves the other channel to an audio input too (and back to AI when you c
 
 ## Settings
 
-Where they are: Channel 0 / 1 → the channel cards; Timebase → the bar (record length: Display tool;
-roll: Trigger tool); Trigger → level and mode in the bar, the rest in the Trigger tool (None in the
-bar = the Immediate type, Normal + *Clear the graph while waiting* = Clear); Math → the Math card and
-tool; FFT → View FFT in the bar and the FFT tool; Cursors, References, Display → their tools;
-Analysis → Frequency method in the Measure tool, Autoscale option in the Display tool.
+Where they are: Channel 0 / 1 → the channel cards; Timebase and trigger position → the bar (record
+length and roll: Display tool); Trigger → the Trigger card (timeout, holdoff, hysteresis and *Clear
+the graph while waiting* behind its sliders button; Normal + *Clear* = the ELVISmx Clear mode); Math →
+the Math card; FFT → View FFT in the bar, its source under the spectrum; YT / XY → the bar; Cursors,
+References, Display → their tools; Analysis → Frequency method in the Measure tool, Autoscale option
+in the Display tool.
 
 ### Channel 0 and Channel 1
 
-- The **switch** in the section header turns the channel on or off. Settings of a channel that is
-  off can still be changed.
+- The **switch** in the card header turns the channel on or off. A channel that is off folds to its
+  header (which names its source); switch it on to change its settings.
 - **Source** – AI 0, AI 1, Audio Left or Audio Right. If both channels use the same source it is
   acquired once and shown twice.
 - **Scale** – 10 mV to 5 V per division for AI inputs, 10 mV to 1 V for audio. Use ‹ › , the arrow
@@ -83,36 +86,44 @@ Analysis → Frequency method in the Measure tool, Autoscale option in the Displ
 - **Position** – −5 to +5 divisions. It only moves the trace; data, measurements and cursor values
   are unchanged. Drag the label to scrub the value.
 - **Input range** (AI inputs only) – *Auto* uses ±10 V from 500 mV/div and ±2 V below (finer
-  resolution); or force ±10 V / ±2 V.
-- The line under the section states the coupling (DC for AI, AC for audio, whose average is removed)
-  and the range in use. They follow the source; they are not settings.
+  resolution; its tooltip names the range in use); or force ±10 V / ±2 V.
+- Audio sources have no range choice: the card states `±2 V · AC` instead. The coupling (DC for AI,
+  AC for audio, whose average is removed) is in the Source tooltip.
 
 ### Timebase
 
-- **Time/div** – 5 µs to 200 ms per division (10 divisions across). The sample rate and the number of
-  samples are shown under the section: full speed (200 kS/s) up to 1 ms/div, then about 2 500
+- **Timebase** (bar) – 5 µs to 200 ms per division (10 divisions across). The sample rate and the
+  number of samples are shown under the knob: full speed (200 kS/s) up to 1 ms/div, then about 2 500
   samples per screen (e.g. 50 kS/s at 5 ms/div). At 5 µs/div only 11 samples fit on the screen: the
   myDAQ cannot sample faster.
-- **Position** (Edge trigger only) – where the trigger point sits on the screen: 0 % left edge, 50 %
-  the middle (you see what happened before and after it), 100 % the right edge.
-- **Roll** (from 50 ms/div) – the trace scrolls continuously from right to left like a chart
-  recorder, without waiting for a full screen. Roll mode does not use the trigger.
-- **Record length** – *Normal* (up to 2 501 samples per screen) or *Long* (up to 100 000 samples,
-  200 kS/s up to 50 ms/div) for zooming and the FFT.
+- **Trigger position** (bar; Edge trigger only, not in Roll) – where the trigger point sits on the
+  screen: 0 % left edge, 50 % the middle (you see what happened before and after it), 100 % the right
+  edge. Or drag the **T** marker at the top of the graph.
+- **Roll** (Display tool, from 50 ms/div) – the trace scrolls continuously from right to left like a
+  chart recorder, without waiting for a full screen. Roll mode does not use the trigger.
+- **Record length** (Display tool) – *Normal* (up to 2 501 samples per screen) or *Long* (up to 100
+  000 samples, 200 kS/s up to 50 ms/div) for zooming and the FFT.
 
 ### Trigger
 
-- **Type** – *Immediate*: every screen is shown as acquired. *Edge*: every screen is aligned on a
-  crossing of the trigger level. With Immediate the other trigger settings are hidden.
+The **Trigger** card in the right column holds every trigger setting; its color is the source
+channel's.
+
+- **Type** – the two picture buttons: *Immediate*: every screen is shown as acquired. *Edge*: every
+  screen is aligned on a crossing of the trigger level. With Immediate the other trigger settings are
+  hidden.
 - A new session starts in **Auto** (Edge on CH0, rising, 0 V), so the trigger level knob works at
   once; a saved session keeps its own trigger.
 - **Source** – *CH0* or *CH1*: the signal of that channel (a channel that is off cannot be chosen).
-- **Slope** – rising or falling edge.
+- **Slope** – the rising or falling edge pictogram.
 - **Level** – the voltage the signal must cross, −100 to 100 V (or drag the **T** marker).
-- **Mode** – what happens when no edge arrives within the timeout:
+- **Mode** (*Auto / Normal* in the card header) – what happens when no edge arrives within the
+  timeout:
   - *Auto* shows the untriggered signal, so the trace never freezes;
   - *Normal* keeps the last triggered trace (faded) and waits;
-  - *Clear* empties the graph and waits (as ELVISmx).
+  - *Normal* with *Clear the graph while waiting* (sliders button) empties the graph and waits (as
+    the ELVISmx Clear mode).
+- The **sliders** button in the card header shows or hides the less used settings below.
 - **Timeout** – 100 ms to 10 s, or *Never*. Nothing changes on screen before it has passed, so rare
   events no longer replace the trace with a waiting message.
 - **Holdoff** – 0 to 10 s minimum time between two shown triggers (steadies bursts).
@@ -125,38 +136,42 @@ Analysis → Frequency method in the Measure tool, Autoscale option in the Displ
 
 ### Math
 
-The switch turns on a trace computed from the shown record: **CH0 + CH1**, **CH0 − CH1**,
-**CH0 × CH1**, **−CH0** or **−CH1**, with its own **Scale** and **Position**. The section tells you
-when a channel it needs is off. The math trace is not available to the trigger.
+The switch of the **Math** card turns on a trace computed from the shown record: **CH0 + CH1**,
+**CH0 − CH1**, **CH0 × CH1**, **−CH0** or **−CH1** (picture buttons), with its own **Scale** and
+**Position**. The card tells you when a channel it needs is off; switched off, it folds to its header
+and names the operation. The math trace is not available to the trigger.
 
 ### FFT
 
-**Source** *Off*, *CH0* or *CH1* opens the spectrum of that channel under the graph: the magnitude of
-the shown record (Hann window, dBV RMS) with the strongest peak marked. Zoom and pan it like any plot;
+**View FFT** in the bar opens the spectrum under the graph: the magnitude of the shown record (Hann
+window, dBV RMS) with the strongest peak marked. **Spectrum of CH0 / CH1** under the spectrum chooses
+the channel; **YT** closes it. Zoom and pan it like any plot;
 the zoom stays until you reset it. For averaging, other windows and distortion use the Spectrum
 Analyzer.
 
 ### Cursors
 
-- The **switch** in the section header shows two vertical cursors, C1 and C2. Drag them, or click one
-  and use ← → to move it sample by sample. They snap to the samples of their trace.
-- **C1 trace / C2 trace** – the trace each cursor follows (CH0, CH1 or Math).
+- **Time cursors C1, C2** (Cursors tool) shows two vertical cursors: C1 in red, C2 in blue (also on
+  their labels, the readout card and as the Trace Styles defaults). Drag them, or click one and use
+  ← → to move it sample by sample. They snap to the samples of their trace.
+- **C1 follows / C2 follows** – the trace each cursor follows (CH0, CH1 or Math).
 - **Style** – a line, a full crosshair, a small crosshair, or hidden (the readings stay).
-- **Level cursors** – two horizontal lines H1 and H2 on the **Level trace**; drag them at the right
-  edge of the graph.
-- The readings are rows of the measurement table (see below). **⋯ › Center Cursors** brings both
+- **Level cursors H1, H2** – two horizontal lines (H1 red, H2 blue) on the trace chosen in **On
+  trace**; drag them at the right edge of the graph.
+- The readings are the first cards under the display (see Measurements). **⋯ › Center Cursors** brings both
   cursors back to 25 % and 75 % of the screen.
 
 ### References
 
-**Save** (the disk button) keeps CH0, CH1 or Math of the shown record as REF A or REF B, drawn with
-the scale and position it had. The eye hides or shows it, the arrows export it to or import it from a
-CSV/TSV file (time in the first column, volts in the second), the bin clears it.
+In the **Refs** tool, **← CH0 / ← CH1 / ← Math** keeps that trace of the shown record as REF A or
+REF B, drawn with the scale and position it had. The eye hides or shows it, the folder imports a
+CSV/TSV file (time in the first column, volts in the second), the export button saves it, the bin
+clears it.
 
 ### Display
 
-- **Mode** – *YT* (voltage over time) or *XY* (CH1 vertically over CH0 horizontally, each with its
-  Scale and Position), e.g. for Lissajous figures or I–V curves.
+- **View** (bar) – *YT* (voltage over time), *XY* (CH1 vertically over CH0 horizontally, each with
+  its Scale and Position, e.g. for Lissajous figures or I–V curves) or *FFT* (see FFT).
 - **Persistence** – earlier traces fade out over the chosen time. Changing a scale, a position, the
   timebase, the trigger, a source or the mode clears the afterglow, so traces of another setting never
   stay on screen.
@@ -189,14 +204,14 @@ it again (or × on a card) to remove them. **Cards for** shows the cards of ever
   the rising edge) and Phase (CH1 relative to CH0, corrected for the delay between the channels; it
   needs both channels and a periodic signal).
 - The math trace has RMS and peak-to-peak.
-- With the cursors on: **C1** and **C2** (the time of the cursor, then every trace's value there),
-  **ΔV** (C2 − C1 per trace), **Δt** and **1/Δt**. Remove the rows you do not need; *Cursor C1 Values*,
-  *Cursor C2 Values* and *Cursor Differences* in the **+** list bring them back.
-- With the level cursors on: **H1**, **H2** and **ΔH** in the column of their trace.
+- With the cursors on, the first card shows **Δt** (C2 − C1) large, then **1/Δt**, **ΔV** (the value
+  of C2 on its trace minus the value of C1 on its trace) and the values at **C1** and **C2**; `—` when
+  a cursor's trace is off.
+- With the level cursors on, a second card shows **ΔV** (H2 − H1) large, then **H1** and **H2**.
 
 Values are written with three or four significant digits and the unit (`707.11 mV`, `1.000 kHz`);
-`?` means undefined (no record yet, or no tone found). In a short window the table shrinks to one
-summary line; **⋯ › Show Measurements** hides it.
+`?` means undefined (no record yet, or no tone found). In a short window the cards shrink to one
+summary line; **⋯ › Show Measurements** hides them.
 
 ## Run, Single, Autoscale
 
@@ -209,10 +224,11 @@ summary line; **⋯ › Show Measurements** hides it.
 
 ## Export
 
-- **Export Data…** (⋯ or File menu) saves the shown record: *CSV* or *TSV* (time and the voltage of
+- **Export Data…** (⋯ of the pane or File menu) saves the shown record: *CSV* or *TSV* (time and the voltage of
   each enabled channel and Math, the settings in the header lines), or the *ELVISmx-style text log*
   (`.txt`, tab-separated with absolute time stamps, for lab scripts written for ELVISmx).
-- **Export Image…** and **Print…** save or print the display with an optional settings table.
+- **Export Image…** (PNG or PDF) and **Print…** (⋯) save or print the display with an optional
+  settings table.
 
 ## Tips
 
@@ -227,7 +243,8 @@ summary line; **⋯ › Show Measurements** hides it.
 
 - **Flat line at the top or bottom**: the signal is outside the input range or the screen; press
   Autoscale.
-- **Trace jumps around**: use the Edge trigger and set the Level inside the signal's range.
+- **Trace jumps around**: choose the Edge trigger in the Trigger card and set the Level inside the
+  signal's range.
 - **"Waiting for trigger"**: no edge crossed the level within the timeout; move the T marker into the
   signal, check the slope and the source, or choose the Auto mode.
 - **Frequency shows `?`**: the tone is smaller than 0.2 division (choose a smaller Scale) or less

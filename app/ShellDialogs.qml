@@ -162,8 +162,11 @@ Item {
     ConfirmDialog {
         id: quitConfirm
         title: qsTr("Quit %1?").arg(AppInfo.name)
-        text: qsTr("%n instrument(s) still running. Quitting stops them and puts the outputs in their safe state.", "",
-                   InstrumentRegistry.runningCount)
+        // Spelled out per count: without a loaded translation %n leaves the "(s)" in the text.
+        text: (InstrumentRegistry.runningCount === 1
+               ? qsTr("An instrument is still running.")
+               : qsTr("%1 instruments are still running.").arg(InstrumentRegistry.runningCount))
+              + " " + qsTr("Quitting stops them and puts the outputs in their safe state.")
         acceptText: qsTr("Quit")
         destructive: true
         onAccepted: dialogs.acceptQuit()

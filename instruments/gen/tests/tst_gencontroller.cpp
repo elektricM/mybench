@@ -122,6 +122,75 @@ private slots:
         QVERIFY(m_gen->isIdle());
     }
 
+    // Switching the output of an Off channel on brings its last waveform back (round 5: the card
+    // switch no longer springs back on an Off channel); an empty Arbitrary channel stays refused.
+    void offChannelSwitchOnRestoresWaveform()
+    {
+        GenChannel* b = m_gen->channel1();
+        b->setMode(GenChannel::Function);
+        b->setShape(GenChannel::Square);
+        b->setMode(GenChannel::Off);
+        m_gen->setOutput(1, true);
+        QCOMPARE(b->mode(), GenChannel::Function);
+        QCOMPARE(b->shape(), GenChannel::Square);
+        QVERIFY(b->outputOn());
+        m_gen->setOutput(1, false);
+        b->setMode(GenChannel::Dc);
+        b->setMode(GenChannel::Off);
+        m_gen->setOutput(1, true);
+        QCOMPARE(b->mode(), GenChannel::Dc);
+        QVERIFY(b->outputOn());
+        m_gen->setOutput(1, false);
+        QTRY_VERIFY(m_gen->isIdle());
+        // Last Arbitrary without a waveform: back to Arbitrary, but refused (nothing to play).
+        b->setMode(GenChannel::Arbitrary);
+        b->setMode(GenChannel::Off);
+        m_gen->setOutput(1, true);
+        QCOMPARE(b->mode(), GenChannel::Arbitrary);
+        QVERIFY(!b->outputOn());
+    }
+
+    // Both previews share one time axis: the window is the longest span a channel needs.
+    void sharedPreviewWindow()
+    {
+        GenChannel* a = m_gen->channel0();
+        GenChannel* b = m_gen->channel1();
+        QCOMPARE(a->previewSpan(), 0.02);    // 100 Hz: two periods
+        b->setMode(GenChannel::Function);
+        b->setFrequency(1000);
+        QCOMPARE(a->previewSpan(), 0.02);
+        QCOMPARE(b->previewSpan(), 0.02);    // AO 1 shows 20 periods on AO 0's axis
+        QVERIFY(b->preview()->count() > 20 * 100);
+        QCOMPARE(b->preview()->xMaximum(), 0.02);
+        a->setFrequency(10000);
+        QCOMPARE(a->previewSpan(), 0.002);   // now AO 1 (1 kHz) is the slowest
+        QCOMPARE(b->previewSpan(), 0.002);
+        QVERIFY(std::abs(a->preview()->xMaximum() - 0.002) < 1e-12);
+        // An Off channel does not count; DC only shows over 1 s.
+        b->setMode(GenChannel::Off);
+        QCOMPARE(a->previewSpan(), 0.0002);
+        a->setMode(GenChannel::Dc);
+        QCOMPARE(a->previewSpan(), 1.0);
+        // Extreme ratio: the fast channel becomes an envelope band, not 200 000 periods of samples.
+        a->setMode(GenChannel::Function);
+        a->setFrequency(0.2);
+        b->setMode(GenChannel::Function);
+        b->setFrequency(20000);
+        QCOMPARE(b->previewSpan(), 10.0);
+        QVERIFY(b->preview()->count() <= 200000);
+        QVERIFY(std::abs(b->preview()->xMaximum() - 10.0) < 1e-9);
+        // Arbitrary: one pass of the waveform; a shorter function repeats over it.
+        a->setFrequency(100);
+        b->setMode(GenChannel::Arbitrary);
+        m_gen->loadLibraryWaveform(1, 0);
+        QVERIFY(b->hasWaveform());
+        b->setUpdateRate(1000);
+        const double pass = b->waveformPoints() / 1000.0;
+        QVERIFY(pass > 0.02);
+        QCOMPARE(a->previewSpan(), pass);
+        QCOMPARE(b->previewSpan(), pass);
+    }
+
     void twoChannelsStreamAndStopOne()
     {
         m_gen->channel1()->setMode(GenChannel::Arbitrary);

@@ -1441,6 +1441,34 @@ private slots:
         QVERIFY2(maxRed(image, 3) < 100, qPrintable(QString::number(maxRed(image, 3))));
         f.release();
     }
+
+    // Two vertical cursors draw a Δ chip at the bottom between them; cursorDeltaVisible: false
+    // (round 5, the Oscilloscope shows Δt in its cursor card) leaves that area empty.
+    void cursorDeltaChipSwitch()
+    {
+        PlotFixture f;
+        if (!f.create("colorScheme: Plot.Dark\n"
+                      "xAxis { min: 0; max: 10 }\nyAxis { min: -1; max: 1 }\n"
+                      "PlotCursor { position: 2; readoutVisible: false }\n"
+                      "PlotCursor { position: 8; readoutVisible: false }\n"))
+            QSKIP("no GPU / graphics device for offscreen rendering");
+        QVERIFY(f.plot->cursorDeltaVisible());
+        const QRectF a = f.plot->plotArea();
+        // The chip's band: centred between the cursors, just above the bottom of the plot area.
+        const QRect band(qRound(a.center().x() - 30), qRound(a.bottom() - 26), 60, 22);
+        const auto brightPixels = [&](const QImage &img) {
+            int n = 0;
+            for (int y = band.top(); y <= band.bottom(); ++y)
+                for (int x = band.left(); x <= band.right(); ++x)
+                    n += qGray(img.pixel(x, y)) > 140 ? 1 : 0;
+            return n;
+        };
+        const int with = brightPixels(f.grab());
+        f.plot->setCursorDeltaVisible(false);
+        const int without = brightPixels(f.grab());
+        QVERIFY2(with > 10 && without < with / 4, qPrintable(QStringLiteral("%1 vs %2").arg(with).arg(without)));
+        f.release();
+    }
 };
 
 QTEST_MAIN(TestPlot)

@@ -15,7 +15,7 @@ namespace mybench::instruments::dsa {
 
 // Y-axis unit of the spectrum ("Magnitude (<unit>)"):
 //   dB:     dBVrms, dBVpk, dBVrms/√Hz, dBVpk/√Hz     dBm: dBm, dBm/Hz
-//   Linear: Vrms^2, Vpk^2, Vrms^2/Hz, Vpk^2/Hz   (power, as ELVISmx)
+//   Linear: Vrms², Vpk², Vrms²/Hz, Vpk²/Hz   (power, as ELVISmx, which writes "Vrms^2")
 QString magnitudeUnit(const mydaq::dsp::SpectrumFormat& format);
 
 // Unit of "Fundamental Frequency Power (<unit>)": dBVrms/dBVpk, dBm, or Vrms²/Vpk² in Linear
@@ -30,7 +30,7 @@ std::vector<double> formatSpectrum(const mydaq::dsp::PowerSpectrum& spectrum, co
 double powerValue(double powerVrms2, mydaq::dsp::SpectrumUnit unit, mydaq::dsp::SpectrumMode mode);
 
 // A tone power as an amplitude level in the spectrum's (non-density) unit, e.g. for markers and
-// the harmonics/peaks tables: dBVrms, dBm or Vrms^2 (the power).
+// the harmonics/peaks tables: dBVrms, dBm or Vrms² (the power).
 double levelValue(double powerVrms2, mydaq::dsp::SpectrumUnit unit, mydaq::dsp::SpectrumMode mode);
 
 // Level of `power` relative to `reference` in dB (dBc); 0 if undefined.

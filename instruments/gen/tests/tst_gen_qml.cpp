@@ -1,5 +1,6 @@
-// Generator panel layout (offscreen, round-2 layout): display left, channel cards and the tool
-// palette right, no form inspector; waveform pictures and the Editor tool drive the controller.
+// Generator panel layout (offscreen, round-5 layout): one display left (both outputs in one plot),
+// channel cards and the tool palette in the InstrumentColumn right, no form inspector; waveform
+// pictures, the Arbitrary card's Open in Editor and the card switches drive the controller.
 #include "gencontroller.h"
 
 #include <mybench/devicehub.h>
@@ -102,7 +103,7 @@ private slots:
         const QRectF pane(0, 0, item->width(), item->height());
         QHash<QString, QRectF> rects;
         for (const auto* name : {"genControls", "genChannelCard0", "genChannelCard1", "genTools", "genRunButton",
-                                 "genPreview0", "previewLegend0"}) {   // AO 1 is Off by default
+                                 "genPlot", "previewLegend0", "previewLegend1", "previewMode", "outputPair"}) {
             auto* child = findItem(item, QString::fromLatin1(name));
             QVERIFY2(child, name);
             QVERIFY2(child->isVisible(), name);
@@ -114,7 +115,12 @@ private slots:
             rects.insert(QString::fromLatin1(name), r);
         }
         const QRectF controls = rects.value(u"genControls"_s);
-        QVERIFY(rects.value(u"genPreview0"_s).right() <= controls.left() + 0.5);
+        QVERIFY(rects.value(u"genPlot"_s).right() <= controls.left() + 0.5);
+        // One display for both outputs (round 5): no per-channel preview plots.
+        QVERIFY(!findItem(item, u"genPreview0"_s));
+        QVERIFY(!findItem(item, u"genPreview1"_s));
+        // The column has the shared fixed width.
+        QVERIFY(controls.width() == 260 || controls.width() == 220);
         // No sentence summaries on the display: values are shown once, in the channel cards.
         QVERIFY(!findItem(item, u"readoutLine0"_s));
         QVERIFY(!findItem(item, u"readoutLine1"_s));
@@ -169,15 +175,114 @@ private slots:
         QMetaObject::invokeMethod(square, "clicked");
         QCOMPARE(gen.channel0()->mode(), GenChannel::Off);
 
+        // Tools: Sweep and Presets only (Arbitrary lives in the card, the editor behind its
+        // Open in Editor, waveform export in the ⋯ menu: no duplicates).
         auto* tools = findItem(item, u"genTools"_s);
         QVERIFY(tools);
+        QStringList ids;
+        for (const QVariant& v : tools->property("model").toList())
+            ids << v.toMap().value(u"id"_s).toString();
+        QCOMPARE(ids, (QStringList{u"sweep"_s, u"presets"_s}));
         QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"sweep"_s));
         QCOMPARE(p.root->property("tool").toString(), u"sweep"_s);
-        QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"editor"_s));
-        QCOMPARE(gen.activeTab(), 1);
+        QMetaObject::invokeMethod(tools, "activated", Q_ARG(QString, u"sweep"_s));
         QCOMPARE(p.root->property("tool").toString(), QString());
+
+        // Arb picture: the card shows the waveform source and Open in Editor, which opens the editor.
+        auto* arb = findItem(card, u"waveArbitrary"_s);
+        QVERIFY(arb);
+        QMetaObject::invokeMethod(arb, "clicked");
+        QCOMPARE(gen.channel0()->mode(), GenChannel::Arbitrary);
+        offscreen.renderFrame();
+        for (const auto* name : {"openWaveform", "libraryWaveform", "openInEditor", "generationMode", "interpolation",
+                                 "gainField", "updateRateField"}) {
+            auto* child = findItem(card, QString::fromLatin1(name));
+            QVERIFY2(child && child->isVisible(), name);
+        }
+        QMetaObject::invokeMethod(findItem(card, u"openInEditor"_s), "clicked");
+        QCOMPARE(gen.activeTab(), 1);
         QCOMPARE(p.root->findChild<QObject*>(u"genPane"_s)->property("hasInspector").toBool(), false);
         gen.setActiveTab(0);
+        offscreen.renderFrame();
+        offscreen.setRootItem(nullptr);
+        // Teardown: the QML engine goes before the controller. The linked editor's Document card
+        // asked controller.channel(i): that channel must stay C++-owned (was a double delete).
+    }
+
+    // Alex (round 4): switching AO 1 on/off or changing its waveform never resizes the display or
+    // the column; both outputs share the one plot and its time axis.
+    void oneDisplayStableGeometry()
+    {
+        GenController gen;
+        gen.initialize();
+        mybench::OffscreenWindow offscreen(QSize(1440, 900));
+        if (!offscreen.isValid())
+            QSKIP("no graphics device");
+        Panel p;
+        create(p, &gen);
+        QVERIFY2(p.root, qPrintable(p.error));
+        auto* item = qobject_cast<QQuickItem*>(p.root.get());
+        offscreen.setRootItem(item);
+        offscreen.renderFrame();
+        const auto rectOf = [&](const char* name) {
+            QQuickItem* i = findItem(item, QString::fromLatin1(name));
+            return i ? QRectF(i->mapToScene(QPointF(0, 0)), QSizeF(i->width(), i->height())) : QRectF();
+        };
+        const QRectF plot = rectOf("genPlot");
+        const QRectF column = rectOf("genControls");
+        QVERIFY(!plot.isEmpty());
+        QVERIFY(!column.isEmpty());
+        const auto unchanged = [&](const char* step) {
+            offscreen.renderFrame();
+            QVERIFY2(rectOf("genPlot") == plot, step);
+            QVERIFY2(rectOf("genControls") == column, step);
+        };
+        gen.channel1()->setMode(GenChannel::Function);
+        unchanged("AO 1 Function");
+        gen.setOutput(1, true);
+        unchanged("AO 1 on");
+        gen.channel1()->setShape(GenChannel::Square);
+        unchanged("AO 1 square (duty field)");
+        gen.setOutput(1, false);
+        gen.channel1()->setMode(GenChannel::Dc);
+        unchanged("AO 1 DC");
+        gen.channel1()->setMode(GenChannel::Off);
+        unchanged("AO 1 Off");
+        // Shared axis: the plot spans the slower channel's two periods.
+        gen.channel1()->setMode(GenChannel::Function);
+        gen.channel1()->setFrequency(10);
+        offscreen.renderFrame();
+        auto* plotItem = findItem(item, u"genPlot"_s);
+        QVERIFY(plotItem);
+        QObject* xAxis = plotItem->property("xAxis").value<QObject*>();
+        QVERIFY(xAxis);
+        QCOMPARE(xAxis->property("max").toDouble(), 0.2);
+        QCOMPARE(gen.channel0()->previewSpan(), 0.2);
+        gen.stop();
+        offscreen.setRootItem(nullptr);
+    }
+
+    // Single only shows while an Arbitrary channel can play once (no permanently disabled button).
+    void singleOnlyWhenItApplies()
+    {
+        GenController gen;
+        gen.initialize();
+        mybench::OffscreenWindow offscreen(QSize(1440, 900));
+        if (!offscreen.isValid())
+            QSKIP("no graphics device");
+        Panel p;
+        create(p, &gen);
+        QVERIFY2(p.root, qPrintable(p.error));
+        auto* item = qobject_cast<QQuickItem*>(p.root.get());
+        offscreen.setRootItem(item);
+        offscreen.renderFrame();
+        auto* single = findItem(item, u"genSingleButton"_s);
+        QVERIFY(single);
+        QVERIFY(!single->isVisible());
+        gen.channel1()->setMode(GenChannel::Arbitrary);
+        gen.loadLibraryWaveform(1, 1);
+        offscreen.renderFrame();
+        QVERIFY(single->isVisible());
         offscreen.setRootItem(nullptr);
     }
 
@@ -219,6 +324,20 @@ private slots:
         QCOMPARE(sw->property("checked").toBool(), true);
         gen.setOutput(0, false);
         QCOMPARE(sw->property("checked").toBool(), false);
+
+        // An Off channel: the switch brings its waveform back and stays on (no spring-back).
+        auto* card1 = findItem(item, u"genChannelCard1"_s);
+        QVERIFY(card1);
+        QCOMPARE(gen.channel1()->mode(), GenChannel::Off);
+        QCOMPARE(card1->property("subtitle").toString(), u"Off"_s);
+        auto* sw1 = findItem(card1, u"channelSwitch"_s);
+        QVERIFY(sw1);
+        sw1->setProperty("checked", true);
+        QMetaObject::invokeMethod(sw1, "toggled");
+        QCOMPARE(gen.channel1()->mode(), GenChannel::Function);
+        QVERIFY(gen.channel1()->outputOn());
+        QCOMPARE(sw1->property("checked").toBool(), true);
+        gen.stop();
         offscreen.setRootItem(nullptr);
     }
 

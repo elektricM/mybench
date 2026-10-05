@@ -130,9 +130,11 @@ void BodeController::setCursorsOn(bool on)
 {
     if (on != m_cursorsOn) {
         m_cursorsOn = on;
-        // ELVISmx: the cursor starts on the first point.
-        if (on)
+        // ELVISmx: the cursor starts on the first point; C2 on the last.
+        if (on) {
             m_cursorIndex = 0;
+            m_cursor2Index = pointCount() - 1;
+        }
         emit cursorsOnChanged();
         emit cursorChanged();
         emit readoutChanged();
@@ -214,6 +216,16 @@ void BodeController::setCursorIndex(int index)
     index = m_points.empty() ? -1 : std::clamp(index, 0, pointCount() - 1);
     if (index != m_cursorIndex) {
         m_cursorIndex = index;
+        emit cursorChanged();
+        emit readoutChanged();
+    }
+}
+
+void BodeController::setCursor2Index(int index)
+{
+    index = m_points.empty() ? -1 : std::clamp(index, 0, pointCount() - 1);
+    if (index != m_cursor2Index) {
+        m_cursor2Index = index;
         emit cursorChanged();
         emit readoutChanged();
     }
@@ -322,10 +334,10 @@ void BodeController::cursorRight()
         setCursorIndex(m_cursorIndex + 1);
 }
 
-void BodeController::setCursorFrequency(double hertz)
+int BodeController::nearestPoint(double hertz) const
 {
     if (m_points.empty() || !(hertz > 0))
-        return;
+        return -1;
     int best = 0;
     double bestDistance = std::numeric_limits<double>::infinity();
     for (int i = 0; i < pointCount(); ++i) {
@@ -335,7 +347,54 @@ void BodeController::setCursorFrequency(double hertz)
             best = i;
         }
     }
-    setCursorIndex(best);
+    return best;
+}
+
+void BodeController::setCursorFrequency(double hertz)
+{
+    const int best = nearestPoint(hertz);
+    if (best >= 0)
+        setCursorIndex(best);
+}
+
+void BodeController::setCursor2Frequency(double hertz)
+{
+    const int best = nearestPoint(hertz);
+    if (best >= 0)
+        setCursor2Index(best);
+}
+
+double BodeController::cursor2Frequency() const
+{
+    return m_cursor2Index >= 0 && m_cursor2Index < pointCount() ? m_points[size_t(m_cursor2Index)].frequency : kNaN;
+}
+
+double BodeController::pointGainDb(int index) const
+{
+    if (index < 0 || index >= pointCount())
+        return kNaN;
+    return bode::pointValues(m_points[size_t(index)].response, m_polarity == Inverted).gainDb;
+}
+
+double BodeController::pointPhase(int index) const
+{
+    if (index < 0 || index >= pointCount())
+        return kNaN;
+    if (m_unwrapPhase && size_t(index) < m_displayPhase.size())
+        return m_displayPhase[size_t(index)];
+    return bode::pointValues(m_points[size_t(index)].response, m_polarity == Inverted).phase;
+}
+
+// Gain slope between the cursors in dB per decade (−20 for a first-order low-pass well above f−3dB).
+double BodeController::cursorSlope() const
+{
+    const double f1 = cursorFrequency();
+    const double f2 = cursor2Frequency();
+    const double g1 = cursorGainDb();
+    const double g2 = cursor2GainDb();
+    if (!(f1 > 0) || !(f2 > 0) || f1 == f2 || !std::isfinite(g1) || !std::isfinite(g2))
+        return kNaN;
+    return (g2 - g1) / std::log10(f2 / f1);
 }
 
 void BodeController::remeasureCursorPoint()
@@ -356,6 +415,7 @@ void BodeController::clearSweep()
     m_sweepFrequencies.clear();
     m_total = 0;
     m_cursorIndex = -1;
+    m_cursor2Index = -1;
     m_lastIndex = -1;
     m_remainingSeconds = 0;
     setHasData(false);
@@ -494,6 +554,11 @@ void BodeController::onFinished()
     m_remeasuring = false;
     if (m_cursorsOn && (m_cursorIndex < 0 || m_cursorIndex >= pointCount()) && !m_points.empty()) {
         m_cursorIndex = 0;   // ELVISmx: the cursor starts on the first point
+        emit cursorChanged();
+        emit readoutChanged();
+    }
+    if (m_cursorsOn && (m_cursor2Index < 0 || m_cursor2Index >= pointCount()) && !m_points.empty()) {
+        m_cursor2Index = pointCount() - 1;   // C2 on the last point
         emit cursorChanged();
         emit readoutChanged();
     }

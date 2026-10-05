@@ -64,6 +64,8 @@ class BodeController : public InstrumentController
 
     // --- View state (not persisted) --------------------------------------------------------------
     Q_PROPERTY(int cursorIndex READ cursorIndex WRITE setCursorIndex NOTIFY cursorChanged STORED false)
+    // Second cursor (C2, round 5): with C1 it measures a difference — Δf, Δgain, Δphase and the slope.
+    Q_PROPERTY(int cursor2Index READ cursor2Index WRITE setCursor2Index NOTIFY cursorChanged STORED false)
 
     // --- Plan of the current settings ------------------------------------------------------------
     Q_PROPERTY(int plannedPoints READ plannedPoints NOTIFY planChanged)
@@ -87,6 +89,13 @@ class BodeController : public InstrumentController
     Q_PROPERTY(double readoutPhase READ readoutPhase NOTIFY readoutChanged)
     Q_PROPERTY(bool readoutClipped READ readoutClipped NOTIFY readoutChanged)
     Q_PROPERTY(double cursorFrequency READ cursorFrequency NOTIFY cursorChanged)
+    // Both cursors' values (NaN when the cursor is not on a point) and C2 − C1.
+    Q_PROPERTY(double cursorGainDb READ cursorGainDb NOTIFY readoutChanged)
+    Q_PROPERTY(double cursorPhase READ cursorPhase NOTIFY readoutChanged)
+    Q_PROPERTY(double cursor2Frequency READ cursor2Frequency NOTIFY cursorChanged)
+    Q_PROPERTY(double cursor2GainDb READ cursor2GainDb NOTIFY readoutChanged)
+    Q_PROPERTY(double cursor2Phase READ cursor2Phase NOTIFY readoutChanged)
+    Q_PROPERTY(double cursorSlope READ cursorSlope NOTIFY readoutChanged)   // dB / decade from C1 to C2
     // Markers (NaN when absent). cutoffFrequencies: the -3 dB crossings.
     Q_PROPERTY(double maxGainDb READ maxGainDb NOTIFY markersChanged)
     Q_PROPERTY(QList<double> cutoffFrequencies READ cutoffFrequencies NOTIFY markersChanged)
@@ -158,6 +167,8 @@ public:
 
     int cursorIndex() const { return m_cursorIndex; }
     void setCursorIndex(int index);
+    int cursor2Index() const { return m_cursor2Index; }
+    void setCursor2Index(int index);
 
     int plannedPoints() const { return m_plannedPoints; }
     double plannedSeconds() const { return m_plannedSeconds; }
@@ -179,6 +190,12 @@ public:
     double readoutPhase() const;
     bool readoutClipped() const;
     double cursorFrequency() const;
+    double cursorGainDb() const { return pointGainDb(m_cursorIndex); }
+    double cursorPhase() const { return pointPhase(m_cursorIndex); }
+    double cursor2Frequency() const;
+    double cursor2GainDb() const { return pointGainDb(m_cursor2Index); }
+    double cursor2Phase() const { return pointPhase(m_cursor2Index); }
+    double cursorSlope() const;
 
     double maxGainDb() const { return m_maxGainDb; }
     QList<double> cutoffFrequencies() const { return m_cutoff; }
@@ -199,6 +216,7 @@ public:
     Q_INVOKABLE void cursorLeft();
     Q_INVOKABLE void cursorRight();
     Q_INVOKABLE void setCursorFrequency(double hertz);
+    Q_INVOKABLE void setCursor2Frequency(double hertz);
     // Measures the cursor's point again (idle, cursor on a point) and replaces it.
     Q_INVOKABLE void remeasureCursorPoint();
     // Clears the measured points (references stay).
@@ -277,6 +295,9 @@ private:
                     mybench::plot::TraceBuffer* phase, mybench::plot::TraceBuffer* clippedGain,
                     mybench::plot::TraceBuffer* clippedPhase) const;
     int readoutPoint() const;
+    int nearestPoint(double hertz) const;     // -1 without points
+    double pointGainDb(int index) const;      // NaN outside the points
+    double pointPhase(int index) const;       // unwrapped when Unwrap phase is on
     void setStatus(const QString& text) { setStatusText(text); }
 
     // Settings (member initializers = documented defaults).
@@ -298,6 +319,7 @@ private:
     bool m_showMargins = false;
 
     int m_cursorIndex = -1;
+    int m_cursor2Index = -1;
     int m_plannedPoints = 0;
     double m_plannedSeconds = 0;
 

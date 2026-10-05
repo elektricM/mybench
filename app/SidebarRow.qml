@@ -115,7 +115,7 @@ Item {
             Layout.topMargin: Math.round((nameText.implicitHeight - height) / 2) + Theme.spacingS - 1
             name: row.iconName
             size: row.child ? Theme.iconSize : Theme.iconSizeL
-            color: row.activeSelection ? Theme.selectionText : row.selected ? Theme.accent : Theme.textSecondary
+            color: row.activeSelection ? Theme.selectionText : Theme.accent      // macOS-sidebar style: tinted icons
         }
         ColumnLayout {
             Layout.fillWidth: true
@@ -184,7 +184,7 @@ Item {
             anchors.centerIn: parent
             name: row.iconName
             size: Theme.iconSizeL
-            color: row.activeSelection ? Theme.selectionText : row.selected ? Theme.accent : Theme.textSecondary
+            color: row.activeSelection ? Theme.selectionText : Theme.accent      // macOS-sidebar style: tinted icons
         }
         Rectangle {
             visible: row.status.length > 0

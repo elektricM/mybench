@@ -195,6 +195,31 @@ private slots:
         QCOMPARE(c->cursorIndex(), 0);
     }
 
+    // Round 5: a second cursor (C2, last point when cursors go on) and the difference C2 − C1:
+    // the simulator's RC low-pass falls at −20 dB/decade well above 1 kHz.
+    void secondCursorAndSlope()
+    {
+        BodeController* c = bode();
+        QVERIFY(c->pointCount() == 11);
+        c->setCursorsOn(false);
+        c->setCursorsOn(true);
+        QCOMPARE(c->cursorIndex(), 0);
+        QCOMPARE(c->cursor2Index(), 10);
+        QVERIFY(std::abs(c->cursor2Frequency() - 10000) < 0.01);
+        c->setCursorFrequency(4000);
+        c->setCursor2Frequency(10000);
+        QVERIFY(std::abs(c->cursorFrequency() / 3981 - 1) < 0.01);   // 5 points / decade
+        QVERIFY(std::isfinite(c->cursorGainDb()));
+        QVERIFY(c->cursor2GainDb() < c->cursorGainDb());
+        const double slope = c->cursorSlope();
+        QVERIFY2(slope < -15 && slope > -21, qPrintable(QString::number(slope)));
+        QVERIFY(c->cursor2Phase() < c->cursorPhase());
+        // Same point: no slope.
+        c->setCursor2Index(c->cursorIndex());
+        QVERIFY(std::isnan(c->cursorSlope()));
+        c->setCursorIndex(0);   // as the next test expects (cursors on, C1 on the first point)
+    }
+
     void printMetadataAndTxtLog()
     {
         BodeController* c = bode();

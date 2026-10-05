@@ -7,12 +7,14 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Multimeter panel (docs/instruments/dmm.md), round-2 layout (docs/UI.md "Round 2"):
-// - pane header: Run/Stop, Single, Hold, Relative (null offset);
+// Multimeter panel (docs/instruments/dmm.md), round-5 layout (docs/UI.md "Round 2"):
+// - pane header: Run/Stop, Single (also while running: stops after the next reading), Hold,
+//   Relative (null offset); the header ↺ resets the settings;
 // - display (left, largest): the big readout, % FS bar, one status line, the trend;
-// - right column: function picture buttons (keys 1–7), range buttons (Auto + the function's
-//   ranges), tool palette (Logging, Connections, Options) whose panels float over the display;
-// - bottom strip: statistics cards (Min, Max, Mean, σ, Count) with Reset.
+// - right column (InstrumentColumn): function picture buttons (keys 1–7), range picture buttons
+//   (Auto + the function's ranges, gauge pictograms), the tool palette pinned at the bottom
+//   (Logging, Connections, Options) whose panels float over the display;
+// - bottom strip: statistics cards (Min, Max, Mean, σ, Count) and "Restart statistics".
 Item {
     id: root
 
@@ -35,6 +37,25 @@ Item {
     readonly property bool currentFunction: root.controller.selectedFunction === DmmController.DcCurrent
                                             || root.controller.selectedFunction === DmmController.AcCurrent
     readonly property bool continuity: root.controller.selectedFunction === DmmController.Continuity
+    // The color of what the meter says: overload red, a closed continuity or a conducting diode
+    // green, near full scale (≥ 90 %) amber on the bar; otherwise the accent.
+    readonly property bool good: root.controller.hasReading && !root.controller.overload
+                                 && ((root.continuity && root.controller.continuityClosed)
+                                     || root.controller.diodeStatus === "GOOD")
+    readonly property color readingColor: root.controller.overload ? Theme.negative : root.good ? Theme.positive : Theme.accent
+
+    // Range pictograms (SVG paths on 32 × 18): a gauge whose needle sits further right for a
+    // larger range; Auto = the gauge with a sweep arrow.
+    function rangeGlyph(index: int, count: int): string {
+        const arc = "M4 16 A12 12 0 0 1 28 16 "
+        if (index < 0)
+            return arc + "M9 12 A8 8 0 0 1 23 12 M20 9 L23 12 L24 8"
+        const f = count > 1 ? index / (count - 1) : 0.5
+        const a = Math.PI * (0.85 - 0.7 * f)
+        const x = 16 + 10 * Math.cos(a)
+        const y = 16 - 10 * Math.sin(a)
+        return arc + "M16 16 L" + x.toFixed(1) + " " + y.toFixed(1)
+    }
     // One short status line under the readout, only what no control shows: the range Auto picked,
     // the null value while Relative is on, the diode state. Empty otherwise.
     readonly property string statusText: {
@@ -42,7 +63,7 @@ Item {
         if (root.controller.effectiveAutoRange && root.controller.activeRangeLabel.length > 0)
             parts.push(qsTr("Range %1").arg(root.controller.activeRangeLabel))
         if (root.controller.nullOffset)
-            parts.push(root.controller.nullArmed ? qsTr("Null pending") : qsTr("Null %1").arg(root.controller.nullText))
+            parts.push(root.controller.nullArmed ? qsTr("Δ from the next reading") : qsTr("Δ from %1").arg(root.controller.nullText))
         if (root.controller.diodeStatus.length > 0)
             parts.push(root.controller.diodeStatus === "GOOD" ? qsTr("Conducts") : qsTr("Open"))
         return parts.join("  ·  ")
@@ -89,11 +110,17 @@ Item {
                 Button {
                     objectName: "dmmSingleButton"
                     text: qsTr("Single")
+                    icon.source: Theme.icon("step")
+                    display: root.compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
+                    Accessible.name: qsTr("Single")
                     Layout.preferredHeight: Theme.controlHeightL
+                    // Idle: one reading; measuring: stop after the next reading.
                     enabled: root.controller.canRun
+                             || (root.controller.state === InstrumentController.Running
+                                 && root.controller.runMode === InstrumentController.Continuous)
                     focusPolicy: Qt.TabFocus
                     ToolTip.visible: hovered
-                    ToolTip.text: qsTr("Take one reading, then stop")
+                    ToolTip.text: root.controller.running ? qsTr("Stop after the next reading") : qsTr("Take one reading, then stop")
                     onClicked: root.controller.runOnce()
                 }
                 Button {
@@ -104,6 +131,7 @@ Item {
                     Layout.preferredHeight: Theme.controlHeightL
                     checkable: true
                     checked: root.controller.hold
+                    highlighted: checked        // accent while on (a plain checked button barely shows)
                     focusPolicy: Qt.TabFocus
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Freeze the readout (measuring, trend and statistics continue)")
@@ -119,6 +147,7 @@ Item {
                     Layout.preferredHeight: Theme.controlHeightL
                     checkable: true
                     checked: root.controller.nullOffset
+                    highlighted: checked
                     focusPolicy: Qt.TabFocus
                     ToolTip.visible: hovered
                     ToolTip.text: qsTr("Null offset: show readings relative to the next reading")
@@ -161,18 +190,19 @@ Item {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: root.controller.readingText
                                 unit: root.controller.readingUnit
-                                color: root.controller.overload ? Theme.negative : Theme.text
+                                color: root.controller.overload ? Theme.negative : root.good ? Theme.positive : Theme.text
                                 stale: !root.controller.running || root.controller.hold
                                 fontSize: Math.max(Theme.fontSizeReadoutM * 1.6,
                                                    Math.min(display.width / 5.6, display.height / 5))
-                                secondaryText: root.continuity && root.controller.hasReading && !root.controller.continuityClosed ? qsTr("Open") : ""
+                                secondaryText: root.controller.hold ? qsTr("Hold")
+                                             : root.continuity && root.controller.hasReading && !root.controller.continuityClosed ? qsTr("Open") : ""
                             }
                             DmmFsBar {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 width: Math.min(parent.width - 2 * Theme.spacingL, display.width * 0.7)
                                 value: root.controller.fullScaleFraction
                                 overload: root.controller.overload
-                                color: Theme.accent
+                                color: root.controller.fullScaleFraction >= 0.9 ? Theme.caution : root.readingColor
                             }
                             Text {
                                 objectName: "dmmStatusLine"
@@ -200,155 +230,125 @@ Item {
                         windowIndex: root.controller.trendWindow
                         onWindowActivated: index => root.controller.trendWindow = index
                         onClearRequested: root.controller.clearTrend()
+                        // The time axis starts at the first reading and grows up to the window.
+                        buffers: [root.controller.trend]
                         plot.objectName: "trendPlot"
                         plot.placeholderText: qsTr("Trend — press Run to measure")
                         plot.xAxis.labelFormat: PlotAxis.Time
-                        plot.xAxis.follow: true
                         plot.yAxis.autoScale: true
+                        plot.yAxis.autoScaleMargin: 0.2     // room above and below the trace
                         plot.yAxis.unit: root.controller.unit
                         plot.yAxis.unitInLabels: true
                         plot.yAxis.minimumSpan: root.controller.trendMinimumSpan
                         PlotTrace {
                             buffer: root.controller.trend
                             unit: root.controller.unit
-                            color: Theme.text
+                            color: Theme.accent
                             pointsVisible: true
                             pointSize: 4
                         }
-                        Component.onCompleted: root.applyTrendWindow()
                     }
                 }
             }
 
-            // Right column: function, range, tool palette.
-            Rectangle {
+            // Right column: function and range picture buttons; the tools pinned at the bottom.
+            InstrumentColumn {
                 id: column
                 objectName: "dmmControls"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                // Split screen: the column shrinks with the pane so the display stays the larger part.
-                width: root.narrow ? Math.round(Math.max(150, Math.min(Theme.instrumentColumnCompactWidth, root.width * 0.42)))
-                                   : Theme.instrumentColumnWidth
-                color: Theme.window
-                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+                compact: root.narrow
+                spacing: Theme.spacingM
 
-                Flickable {
-                    id: columnFlick
-                    anchors { fill: parent; leftMargin: 1 }
-                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { }
-
-                    ColumnLayout {
-                        id: columnLayout
-                        x: Theme.spacingS
-                        y: Theme.spacingS
-                        width: columnFlick.width - 2 * Theme.spacingS
-                        // At least the column's height: the tools sit at its bottom (no empty tail).
-                        height: Math.max(implicitHeight, columnFlick.height - 2 * Theme.spacingS)
-                        spacing: Theme.spacingM
-
-                        Label {
-                            text: qsTr("Function")
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeCaption
-                            font.weight: Font.DemiBold
-                        }
-                        GridLayout {
-                            objectName: "functionGrid"
+                Label {
+                    text: qsTr("Function")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeCaption
+                    font.weight: Font.DemiBold
+                }
+                GridLayout {
+                    objectName: "functionGrid"
+                    Layout.fillWidth: true
+                    columns: 3
+                    rowSpacing: Theme.spacingXs
+                    columnSpacing: Theme.spacingXs
+                    Repeater {
+                        model: root.functions
+                        delegate: PictureButton {
+                            required property var modelData
+                            required property int index
                             Layout.fillWidth: true
-                            columns: column.width < 190 ? 2 : 3
-                            rowSpacing: Theme.spacingXs
-                            columnSpacing: Theme.spacingXs
-                            Repeater {
-                                model: root.functions
-                                delegate: PictureButton {
-                                    required property var modelData
-                                    required property int index
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
-                                    implicitWidth: 56
-                                    text: root.narrow && modelData.shortCaption ? modelData.shortCaption : modelData.caption
-                                    iconName: modelData.icon
-                                    checked: modelData.fn === root.controller.selectedFunction
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: qsTr("%1 (key %2)").arg(modelData.toolTip).arg(index + 1)
-                                    onClicked: root.controller.selectedFunction = modelData.fn
-                                }
-                            }
-                        }
-
-                        Label {
-                            text: qsTr("Range")
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeCaption
-                            font.weight: Font.DemiBold
-                        }
-                        GridLayout {
-                            objectName: "rangeGrid"
-                            Layout.fillWidth: true
-                            columns: column.width < 230 ? 2 : 3
-                            rowSpacing: Theme.spacingXs
-                            columnSpacing: Theme.spacingXs
-                            Repeater {
-                                // Auto, then the function's ranges; Continuity always ranges automatically.
-                                model: root.continuity ? [qsTr("Auto")] : [qsTr("Auto")].concat(root.controller.rangeLabels)
-                                delegate: Button {
-                                    required property string modelData
-                                    required property int index
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: 1
-                                    implicitWidth: Theme.controlHeightL
-                                    leftPadding: Theme.spacingXs
-                                    rightPadding: Theme.spacingXs
-                                    text: modelData
-                                    checkable: true
-                                    highlighted: checked
-                                    checked: index === 0 ? root.controller.effectiveAutoRange
-                                                         : !root.controller.effectiveAutoRange && root.controller.rangeIndex === index - 1
-                                    focusPolicy: Qt.TabFocus
-                                    onClicked: {
-                                        if (index === 0) {
-                                            root.controller.autoRange = true
-                                        } else {
-                                            root.controller.rangeIndex = index - 1
-                                            root.controller.autoRange = false
-                                        }
-                                        checked = Qt.binding(() => index === 0 ? root.controller.effectiveAutoRange
-                                                                               : !root.controller.effectiveAutoRange && root.controller.rangeIndex === index - 1)
-                                    }
-                                }
-                            }
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            visible: root.continuity
-                            text: qsTr("Continuity always ranges automatically.")
-                            color: Theme.textTertiary
-                            font.pixelSize: Theme.fontSizeCaption
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Item { Layout.fillHeight: true }
-                        Label {
-                            text: qsTr("Tools")
-                            color: Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeCaption
-                            font.weight: Font.DemiBold
-                        }
-                        ToolPalette {
-                            objectName: "dmmTools"
-                            Layout.fillWidth: true
-                            columns: 3
-                            currentId: root.tool
-                            model: [
-                                { id: "logging", text: root.narrow ? "" : qsTr("Logging"), icon: "record" },
-                                { id: "connections", text: root.narrow ? "" : qsTr("Connections"), icon: "instrument-dmm" },
-                                { id: "options", text: root.narrow ? "" : qsTr("Options"), icon: "settings" }
-                            ]
-                            onActivated: id => root.toggleTool(id)
+                            Layout.preferredWidth: 1
+                            implicitWidth: 56
+                            text: root.narrow && modelData.shortCaption ? modelData.shortCaption : modelData.caption
+                            iconName: modelData.icon
+                            checked: modelData.fn === root.controller.selectedFunction
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("%1 (key %2)").arg(modelData.toolTip).arg(index + 1)
+                            onClicked: root.controller.selectedFunction = modelData.fn
                         }
                     }
+                }
+
+                Label {
+                    text: qsTr("Range")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeCaption
+                    font.weight: Font.DemiBold
+                }
+                GridLayout {
+                    objectName: "rangeGrid"
+                    Layout.fillWidth: true
+                    columns: 3
+                    rowSpacing: Theme.spacingXs
+                    columnSpacing: Theme.spacingXs
+                    Repeater {
+                        // Auto, then the function's ranges; Continuity always ranges automatically.
+                        model: root.continuity ? [qsTr("Auto")] : [qsTr("Auto")].concat(root.controller.rangeLabels)
+                        delegate: PictureButton {
+                            required property string modelData
+                            required property int index
+                            objectName: "range" + index
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            implicitWidth: 56
+                            text: modelData
+                            glyph: root.rangeGlyph(index - 1, root.controller.rangeLabels.length)
+                            checked: index === 0 ? root.controller.effectiveAutoRange
+                                                 : !root.controller.effectiveAutoRange && root.controller.rangeIndex === index - 1
+                            focusPolicy: Qt.TabFocus
+                            ToolTip.visible: hovered
+                            ToolTip.text: index === 0 ? qsTr("Automatic range") : qsTr("Range %1").arg(modelData)
+                            onClicked: {
+                                if (index === 0) {
+                                    root.controller.autoRange = true
+                                } else {
+                                    root.controller.rangeIndex = index - 1
+                                    root.controller.autoRange = false
+                                }
+                            }
+                        }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.continuity
+                    text: qsTr("Continuity always ranges automatically.")
+                    color: Theme.textTertiary
+                    font.pixelSize: Theme.fontSizeCaption
+                    wrapMode: Text.WordWrap
+                }
+
+                tools: ToolPalette {
+                    objectName: "dmmTools"
+                    columns: 3
+                    cellHeight: root.narrow ? 34 : 48
+                    currentId: root.tool
+                    model: [
+                        { id: "logging", text: root.narrow ? "" : qsTr("Logging"), icon: "record", toolTip: qsTr("Record the readings") },
+                        { id: "connections", text: root.narrow ? "" : qsTr("Connections"), icon: "instrument-dmm", toolTip: qsTr("Where to plug the leads") },
+                        { id: "options", text: root.narrow ? "" : qsTr("Options"), icon: "settings", toolTip: qsTr("Continuity tone, start when shown") }
+                    ]
+                    onActivated: id => root.toggleTool(id)
                 }
             }
 
@@ -356,7 +356,8 @@ Item {
             Item {
                 id: toolArea
                 anchors { right: column.left; top: parent.top; bottom: parent.bottom; margins: Theme.spacingS }
-                width: Math.min(Theme.toolPanelWidth, Math.max(Theme.instrumentColumnCompactWidth, display.width * 0.45))
+                width: Math.min(Theme.toolPanelWidth, display.width - 2 * Theme.spacingS,
+                                Math.max(Theme.instrumentColumnCompactWidth, display.width * 0.45))
                 z: 10
 
                 ToolPanel {
@@ -488,71 +489,53 @@ Item {
 
         // --- Bottom: statistics cards ------------------------------------------------------------
         measurements: [
-            RowLayout {
-                objectName: "dmmStatistics"
-                spacing: Theme.spacingS
-                Repeater {
-                    model: [
-                        { title: qsTr("Min"), value: root.controller.formatValue(root.controller.statMinimum) },
-                        { title: qsTr("Max"), value: root.controller.formatValue(root.controller.statMaximum) },
-                        { title: qsTr("Mean"), value: root.controller.formatValue(root.controller.statMean, true) },
-                        { title: qsTr("σ"), value: root.controller.formatValue(root.controller.statStdDev, true) },
-                        { title: qsTr("Count"), value: root.controller.statCount
-                                                       + (root.controller.statOverloads > 0 ? qsTr(" · %1 over").arg(root.controller.statOverloads) : "") }
-                    ]
-                    delegate: MeasurementCard {
-                        required property var modelData
-                        required property int index
-                        visible: !root.compact || index < 3        // very narrow: Min, Max, Mean
-                        Layout.fillWidth: true
-                        Layout.preferredWidth: 1
-                        title: modelData.title
-                        color: Theme.textSecondary
-                        value: root.controller.statCount > 0 || index === 4 ? modelData.value : ""
-                        stats: null
-                        removable: false
+            // Same paddings as the Oscilloscope's measurement cards.
+            Item {
+                implicitHeight: statsRow.implicitHeight + 2 * Theme.spacingS
+                RowLayout {
+                    id: statsRow
+                    objectName: "dmmStatistics"
+                    anchors { fill: parent; margins: Theme.spacingS }
+                    spacing: Theme.spacingS
+                    Repeater {
+                        model: [
+                            { title: qsTr("Min"), value: root.controller.formatValue(root.controller.statMinimum) },
+                            { title: qsTr("Max"), value: root.controller.formatValue(root.controller.statMaximum) },
+                            { title: qsTr("Mean"), value: root.controller.formatValue(root.controller.statMean, true) },
+                            { title: qsTr("σ"), value: root.controller.formatValue(root.controller.statStdDev, true) },
+                            { title: qsTr("Count"), value: root.controller.statCount
+                                                           + (root.controller.statOverloads > 0 ? qsTr(" · %1 over").arg(root.controller.statOverloads) : "") }
+                        ]
+                        delegate: MeasurementCard {
+                            required property var modelData
+                            required property int index
+                            visible: !root.compact || index < 3        // very narrow: Min, Max, Mean
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            Layout.minimumWidth: 0          // the cards share what the button leaves
+                            title: modelData.title
+                            color: root.readingColor
+                            value: root.controller.statCount > 0 || index === 4 ? modelData.value : ""
+                            stats: null
+                            removable: false
+                        }
                     }
-                }
-                Button {
-                    objectName: "dmmResetStatistics"
-                    text: qsTr("Reset")
-                    icon.source: Theme.icon("reset")
-                    display: root.compact ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
-                    ToolTip.visible: hovered
-                    ToolTip.text: root.controller.nullOffset ? qsTr("Restart the statistics (relative values; overloads excluded)")
-                                                             : qsTr("Restart the statistics (overloads excluded)")
-                    onClicked: root.controller.resetStatistics()
+                    // Restarts the statistics only (the header ↺ resets the settings).
+                    Button {
+                        objectName: "dmmResetStatistics"
+                        text: qsTr("Restart statistics")
+                        icon.source: Theme.icon("refresh")
+                        Accessible.name: qsTr("Restart statistics")
+                        // The words when there is room, else the icon (tooltip and accessible name stay).
+                        display: statsRow.width >= 1000 ? AbstractButton.TextBesideIcon : AbstractButton.IconOnly
+                        ToolTip.visible: hovered
+                        ToolTip.text: root.controller.nullOffset ? qsTr("Restart Min, Max, Mean, σ and Count from the next reading (relative values; overloads excluded)")
+                                                                 : qsTr("Restart Min, Max, Mean, σ and Count from the next reading (overloads excluded)")
+                        onClicked: root.controller.resetStatistics()
+                    }
                 }
             }
         ]
-    }
-
-    function applyTrendWindow() {
-        const span = root.controller.trendSeconds
-        const now = Date.now() / 1000
-        const axis = trend.plot.xAxis
-        if (span > 0) {
-            axis.setRange(now - span, now)
-        } else {
-            const first = root.controller.trend.count > 0 ? root.controller.trend.xMinimum() : now - 60
-            axis.setRange(first, Math.max(now, first + 10))
-        }
-        axis.follow = true
-    }
-    Connections {
-        target: root.controller
-        function onTrendWindowChanged() { root.applyTrendWindow() }
-        function onFunctionChanged() { root.applyTrendWindow() }
-    }
-    Connections {
-        target: root.controller.trend
-        enabled: root.controller.trendSeconds === 0
-        function onChanged() {
-            const first = root.controller.trend.xMinimum()
-            const last = root.controller.trend.xMaximum()
-            if (!trend.plot.xAxis.zoomed && isFinite(first) && isFinite(last))
-                trend.plot.xAxis.setRange(first, Math.max(last, first + 10))
-        }
     }
 
     FileDialog {

@@ -19,27 +19,37 @@ lines 4-7. A timeline records the state of every line, like a simple logic analy
 
 1. By default lines **4 - 7** are read and lines **0 - 3** are written with the Manual pattern.
 2. Press **Run** (or `Space`).
-3. Flip the switches on the output cards (or press `0` … `7`): the lines change at once.
-4. Wire DIO 0-3 to DIO 4-7 and the input LEDs and the `Inputs` value follow the switches.
+3. Click an output tile (or press `0` … `7`): the line changes between HIGH and LOW at once.
+4. Wire DIO 0-3 to DIO 4-7 and the input tiles and the `Inputs` value follow the outputs.
 
 ## The pane
 
 At the top: **Run**, **Single** and the **Radix** buttons (**Hex | Bin | Dec**: the Inputs and
 Outputs values, the pattern number and the cursor values). **Release Outputs** appears there while
 stopped outputs still drive their lines. The display is on the left; the **Lines**, **Reader** and
-**Writer** cards and the **Labels** tool are in the column on the right. The read and written line
-groups appear once, in the **Lines** card.
+**Writer** cards are in the right column, the **Labels** and **Export** tools at its bottom.
+
+Colors: everything about **inputs** (read lines) is green, everything about **outputs** (written
+lines) is orange — the values, the tiles, the timeline lanes, the Read / Write rows and the Reader /
+Writer cards.
 
 ## The display
 
 - **Inputs / Outputs** – the read lines and the written lines as one number each. The lowest line of
   a group is bit 0 ("right-justified": lines 4-7 all high give `x F`). Octal and SI notation are in
   the radix menu of the pattern number field.
-- **Line tiles** – `DIO 7` … `DIO 0`, most significant on the left. Each tile shows an LED (lit =
-  high; for outputs the level written), the direction (`IN`, `OUT`, `–` unused), the HI/LO switch of
-  output lines (the Manual pattern's only editor besides the pattern number), your label and, if another instrument uses the line, its name. A warning mark
-  appears if an output reads back a different level (short circuit or overload).
-- **Timeline** – every line over the last 5, 10, 30 or 60 s (outputs in the accent color). Buttons
+- **Line tiles** – `DIO 7` … `DIO 0`, most significant on the left; everything about a line is on
+  its tile, once:
+  - the **state**: **HIGH** (filled in the line's color) or **LOW** (outlined); `–` for an unused
+    line or an input before the first reading. Outputs show the level written while running; when
+    stopped in the Manual pattern they show, lighter, the level Run will write.
+  - **click an output's state** (or press its number key) to flip it in the Manual pattern — the
+    tiles are the Manual pattern's editor besides the pattern number;
+  - the **direction**: **In | Out | –** (unused) — the only place to set a single line;
+  - your label or, if another instrument uses the line, its name (hover for details), and a warning
+    mark if an output reads back a different level (short circuit or overload).
+- **Timeline** – every line over the last 5, 10, 30 or 60 s (inputs green, outputs orange; a high
+  level is a filled band). Buttons
   in its top-right corner:
   window, cursors (two cursors with the time, Δt and the level of all lines at each, also as a number
   in Decimal, Hex, Octal, Binary or SI notation: click the radix letter in the cursor box), pause (freezes
@@ -47,10 +57,10 @@ groups appear once, in the **Lines** card.
 
 ## Lines
 
-Set each line to **In**, **Out** or **–** (unused). **Read** and **Write** set a whole group at once
-(`0-3`, `4-7`, `0-7`, `None`; none is selected for any other set). The **Labels** tool names the
-lines (e.g. `LED`, `CLK`). A line is read or driven, never both. Unused lines are left as
-high-impedance inputs.
+Set each line to **In**, **Out** or **–** (unused) on its tile. The **Lines** card has the group
+shortcuts: **Read** and **Write** set a whole group at once (`0–3`, `4–7`, `0–7`, `None`; none is
+selected for any other set). The **Labels** tool names the lines (e.g. `LED`, `CLK`). A line is read
+or driven, never both. Unused lines are left as high-impedance inputs.
 
 ### Lines shared with other instruments
 
@@ -67,7 +77,7 @@ way round); set the line to `–` to leave it to the other instrument.
 ## Writer
 
 - **Pattern** (picture buttons):
-  - **Manual** – set each line with its switch, or type a **Pattern Number** (in the chosen radix,
+  - **Manual** – click the output tiles, or type a **Pattern Number** (in the chosen radix,
     `−`/`+` step by one).
   - **Ramp (0-15)** / **Ramp (0-255)** – counts 0, 1, 2 … up to the largest value, then again.
   - **Alternating 1/0's** – alternates `0101…` and `1010…` (x 5 / x A on four lines, x 55 / x AA on
@@ -96,9 +106,9 @@ way round); set the line to `–` to leave it to the other instrument.
 
 ## Export
 
-**Export ▾ → Export data…** saves the timeline (time and the 0/1 level of every line, one row per
-sample) with the directions and the sample interval in the header. Export image/PDF saves the
-display.
+The **Export** tool (or the ⋯ menu): **Export Data…** saves the timeline (time and the 0/1 level of
+every line, one row per sample) with the directions and the sample interval in the header; Export
+Image / PDF saves the display; Print prints it.
 
 ## Tips
 

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import QtTest
 import MyBench.Controls
 
@@ -76,6 +77,19 @@ Item {
     Component {
         id: runComponent
         RunButton { onToggled: running = !running }
+    }
+    Component {
+        id: columnComponent
+        InstrumentColumn {
+            height: 400
+            property alias wide: wideCard
+            Rectangle { id: wideCard; Layout.fillWidth: true; implicitWidth: 120; implicitHeight: 150; color: "gray" }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 150; color: "gray" }
+            tools: ToolPalette {
+                columns: 3
+                model: [{ id: "a", text: "A", icon: "ruler" }, { id: "b", text: "B", icon: "grid" }]
+            }
+        }
     }
     Component {
         id: syncComponent
@@ -246,6 +260,37 @@ Item {
             verify(button.checked)
         }
 
+        // One fixed width whatever the cards hold (a setting never resizes the display, Alex
+        // round 4); the palette stays at the bottom while the cards scroll.
+        function test_instrumentColumn() {
+            const column = createTemporaryObject(columnComponent, root)
+            compare(column.width, Theme.instrumentColumnWidth)
+            column.wide.implicitWidth = 900
+            compare(column.width, Theme.instrumentColumnWidth)
+            column.compact = true
+            compare(column.width, Theme.instrumentColumnCompactWidth)
+            column.compact = false
+            const slot = findChild(column, "instrumentColumnTools")
+            compare(column.tools.parent, slot)
+            verify(slot.height > 0 && column.tools.visible, "the palette shows (R5: visibility loop)")
+            compare(slot.y + slot.height, column.height)
+            verify(column.tools.width > 0 && column.tools.width < column.width)
+            verify(!column.scrolls)
+            column.wide.implicitHeight = 600
+            tryVerify(() => column.scrolls)
+            compare(slot.y + slot.height, column.height, "palette pinned while the cards scroll")
+        }
+
+        // Without a pictogram: a compact text button, no empty picture slot (Alex, round 4).
+        function test_pictureButtonTextOnly() {
+            const plain = createTemporaryObject(autoPictureComponent, root)
+            const picture = createTemporaryObject(pictureComponent, root)
+            verify(!plain.hasPicture)
+            verify(picture.hasPicture)
+            verify(plain.height < picture.height - 10, "text-only " + plain.height + " vs " + picture.height)
+            verify(plain.height >= Theme.controlHeight)
+        }
+
         function test_pictureButtonAutoToggle() {
             const button = createTemporaryObject(autoPictureComponent, root)
             watch(button, "toggled")
@@ -308,6 +353,16 @@ Item {
             button.busy = true
             mouseClick(button)
             verify(button.running, "busy ignores clicks")
+        }
+
+        // Green Run, red Stop (round 5: the state reads from across the bench).
+        function test_runButtonColors() {
+            const button = createTemporaryObject(runComponent, root)
+            compare(button.baseFill, Theme.runFill)
+            button.running = true
+            compare(button.baseFill, Theme.stopFill)
+            verify(Theme.contrast("#FFFFFF", Theme.runFill) >= 4.5)
+            verify(Theme.contrast("#FFFFFF", Theme.stopFill) >= 4.5)
         }
 
         function test_darkByDefault() {

@@ -14,8 +14,9 @@ Start and Stop frequencies (1 Hz to 20 kHz).
 | circuit output | **AI 1+** (response) |
 | **AI 0-**, **AI 1-**, circuit ground | **AGND** |
 
-Until the first sweep, the display shows this wiring as a small diagram (AO 0 → circuit → AI 1,
-with AI 0 tapped on AO 0).
+The **Wiring** tool shows this as a small diagram (AO 0 → circuit → AI 1, with AI 0 tapped on
+AO 0); while the plots are empty (no sweep, no reference shown) it also sits in their top-left
+corner.
 
 ## Quick start
 
@@ -30,9 +31,11 @@ with AI 0 tapped on AO 0).
 ## Controls
 
 The panel follows the instrument layout: the bar on top, the plots on the left, the **Sweep** card
-and the tool palette on the right, the result cards below. A tool (Graph, Markers, Cursor,
-References, Export) opens a small panel over the right edge of the plots; click the tool again or
-the panel's close button to hide it. In a narrow pane the knobs and the column become compact.
+and the tool palette on the right, the result cards in one row below. A tool (Graph, Cursors,
+References, Wiring) opens a small panel over the right edge of the plots; click the tool again or
+the panel's close button to hide it. Export, Print and Reset are in the pane's **⋯** menu. In a
+narrow pane the knobs and the column become compact (the header continues on a second row and the
+result cards may take two rows).
 
 ### Instrument bar
 
@@ -51,14 +54,14 @@ the panel's close button to hide it. In a narrow pane the knobs and the column b
   from an older session stays selectable): the number of points in each factor-of-ten of frequency.
   With 5 steps from 100 Hz to 10 kHz you get 11 points (100, 158, 251, 398, 631, 1000 Hz, ...), shown
   under the knob. If Stop does not fall exactly on a step, the sweep ends at the last step below it.
-- **Standard | Fast**
+- **Standard | Fast** (pictured as play and fast-forward)
   - *Standard* works like ELVISmx: at every frequency the analyzer first records both inputs for
     80 ms (16 000 samples at the highest rate) on the ±10 V range to choose the best range for
     each (±2 V for small signals). A default sweep takes a few seconds.
   - *Fast* is a MYBENCH extension: no range pre-measurement. The circuit settles for three periods,
     the ranges adapt from the previous point, and a record that clips is measured again on the
     larger range. Much quicker at mid and high frequencies.
-- **Normal | Inverted** (op-amp signal polarity) – *Inverted* flips the sign of the response so an
+- **Normal | Inverted** (op-amp signal polarity, pictured as a sine and the flipped sine) – *Inverted* flips the sign of the response so an
   inverting amplifier shows about 0° instead of ±180°. It only changes the calculation, not the
   measurement, so you can switch it during or after a sweep.
 - **Averages** – measures each frequency 1 to 16 times and averages the results (less noise, longer
@@ -77,44 +80,45 @@ Steps, mode, averages and the bar's knobs are locked while a sweep runs.
 - **Unwrap phase** – removes the 360° jumps between neighbouring points. Off by default: the phase
   is shown between -180° and +180°.
 
-### Markers tool
+### Cursors tool
 
-- **−3 dB** – where the gain is 3 dB below its maximum (the cut-off frequencies of a filter),
-  interpolated between points. The gain plot labels them "−3 dB", the phase plot shows the phase
-  there.
-- **0 dB crossover** – where the gain crosses 0 dB ("0 dB").
-- **Gain / phase margin** – for loop-gain measurements: phase margin = 180° + phase at the 0 dB
-  crossover ("PM"); gain margin = minus the gain where the phase crosses -180° ("GM").
+- **Cursors C1 and C2** – two cursors on both plots, **C1** red and **C2** blue (the cursor colors of
+  every instrument). C1 starts on the first point, C2 on the last; both keep their place when you
+  run a new sweep. Drag either one: it snaps to the measured points.
+- ‹ › – move C1 one point to the left or right; the refresh button **re-measures** C1's frequency
+  and replaces that point (handy after adjusting a component).
+- **Markers**:
+  - **−3 dB** – where the gain is 3 dB below its maximum (the cut-off frequencies of a filter),
+    interpolated between points. The gain plot labels them "−3 dB", the phase plot shows the phase
+    there.
+  - **0 dB crossover** – where the gain crosses 0 dB ("0 dB").
+  - **Gain / phase margin** – for loop-gain measurements: phase margin = 180° + phase at the 0 dB
+    crossover ("PM"); gain margin = minus the gain where the phase crosses -180° ("GM"). Drawn in
+    an amber caution colour.
 
 The plot labels are short; the values are in the result cards.
 
-### Cursor tool
-
-- **Show** – one cursor on both plots at the same measured point (it starts on the first point and
-  keeps its place when you run a new sweep); the **Cursor** card then shows that point's values.
-- ‹ › – moves the cursor one point to the left or right. You can also drag it; it snaps to the
-  measured points.
-- **Re-measure** – measures only that frequency again and replaces the point (handy after adjusting
-  a component).
-
 ### References tool
 
-**Keep as Reference** (here or in the bar) stores the current sweep. References are drawn dashed
+**Keep as Reference** in the bar stores the current sweep. References are drawn dashed
 under the live sweep so you can compare circuits or component values. Up to 8 are kept; each row
 can be renamed (type in its name), shown or hidden, exported to CSV or deleted. They are saved with
 the session.
 
 ### Result cards
 
-Under the plots: **f−3dB**, **0 dB at f** (unity-gain frequency), **Gain margin**, **GM at f** (the
-frequency where the phase crosses −180°, where the gain margin is read), **Phase margin**, **Max
-gain** and **Cursor** / **Last point** (frequency · gain · phase of the point under the cursor, or of
-the most recent point; "—" before the first point). Hovering over a plot shows the values under the
+Under the plots, in one row: **f−3dB**, **0 dB at f** (unity-gain frequency), **Gain margin**, **GM
+at f** (the frequency where the phase crosses −180°, where the gain margin is read), **Phase margin**,
+**Max gain**, then the readout: with the cursors on, a small table with **C1** and **C2** (frequency,
+gain, phase) and **Δ** = C2 − C1 (frequency, gain, phase) with the gain **slope in dB/dec** (about
+−20 dB/dec for a first-order low-pass well above f−3dB, −40 for a second-order one); with the
+cursors off, the **Last point** (frequency, gain, phase of the most recent point; "—" before the first
+point). Hovering over a plot shows the values under the
 mouse. The gain trace uses the AI 0 colour, the phase trace the AI 1 colour.
 
 ## Export
 
-The **Export** tool (or the pane's menu) saves the data (frequency, gain, gain in dB, phase and a *Clipped* flag
+The pane's **⋯** menu (Export Data…, Export Image…, Print…) saves the data (frequency, gain, gain in dB, phase and a *Clipped* flag
 for every point, CSV or TSV, also during a sweep), an image of the plots, or a PDF with the image and
 the settings.
 

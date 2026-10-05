@@ -8,11 +8,13 @@ import MyBench.Controls
 
 // Waveform Generator panel (docs/instruments/gen.md): the ELVISmx Function Generator, Arbitrary
 // Waveform Generator, Waveform Editor and DC Level in one pane.
-// Generator view (round 2 layout): instrument bar in the pane header (Run, Single, output pair,
-// Time | Frequency); the display on the left (one readout line and one preview per active
-// channel); on the right one card per channel (output switch, waveform pictures, knob fields)
-// and a tool palette whose tools (Sweep, Arbitrary, Editor, Presets, Export) open a floating
-// panel over the display. The Waveform Editor view (EditorView) follows the same pattern.
+// Generator view (round 5): instrument bar in the pane header (Run, Single while an Arbitrary
+// channel can play once, the output connector); ONE display with both outputs (GenDisplay, with its
+// legend and Time | Frequency above the plot); on the right the InstrumentColumn: one card per
+// channel (output switch, waveform pictures, knob fields; Arbitrary: file, library, Open in
+// Editor, timing) and the tool palette (Sweep, Presets) whose tools open a floating panel over the
+// display. Waveform export lives in the ⋯ menu. The Waveform Editor view (EditorView) follows the
+// same pattern.
 Item {
     id: root
 
@@ -24,6 +26,11 @@ Item {
     // Open tool panel ("" = none).
     property string tool: ""
     readonly property var channels: [controller.channel0, controller.channel1]
+
+    function exportChannel(index: int) {
+        exportDialog.channelIndex = index
+        exportDialog.open()
+    }
 
     InstrumentPanel {
         id: panel
@@ -53,71 +60,63 @@ Item {
                            : qsTr("Generating · %1").arg(Units.format(root.controller.taskRate, "S/s", 3))
                 onToggled: root.controller.toggle()
             },
+            // Single applies only to Arbitrary channels with a waveform: hidden otherwise.
             Button {
                 objectName: "genSingleButton"
-                visible: !root.editorTab
+                visible: !root.editorTab && root.controller.singleEnabled
                 anchors.verticalCenter: parent ? parent.verticalCenter : undefined
                 text: qsTr("Single")
-                enabled: root.controller.singleEnabled
+                icon.source: Theme.icon("step")
                 ToolTip.visible: hovered
-                ToolTip.text: root.controller.singleEnabled ? qsTr("Play the Arbitrary channels once, then stop")
-                                                            : qsTr("Load a waveform into an Arbitrary channel to play it once")
+                ToolTip.text: qsTr("Play the Arbitrary channels once, then stop")
                 onClicked: root.controller.runOnce()
             },
-            SegmentedControl {
-                objectName: "outputPair"
-                visible: !root.editorTab && !root.compact
+            // Where the two channels come out: the AO screw terminals or the AUDIO OUT jack.
+            RowLayout {
+                objectName: "outputRouting"
+                visible: !root.editorTab
                 anchors.verticalCenter: parent ? parent.verticalCenter : undefined
-                compact: true
-                model: [ { text: qsTr("AO 0 / AO 1"),
-                           toolTip: qsTr("Screw terminals AO 0 / AO 1 (±10 V, DC coupled)") },
-                         { text: qsTr("Audio out"),
-                           toolTip: qsTr("AUDIO OUT jack, left / right (±2 V, AC coupled)") } ]
-                currentIndex: root.controller.outputPair
-                onActivated: index => root.controller.outputPair = index
-            },
-            SegmentedControl {
-                objectName: "previewMode"
-                visible: !root.editorTab && !root.compact
-                anchors.verticalCenter: parent ? parent.verticalCenter : undefined
-                compact: true
-                model: [ { text: qsTr("Time"), toolTip: qsTr("Amplitude (V) against time") },
-                         { text: qsTr("Frequency"), toolTip: qsTr("Spectrum of each output (dBV)") } ]
-                currentIndex: root.controller.displayMode
-                onActivated: index => root.controller.displayMode = index
+                spacing: Theme.spacingS
+                Text {
+                    text: qsTr("Output")
+                    color: Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeS
+                }
+                SegmentedControl {
+                    objectName: "outputPair"
+                    compact: true
+                    model: [ { text: qsTr("AO 0 / AO 1"),
+                               toolTip: qsTr("Screw terminals AO 0 / AO 1 (±10 V, DC coupled)") },
+                             { text: qsTr("Audio out"),
+                               toolTip: qsTr("AUDIO OUT jack, left / right (±2 V, AC coupled)") } ]
+                    currentIndex: root.controller.outputPair
+                    onActivated: index => root.controller.outputPair = index
+                }
             }
         ]
 
+        // ⋯ entries (native menus ignore `visible`: fixed entries, enabled when they apply). The
+        // controller's commands (Sweep the Function channels) are added by the header.
         menuItems: [
-            Menu {
-                id: presetMenu
-                title: qsTr("Presets")
-                Instantiator {
-                    model: root.controller.builtInPresets
-                    delegate: MenuItem {
-                        required property string modelData
-                        required property int index
-                        text: modelData
-                        onTriggered: root.controller.loadBuiltInPreset(index)
-                    }
-                    onObjectAdded: (index, object) => presetMenu.insertItem(index, object)
-                    onObjectRemoved: (index, object) => presetMenu.removeItem(object)
-                }
-                MenuSeparator {}
-                MenuItem {
-                    text: qsTr("Save Current Settings as Preset…")
-                    onTriggered: presetDialog.open()
-                }
+            MenuItem {
+                text: qsTr("Export %1 Waveform…").arg(root.controller.channel0.name)
+                enabled: root.controller.channel0.mode !== GenChannel.Off
+                onTriggered: root.exportChannel(0)
+            },
+            MenuItem {
+                text: qsTr("Export %1 Waveform…").arg(root.controller.channel1.name)
+                enabled: root.controller.channel1.mode !== GenChannel.Off
+                onTriggered: root.exportChannel(1)
+            },
+            MenuItem {
+                text: qsTr("Waveform Editor")
+                enabled: !root.editorTab
+                onTriggered: root.controller.activeTab = 1
             },
             MenuItem {
                 text: qsTr("Align Phases")
                 enabled: root.controller.strategy === GenController.Streaming
                 onTriggered: root.controller.alignPhases()
-            },
-            MenuItem {
-                text: qsTr("Sweep All")
-                enabled: root.controller.canSweep
-                onTriggered: root.controller.sweepAll()
             }
         ]
 
@@ -129,114 +128,40 @@ Item {
             Item {
                 id: generatorView
 
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: 0
+                // Display: one plot with both outputs; values live in the channel cards.
+                GenDisplay {
+                    id: display
+                    objectName: "genDisplay"
+                    anchors { left: parent.left; top: parent.top; bottom: parent.bottom; right: controlsColumn.left; margins: Theme.spacingS }
+                    controller: root.controller
+                }
 
-                    // Display: one preview per channel that is not Off; values live in the channel cards.
-                    ColumnLayout {
-                        id: displayColumn
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        Layout.margins: Theme.spacingS
-                        spacing: Theme.spacingS
-                        readonly property int offCount: (root.controller.channel0.mode === GenChannel.Off ? 1 : 0)
-                                                        + (root.controller.channel1.mode === GenChannel.Off ? 1 : 0)
-
-                        // Narrow pane: the output pair and the preview choice leave the header.
-                        Flow {
-                            objectName: "compactChoices"
-                            visible: root.compact
+                // Right column (fixed width): channel cards, the tool palette pinned at the bottom.
+                InstrumentColumn {
+                    id: controlsColumn
+                    objectName: "genControls"
+                    anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+                    compact: root.compact
+                    Repeater {
+                        model: root.channels
+                        delegate: GenChannelCard {
+                            required property GenChannel modelData
                             Layout.fillWidth: true
-                            spacing: Theme.spacingS
-                            SegmentedControl {
-                                compact: true
-                                model: [ { text: qsTr("AO 0 / AO 1") }, { text: qsTr("Audio out") } ]
-                                currentIndex: root.controller.outputPair
-                                onActivated: index => root.controller.outputPair = index
-                            }
-                            SegmentedControl {
-                                compact: true
-                                model: [ { text: qsTr("Time") }, { text: qsTr("Frequency") } ]
-                                currentIndex: root.controller.displayMode
-                                onActivated: index => root.controller.displayMode = index
-                            }
-                        }
-
-                        Repeater {
-                            model: root.channels
-                            delegate: ChannelPreview {
-                                required property GenChannel modelData
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                visible: modelData.mode !== GenChannel.Off || displayColumn.offCount === 2
-                                Layout.minimumHeight: 60
-                                objectName: "genPreview" + modelData.index
-                                controller: root.controller
-                                channel: modelData
-                            }
+                            controller: root.controller
+                            channel: modelData
+                            compact: root.compact
                         }
                     }
-
-                    Rectangle {
-                        Layout.fillHeight: true
-                        implicitWidth: 1
-                        color: Theme.separator
-                    }
-
-                    // Right column: channel cards, then the tool palette.
-                    ScrollView {
-                        id: controlsColumn
-                        objectName: "genControls"
-                        Layout.fillHeight: true
-                        Layout.preferredWidth: root.compact ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
-                        contentWidth: availableWidth
-                        clip: true
-
-                        ColumnLayout {
-                            width: controlsColumn.availableWidth
-                            spacing: Theme.spacingS
-
-                            Item { implicitHeight: Theme.spacingXs }
-                            Repeater {
-                                model: root.channels
-                                delegate: GenChannelCard {
-                                    required property GenChannel modelData
-                                    Layout.fillWidth: true
-                                    Layout.leftMargin: Theme.spacingS
-                                    Layout.rightMargin: Theme.spacingS
-                                    controller: root.controller
-                                    channel: modelData
-                                    compact: root.compact
-                                    onArbitraryToolRequested: root.tool = "arbitrary"
-                                }
-                            }
-                            ToolPalette {
-                                objectName: "genTools"
-                                Layout.fillWidth: true
-                                Layout.leftMargin: Theme.spacingS
-                                Layout.rightMargin: Theme.spacingS
-                                Layout.bottomMargin: Theme.spacingS
-                                columns: root.compact ? 5 : 3
-                                cellHeight: root.compact ? 36 : 52
-                                currentId: root.tool
-                                model: [
-                                    { id: "sweep", text: root.compact ? "" : qsTr("Sweep"), toolTip: root.compact ? qsTr("Sweep") : "", icon: "sweep" },
-                                    { id: "arbitrary", text: root.compact ? "" : qsTr("Arbitrary"), toolTip: root.compact ? qsTr("Arbitrary") : "", icon: "wave-arbitrary" },
-                                    { id: "editor", text: root.compact ? "" : qsTr("Editor"), toolTip: root.compact ? qsTr("Editor") : "", icon: "edit" },
-                                    { id: "presets", text: root.compact ? "" : qsTr("Presets"), toolTip: root.compact ? qsTr("Presets") : "", icon: "layers" },
-                                    { id: "export", text: root.compact ? "" : qsTr("Export"), toolTip: root.compact ? qsTr("Export") : "", icon: "export" }
-                                ]
-                                onActivated: id => {
-                                    if (id === "editor") {
-                                        root.tool = ""
-                                        root.controller.activeTab = 1
-                                    } else {
-                                        root.tool = root.tool === id ? "" : id
-                                    }
-                                }
-                            }
-                        }
+                    tools: ToolPalette {
+                        objectName: "genTools"
+                        columns: 2
+                        cellHeight: root.compact ? 40 : 52
+                        currentId: root.tool
+                        model: [
+                            { id: "sweep", text: qsTr("Sweep"), icon: "sweep" },
+                            { id: "presets", text: qsTr("Presets"), icon: "layers" }
+                        ]
+                        onActivated: id => root.tool = root.tool === id ? "" : id
                     }
                 }
 
@@ -246,24 +171,17 @@ Item {
                     objectName: "genToolPanel"
                     visible: root.tool.length > 0
                     anchors.top: parent.top
-                    anchors.right: parent.right
+                    anchors.right: controlsColumn.left
                     anchors.topMargin: Theme.spacingS
-                    anchors.rightMargin: controlsColumn.width + Theme.spacingS
-                    width: Math.min(Theme.toolPanelWidth, Math.max(220, displayColumn.width - 2 * Theme.spacingS))
+                    anchors.rightMargin: Theme.spacingS
+                    width: Math.min(Theme.toolPanelWidth, Math.max(220, display.width - 2 * Theme.spacingS))
                     maximumHeight: parent.height - 2 * Theme.spacingS
                     title: root.tool === "sweep" ? qsTr("Frequency Sweep")
-                           : root.tool === "arbitrary" ? qsTr("Arbitrary Waveforms")
-                           : root.tool === "presets" ? qsTr("Presets")
-                           : root.tool === "export" ? qsTr("Export") : ""
+                           : root.tool === "presets" ? qsTr("Presets") : ""
                     onCloseRequested: root.tool = ""
 
                     GenSweepTool {
                         visible: root.tool === "sweep"
-                        Layout.fillWidth: true
-                        controller: root.controller
-                    }
-                    GenArbitraryTool {
-                        visible: root.tool === "arbitrary"
                         Layout.fillWidth: true
                         controller: root.controller
                     }
@@ -309,29 +227,6 @@ Item {
                             onClicked: presetDialog.open()
                         }
                     }
-                    ColumnLayout {
-                        visible: root.tool === "export"
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        Repeater {
-                            model: root.channels
-                            delegate: Button {
-                                required property GenChannel modelData
-                                Layout.fillWidth: true
-                                text: qsTr("Export %1 Waveform…").arg(modelData.name)
-                                enabled: modelData.mode !== GenChannel.Off
-                                onClicked: {
-                                    exportDialog.channelIndex = modelData.index
-                                    exportDialog.open()
-                                }
-                            }
-                        }
-                        Button {
-                            Layout.fillWidth: true
-                            text: qsTr("Export Image…")
-                            onClicked: panel.exportImage(false)
-                        }
-                    }
                 }
             }
 
@@ -357,6 +252,10 @@ Item {
                 root.controller.loadBuiltInPreset(Number(scene.substring(7)))
                 if (!root.controller.running)
                     root.controller.run()
+            } else if (scene === "arb") {
+                // AO 1 plays a library waveform beside AO 0's sine (Arbitrary card, combined plot).
+                root.controller.channel1.mode = GenChannel.Arbitrary
+                root.controller.loadLibraryWaveform(1, 17)   // Stairstep
             } else if (scene === "editor") {
                 root.controller.activeTab = 1
             } else {

@@ -17,6 +17,19 @@
 using namespace Qt::StringLiterals;
 using mybench::instruments::LogController;
 
+// Items by objectName through the visual tree (Repeater delegates have no QObject parent).
+static QQuickItem* findItem(QQuickItem* item, const QString& name)
+{
+    if (!item)
+        return nullptr;
+    if (item->objectName() == name)
+        return item;
+    for (QQuickItem* child : item->childItems())
+        if (QQuickItem* found = findItem(child, name))
+            return found;
+    return nullptr;
+}
+
 class TestLogQml : public QObject
 {
     Q_OBJECT
@@ -102,6 +115,29 @@ private slots:
         QCOMPARE(ai0->property("subtitle").toString(), QString());
         QCOMPARE(ai0->property("facts").toStringList(), QStringList{u"±10 V"_s});
 
+        // Round 5: no "Monitoring" / "Not recording" chip (the Record button shows that); the
+        // DMM card off = header only, on = function pictures + a range knob, running = the
+        // function and range as facts (never a grid of disabled buttons); tools pinned and shown.
+        QVERIFY(!root->findChild<QQuickItem*>(u"logRecordState"_s)->isVisible());
+        auto* tools = root->findChild<QQuickItem*>(u"logTools"_s);
+        QVERIFY(tools && tools->isVisible() && tools->height() > 20);
+        auto* dmmFunctions = findItem(item, u"logDmmFunctions"_s);
+        QVERIFY(dmmFunctions);
+        QVERIFY(!dmmFunctions->isVisible());
+        log.setDmmEnabled(true);
+        offscreen.renderFrame();
+        QVERIFY(dmmFunctions->isVisible());
+        for (int i = 0; i < 5; ++i)
+            QVERIFY(!findItem(item, u"logDmmFunction"_s + QString::number(i))->property("iconName").toString().isEmpty());
+        QVERIFY(findItem(item, u"logDmmRange"_s)->isVisible());
+        auto* dmmValue = findItem(item, u"logValueDmm"_s);
+        QVERIFY(dmmValue && dmmValue->isVisible());
+        QVERIFY2(dmmValue->width() < item->width() * 0.6, "a card, not a strip across the pane");
+        if (const QString dir = qEnvironmentVariable("MYBENCH_TEST_SHOT_DIR"); !dir.isEmpty())
+            offscreen.grab().save(u"%1/log-dmm-%2.png"_s.arg(dir, QString::fromLatin1(QTest::currentDataTag())));
+        log.setDmmEnabled(false);
+        offscreen.renderFrame();
+
         // Log File tool: one Format choice; the restored ELVISmx layout shows as "ELVISmx".
         auto* fileType = root->findChild<QQuickItem*>(u"logFileType"_s);
         QVERIFY(fileType);
@@ -114,6 +150,20 @@ private slots:
         // Review aid: MYBENCH_TEST_SHOT_DIR=<dir> saves the frame with the tool panel open.
         if (const QString dir = qEnvironmentVariable("MYBENCH_TEST_SHOT_DIR"); !dir.isEmpty())
             offscreen.grab().save(u"%1/%2-%3.png"_s.arg(dir, u"log-tool"_s, QString::fromLatin1(QTest::currentDataTag())));
+
+        if (size.width() == 1440) {
+            // Running: the DMM settings are locked and shown as facts, not as disabled buttons.
+            log.setDmmEnabled(true);
+            log.run();
+            QTRY_VERIFY_WITH_TIMEOUT(log.state() == mybench::InstrumentController::Running, 5000);
+            offscreen.renderFrame();
+            QVERIFY(!dmmFunctions->isVisible());
+            QVERIFY(!findItem(item, u"logDmmRange"_s)->isVisible());
+            const QStringList facts = root->findChild<QObject*>(u"logCardDmm"_s)->property("facts").toStringList();
+            QCOMPARE(facts, QStringList({u"DC V"_s, u"Auto"_s}));
+            log.stop();
+            QTRY_VERIFY_WITH_TIMEOUT(log.state() == mybench::InstrumentController::Idle, 5000);
+        }
         offscreen.setRootItem(nullptr);
     }
 };

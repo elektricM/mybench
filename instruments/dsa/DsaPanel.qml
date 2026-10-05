@@ -6,11 +6,12 @@ import MyBench.Framework
 import MyBench.Controls
 
 // Spectrum Analyzer panel (docs/instruments/dsa.md; ELVISmx Dynamic Signal Analyzer) with the
-// 1/3-octave analysis mode (ELVISmx featured app "Octave Analyzer"). Round-2 layout: instrument
-// bar in the pane header (Run, Single, Restart, Span and Resolution knobs, Analysis), display on
-// the left, a column on the right (Input card + tool palette; a tool opens a floating panel over
-// the display), measurement cards at the bottom. Every setting exists once; settings that do not
-// apply are hidden. View only: settings, conversions and measurements live in DsaController.
+// 1/3-octave analysis mode (ELVISmx featured app "Octave Analyzer"). Layout: instrument bar in
+// the pane header (Run, Single, Span and Resolution knobs, Analysis), display on the left (with
+// the averaging progress and Restart while they apply), the shared InstrumentColumn on the right
+// (Input card; tool palette pinned at the bottom, a tool opens a floating panel over the display),
+// measurement cards at the bottom. Every setting exists once; settings that do not apply are
+// hidden. View only: settings, conversions and measurements live in DsaController.
 Item {
     id: root
 
@@ -18,8 +19,9 @@ Item {
 
     readonly property bool octave: controller.octave
     readonly property bool manualScale: controller.scaleMode === DsaController.ManualScale
-    // Compact knobs keep the bar on one line: the bar needs the compact pane width plus the column.
-    readonly property bool narrow: width < Theme.instrumentCompactWidth + Theme.instrumentColumnWidth
+    // Same rule as every panel: compact column and knobs below the compact pane width (a header
+    // that does not fit wraps to a second row).
+    readonly property bool narrow: width < Theme.instrumentCompactWidth
     // Window-shape pictograms (SVG paths on 32×18), in DsaController.windowLabels order: None,
     // Hanning, Hamming, Blackman-Harris, Exact Blackman, Blackman, Flat Top, 4 and 7 Term
     // B-Harris, Low Sidelobe. Narrower bells for the windows with lower side lobes.
@@ -35,10 +37,22 @@ Item {
         "M2 16 C12.5 16 13.5 2 16 2 S19.5 16 30 16",
         "M2 16 C11 16 12 3 16 2 S21 16 30 16"
     ]
+    // Input pictograms (32×18): AI = a signal into a terminal; Audio = a 3.5 mm jack plug.
+    readonly property string analogGlyph: "M2 9c2.5-7 5-7 7.5 0s5 7 7.5 0 M17 9h6 M23 9a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+    readonly property string audioGlyph: "M2 6h8v6H2z M10 8h12 M10 10h12 M15 7v4 M19 7v4 M22 8c4 0 6 0.4 6 1s-2 1-6 1"
+    // Averaging-mode pictograms: a noisy line (None), an arrow (Vector), a smooth line (RMS),
+    // a noisy line under its held maximum (Peak Hold).
+    readonly property var averagingGlyphs: [
+        "M2 10l3-4 3 7 3-6 3 5 3-4 3 6 3-5 3 3 3-2",
+        "M3 14L27 5 M21 4.5l6 0.5-3.5 5",
+        "M2 10c4 0 5-3 9-3s5 4 10 4 5-2 9-2",
+        "M2 15l3-4 3 3 3-6 3 5 3-3 3 4 3-5 3 3 M2 4h28"
+    ]
     readonly property color sourceColor: Theme.signalColor(["ai0", "ai1", "audioInL", "audioInR"][controller.sourceChannel] ?? "ai0")
     // Open tool panel ("" = none) and the time record (a Display option, off by default).
     property string tool: ""
     property bool showTime: false
+    readonly property string octaveUnit: "dBV" + (controller.octaveWeightingSuffix.length > 0 ? " " + controller.octaveWeightingSuffix : "")
 
     // Span: 1-2-5 steps up to the source's maximum (sample rate = 2 × span).
     readonly property var spanValues: {
@@ -105,28 +119,22 @@ Item {
                     enabled: root.controller.running || root.controller.canRun
                     onToggled: root.controller.toggle()
                 }
-                ColumnLayout {
-                    spacing: Theme.spacingXs
-                    Button {
-                        objectName: "dsaSingleButton"
-                        Layout.fillWidth: true
-                        text: qsTr("Single")
-                        enabled: root.controller.canRun
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Acquire one record (or one complete average), then stop")
-                        onClicked: root.controller.runOnce()
-                    }
-                    Button {
-                        objectName: "dsaRestartButton"
-                        Layout.fillWidth: true
-                        text: qsTr("Restart")
-                        icon.source: Theme.icon("refresh")
-                        enabled: root.controller.restartEnabled
-                        ToolTip.visible: hovered
-                        ToolTip.text: root.octave ? qsTr("Restart the band averaging") : qsTr("Restart the averaging")
-                        onClicked: root.controller.restartAveraging()
-                    }
+                // Single: idle = one record (or one complete average); running = finish after it.
+                Button {
+                    objectName: "dsaSingleButton"
+                    text: qsTr("Single")
+                    icon.source: Theme.icon("step")
+                    implicitHeight: Theme.controlHeightL
+                    enabled: root.controller.canRun
+                             || (root.controller.state === InstrumentController.Running
+                                 && root.controller.runMode === InstrumentController.Continuous)
+                    focusPolicy: Qt.TabFocus
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.controller.running ? qsTr("Stop after this record (or average)")
+                                                          : qsTr("Acquire one record (or one complete average), then stop")
+                    onClicked: root.controller.runOnce()
                 }
+                Rectangle { visible: !root.narrow; implicitWidth: 1; Layout.fillHeight: true; Layout.margins: 6; color: Theme.separator }
                 KnobField {
                     objectName: "spanKnob"
                     visible: !root.octave
@@ -159,6 +167,7 @@ Item {
                 }
                 SegmentedControl {
                     objectName: "analysisMode"
+                    visible: !root.narrow         // narrow pane: in the column (Analysis card)
                     model: [
                         { text: qsTr("Spectrum"), toolTip: qsTr("FFT spectrum (ELVISmx Dynamic Signal Analyzer)") },
                         { text: qsTr("Octave"), toolTip: qsTr("1/3-octave bands at 50 kS/s (ELVISmx Octave Analyzer)") }
@@ -177,93 +186,96 @@ Item {
                 anchors { left: parent.left; top: parent.top; bottom: parent.bottom; right: column.left; margins: Theme.spacingS }
                 visible: !root.octave
                 controller: root.controller
-                showReadouts: false
+                traceColor: root.sourceColor
                 showTime: root.showTime
             }
             DsaOctaveView {
                 anchors { left: parent.left; top: parent.top; bottom: parent.bottom; right: column.left; margins: Theme.spacingS }
                 visible: root.octave
                 controller: root.controller
+                traceColor: root.sourceColor
             }
 
-            // Right column: Input card, then the tool palette.
-            Rectangle {
+            // Right column (shared, fixed width): Input card; tool palette pinned at the bottom.
+            InstrumentColumn {
                 id: column
+                objectName: "dsaColumn"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
-                color: Theme.window
-                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+                compact: root.narrow
 
-                Flickable {
-                    id: columnFlick
-                    anchors { fill: parent; leftMargin: 1 }
-                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { }
-
-                    ColumnLayout {
-                        id: columnLayout
-                        x: Theme.spacingS
-                        y: Theme.spacingS
-                        width: columnFlick.width - 2 * Theme.spacingS
-                        spacing: Theme.spacingS
-
-                        ChannelCard {
-                            objectName: "inputCard"
-                            Layout.fillWidth: true
-                            title: qsTr("Input")
-                            color: root.sourceColor
-                            checkable: false
-                            compact: root.narrow
-                            facts: root.controller.audioSource ? [qsTr("±2 V fixed")] : []
-                            GridLayout {
+                // Narrow pane: the analysis choice moves here so the header keeps the knobs.
+                ChannelCard {
+                    objectName: "analysisCard"
+                    visible: root.narrow
+                    Layout.fillWidth: true
+                    title: qsTr("Analysis")
+                    color: Theme.signalMath
+                    checkable: false
+                    compact: true
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        model: [{ text: qsTr("Spectrum"), toolTip: qsTr("FFT spectrum (ELVISmx Dynamic Signal Analyzer)") },
+                                { text: qsTr("Octave"), toolTip: qsTr("1/3-octave bands at 50 kS/s (ELVISmx Octave Analyzer)") }]
+                        currentIndex: root.octave ? 1 : 0
+                        onActivated: index => root.controller.analysisMode = index === 1 ? DsaController.OctaveAnalysis : DsaController.FftAnalysis
+                    }
+                }
+                ChannelCard {
+                    objectName: "inputCard"
+                    Layout.fillWidth: true
+                    title: qsTr("Input")
+                    color: root.sourceColor
+                    checkable: false
+                    compact: root.narrow
+                    facts: root.controller.audioSource ? [qsTr("±2 V fixed")] : []
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 2
+                        rowSpacing: 4
+                        columnSpacing: 4
+                        Repeater {
+                            model: root.controller.sourceLabels
+                            delegate: PictureButton {
+                                required property string modelData
+                                required property int index
+                                objectName: "source_" + index
                                 Layout.fillWidth: true
-                                columns: 2
-                                rowSpacing: 4
-                                columnSpacing: 4
-                                Repeater {
-                                    model: root.controller.sourceLabels
-                                    delegate: PictureButton {
-                                        required property string modelData
-                                        required property int index
-                                        objectName: "source_" + index
-                                        Layout.fillWidth: true
-                                        text: modelData
-                                        checked: root.controller.sourceChannel === index
-                                        accentColor: Theme.signalColor(["ai0", "ai1", "audioInL", "audioInR"][index])
-                                        onClicked: root.controller.sourceChannel = index
-                                    }
-                                }
+                                Layout.preferredWidth: 1
+                                text: modelData
+                                glyph: index < 2 ? root.analogGlyph : root.audioGlyph
+                                checked: root.controller.sourceChannel === index
+                                accentColor: Theme.signalColor(["ai0", "ai1", "audioInL", "audioInR"][index])
+                                ToolTip.visible: hovered
+                                ToolTip.text: [qsTr("Analog input AI 0"), qsTr("Analog input AI 1"),
+                                               qsTr("Audio input, left"), qsTr("Audio input, right")][index]
+                                onClicked: root.controller.sourceChannel = index
                             }
-                            SegmentedControl {
-                                objectName: "rangeButtons"
-                                Layout.fillWidth: true
-                                visible: !root.controller.audioSource
-                                model: root.controller.rangeLabels
-                                currentIndex: root.controller.effectiveRangeIndex
-                                onActivated: index => root.controller.voltageRangeIndex = index
-                            }
-                        }
-
-                        ToolPalette {
-                            objectName: "dsaTools"
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingXs
-                            columns: root.narrow ? 3 : 3
-                            cellHeight: root.narrow ? 40 : 52
-                            currentId: root.tool
-                            model: root.octave
-                                   ? [{ id: "octave", text: qsTr("Octave"), icon: "bar-chart" },
-                                      { id: "export", text: qsTr("Export"), icon: "export" }]
-                                   : [{ id: "window", text: qsTr("Window"), icon: "activity" },
-                                      { id: "averaging", text: qsTr("Averaging"), icon: "layers" },
-                                      { id: "display", text: qsTr("Display"), icon: "grid" },
-                                      { id: "cursors", text: qsTr("Cursors"), icon: "crosshair" },
-                                      { id: "export", text: qsTr("Export"), icon: "export" }]
-                            onActivated: id => root.toggleTool(id)
                         }
                     }
+                    SegmentedControl {
+                        objectName: "rangeButtons"
+                        Layout.fillWidth: true
+                        visible: !root.controller.audioSource
+                        model: root.controller.rangeLabels
+                        currentIndex: root.controller.effectiveRangeIndex
+                        onActivated: index => root.controller.voltageRangeIndex = index
+                    }
+                }
+
+                tools: ToolPalette {
+                    objectName: "dsaTools"
+                    columns: 3
+                    cellHeight: root.narrow ? 40 : 52
+                    currentId: root.tool
+                    model: root.octave
+                           ? [{ id: "octave", text: qsTr("Octave"), icon: "bar-chart" },
+                              { id: "export", text: qsTr("Export"), icon: "export" }]
+                           : [{ id: "window", text: qsTr("Window"), icon: "activity" },
+                              { id: "averaging", text: qsTr("Averaging"), icon: "layers" },
+                              { id: "display", text: qsTr("Display"), icon: "grid" },
+                              { id: "cursors", text: qsTr("Cursors"), icon: "crosshair" },
+                              { id: "export", text: qsTr("Export"), icon: "export" }]
+                    onActivated: id => root.toggleTool(id)
                 }
             }
 
@@ -321,8 +333,11 @@ Item {
                                 delegate: PictureButton {
                                     required property string modelData
                                     required property int index
+                                    objectName: "averaging" + index
                                     Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
                                     text: modelData
+                                    glyph: root.averagingGlyphs[index]
                                     checked: root.controller.averagingMode === index
                                     onClicked: root.controller.averagingMode = index
                                 }
@@ -425,8 +440,6 @@ Item {
                     Switch { text: qsTr("Logarithmic frequency axis"); checked: root.controller.logFrequency; onToggled: root.controller.logFrequency = checked }
                     Switch { text: qsTr("Max hold"); checked: root.controller.maxHold; onToggled: root.controller.maxHold = checked }
                     Switch { text: qsTr("Min hold"); checked: root.controller.minHold; onToggled: root.controller.minHold = checked }
-                    Switch { text: qsTr("Harmonic markers"); checked: root.controller.harmonicMarkers; onToggled: root.controller.harmonicMarkers = checked }
-                    Switch { text: qsTr("Harmonics and peaks tables"); checked: root.controller.analysisTables; onToggled: root.controller.analysisTables = checked }
                     Switch { objectName: "timeSwitch"; text: qsTr("Time record"); checked: root.showTime; onToggled: root.showTime = checked }
                     Switch { text: qsTr("Spectrogram"); checked: root.controller.waterfallVisible; onToggled: root.controller.waterfallVisible = checked }
                     KnobField {
@@ -448,7 +461,12 @@ Item {
                     maximumHeight: parent.height
                     title: qsTr("Cursors")
                     onCloseRequested: root.tool = ""
-                    Switch { text: qsTr("Show cursors"); checked: root.controller.cursorsOn; onToggled: root.controller.cursorsOn = checked }
+                    // Every marker and cursor control lives here (once): harmonic markers and their
+                    // table, then the C1 / C2 cursor pair with its peak search.
+                    Switch { objectName: "harmonicMarkersSwitch"; text: qsTr("Harmonic markers"); checked: root.controller.harmonicMarkers; onToggled: root.controller.harmonicMarkers = checked }
+                    Switch { text: qsTr("Harmonics and peaks table"); checked: root.controller.analysisTables; onToggled: root.controller.analysisTables = checked }
+                    Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.separator }
+                    Switch { objectName: "cursorsSwitch"; text: qsTr("Cursors C1 · C2"); checked: root.controller.cursorsOn; onToggled: root.controller.cursorsOn = checked }
                     ToolRow {
                         visible: root.controller.cursorsOn
                         label: qsTr("Selected cursor")
@@ -583,10 +601,10 @@ Item {
         measurements: [
             Flow {
                 objectName: "dsaCards"
-                readonly property string summaryText: root.controller.hasResult
+                // Short windows collapse the strip to this line (InstrumentPanel).
+                readonly property string summaryText: root.controller.hasResult && !root.octave
                     ? qsTr("%1 · THD %2 %").arg(Units.format(root.controller.fundamentalFrequency, "Hz", 5)).arg(root.controller.thd.toFixed(2))
                     : ""
-                visible: !root.octave
                 width: parent ? parent.width : 0
                 spacing: Theme.spacingS
                 padding: Theme.spacingS
@@ -607,7 +625,7 @@ Item {
                             return ({})
                         const mean = samples.reduce((a, b) => a + b, 0) / n
                         const variance = samples.reduce((a, b) => a + (b - mean) * (b - mean), 0) / n
-                        // SI units: numbers, formatted by the card (4 digits, σ 3); % and dB here.
+                        // SI units: numbers, formatted by the card (4 digits, σ 3); %, dB, V² here.
                         const f = unit.length > 0 ? v => v : statFormat
                         return ({ min: f(Math.min(...samples)), max: f(Math.max(...samples)),
                                   mean: f(mean), stdDev: f(Math.sqrt(variance)) })
@@ -626,6 +644,7 @@ Item {
                 }
                 Card {
                     objectName: "cardFundamental"
+                    visible: !root.octave
                     title: qsTr("Fundamental")
                     color: root.sourceColor
                     sample: root.controller.fundamentalFrequency
@@ -634,12 +653,16 @@ Item {
                 }
                 Card {
                     objectName: "cardPower"
+                    visible: !root.octave
                     title: qsTr("Fundamental power")
                     color: root.sourceColor
-                    value: root.controller.hasResult ? root.controller.fundamentalPowerText : "—"
+                    sample: root.controller.fundamentalPower
+                    // A power in V² (no SI prefix: mV² would read as 1e-3 V²).
+                    format: v => (v === 0 || Math.abs(v) >= 0.01 ? v.toFixed(3) : v.toExponential(2)) + " " + root.controller.powerUnit
                 }
                 Card {
                     objectName: "cardThd"
+                    visible: !root.octave
                     title: qsTr("THD")
                     color: Theme.signalMath
                     sample: root.controller.thd
@@ -648,6 +671,7 @@ Item {
                 }
                 Card {
                     objectName: "cardSinad"
+                    visible: !root.octave
                     title: qsTr("SINAD")
                     color: Theme.signalMath
                     sample: root.controller.sinad
@@ -655,6 +679,7 @@ Item {
                 }
                 Card {
                     objectName: "cardSnr"
+                    visible: !root.octave
                     title: qsTr("SNR")
                     color: Theme.signalMath
                     sample: root.controller.snr
@@ -662,19 +687,39 @@ Item {
                 }
                 Card {
                     objectName: "cardPeak"
+                    visible: !root.octave
                     title: qsTr("Peak")
                     color: root.sourceColor
                     sample: root.controller.vpk
                     unit: "V"
                     format: v => Units.format(v, "V", 4) + "pk"
                 }
-                Card {
+                DsaCursorCard {
                     objectName: "cardCursors"
-                    visible: root.controller.cursorsOn
-                    title: root.controller.cursorDeltaText.length > 0 ? qsTr("Cursors · Δ") : qsTr("Cursors")
-                    color: Theme.signalCursor
-                    width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.toolPanelWidth
-                    value: root.controller.cursorDeltaText.length > 0 ? root.controller.cursorDeltaText : root.controller.cursor1Text
+                    visible: root.controller.cursorsOn && !root.octave
+                    width: Math.max(implicitWidth, root.narrow ? 200 : 260)
+                    c1: root.controller.cursor1Text
+                    c2: root.controller.cursor2Text
+                    delta: root.controller.cursorDeltaText
+                }
+                // 1/3-octave results.
+                MeasurementCard {
+                    objectName: "cardOctaveOverall"
+                    visible: root.octave
+                    removable: false
+                    width: Math.max(implicitWidth, root.narrow ? 160 : 190)
+                    title: qsTr("Overall level")
+                    color: root.sourceColor
+                    value: root.controller.hasOctaveResult ? root.controller.octaveOverall.toFixed(1) + " " + root.octaveUnit : "—"
+                }
+                MeasurementCard {
+                    objectName: "cardOctaveLoudest"
+                    visible: root.octave
+                    removable: false
+                    width: Math.max(implicitWidth, root.narrow ? 160 : 190)
+                    title: root.controller.hasOctaveResult ? qsTr("Loudest band · %1").arg(root.controller.octaveLoudestBand) : qsTr("Loudest band")
+                    color: Theme.signalMath
+                    value: root.controller.hasOctaveResult ? root.controller.octaveLoudestLevel.toFixed(1) + " " + root.octaveUnit : "—"
                 }
             }
         ]

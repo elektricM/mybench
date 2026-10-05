@@ -58,6 +58,33 @@ Item {
             fuzzyCompare(a.y, b.y, 1)
         }
 
+        // Overview tiles (round 5): a stopped instrument with nothing measured offers Run over its
+        // empty preview, and Run starts it; a tile with a preview does not repeat its key value.
+        function test_overviewIdleTileRuns() {
+            const page = createTemporaryObject(overviewComponent, host)
+            waitForRendering(page)
+            const ids = InstrumentRegistry.ids
+            verify(ids.length > 0)
+            let checked = 0
+            for (const id of ids) {
+                const tile = findChild(page, "overviewTile-" + id)
+                const c = InstrumentRegistry.controller(id)
+                if (!tile || !c || c.running || c.hasData || !c.canRun)
+                    continue
+                verify(tile.idle, id)
+                const run = findChild(tile, "tileIdleRun")
+                verify(run && run.visible, id + ": Run over the idle preview")
+                mouseClick(run)
+                tryVerify(() => c.running, 3000, id + " runs")
+                verify(!tile.idle)
+                c.stop()
+                tryVerify(() => c.idle)
+                ++checked
+                break
+            }
+            verify(checked > 0, "no idle instrument to check")
+        }
+
         function init() {
             ws.fromMap({})
         }

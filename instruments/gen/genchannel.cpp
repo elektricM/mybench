@@ -125,6 +125,8 @@ void GenChannel::setMode(Mode mode)
         return;
     if (m_outputOn || m_done)
         emit modeAboutToChange();
+    if (mode == Off)
+        m_lastActiveMode = m_mode;
     m_mode = mode;
     setErrorText({});
     emit modeChanged();
@@ -582,41 +584,85 @@ void GenChannel::setSpectrumVisible(bool visible)
     updateSpectrum();
 }
 
+double GenChannel::naturalSpan() const
+{
+    switch (m_mode) {
+    case Function: {
+        const double f = (m_sweepRequested && m_status.frequency > 0) ? m_status.frequency : m_function.frequency;
+        return 2.0 / f;
+    }
+    case Arbitrary:
+        return hasWaveform() ? double(m_source.samples->size()) / m_updateRate : 0.0;
+    case Off:
+    case Dc:
+        break;
+    }
+    return 0.0;
+}
+
+void GenChannel::setPreviewWindow(double seconds)
+{
+    seconds = std::isfinite(seconds) && seconds > 0 ? seconds : 0.0;
+    if (seconds == m_previewWindow)
+        return;
+    m_previewWindow = seconds;
+    updatePreview();
+}
+
 void GenChannel::updatePreview()
 {
+    // Above this many samples a preview is drawn as its envelope (a band between the lowest and the
+    // highest level): at that compression the plot could only show aliasing, not the shape.
+    constexpr size_t kMaxPreviewSamples = 200000;
     const double range = outputRange();
+    const double own = naturalSpan();
     double lo = -1, hi = 1;
     bool step = false;
-    double span = 1.0;
+    double span = m_previewWindow > 0 ? m_previewWindow : (own > 0 ? own : 1.0);
     int clipped = 0;
+    // An envelope band: alternate the extremes over the window.
+    const auto band = [&](double bandLo, double bandHi) {
+        constexpr size_t n = 2000;
+        std::vector<double> y(n);
+        for (size_t i = 0; i < n; ++i)
+            y[i] = (i % 2) ? bandHi : bandLo;
+        m_preview.setUniform(0.0, span / double(n - 1), y);
+    };
     switch (m_mode) {
     case Off:
         m_preview.clear();
         break;
     case Function: {
         const double f = (m_sweepRequested && m_status.frequency > 0) ? m_status.frequency : m_function.frequency;
-        span = 2.0 / f;
+        const double periods = span * f;
+        const double clampedLo = std::clamp(m_function.offset - m_function.amplitude / 2, -range, range);
+        const double clampedHi = std::clamp(m_function.offset + m_function.amplitude / 2, -range, range);
         // Samples of the real output when they are coarse (ELVISmx buffer at high frequencies).
         const double taskRate = m_taskRate > 0 ? m_taskRate : m_maxRate;
         const double perPeriod = taskRate / f;
-        size_t n;
+        double n;
         double dt;
         if (perPeriod < 100) {
             step = true;
             dt = 1.0 / taskRate;
-            n = size_t(std::ceil(span / dt)) + 1;
+            n = std::ceil(span / dt) + 1;
         } else {
-            n = 801;
-            dt = span / double(n - 1);
+            n = std::max(801.0, std::ceil(periods * 400.0) + 1);
+            dt = span / (n - 1);
         }
-        std::vector<double> y(n);
-        const double duty = m_function.dutyCycle / 100.0;
-        for (size_t i = 0; i < n; ++i) {
-            const double cycles = f * dt * double(i) + m_function.phase / 360.0;
-            y[i] = std::clamp(m_function.offset + m_function.amplitude / 2 * gen::shapeValue(m_function.shape, cycles, duty),
-                              -range, range);
+        if (n > double(kMaxPreviewSamples)) {
+            step = false;
+            band(clampedLo, clampedHi);
+        } else {
+            std::vector<double> y(static_cast<size_t>(n));
+            const double duty = m_function.dutyCycle / 100.0;
+            for (size_t i = 0; i < y.size(); ++i) {
+                const double cycles = f * dt * double(i) + m_function.phase / 360.0;
+                y[i] = std::clamp(m_function.offset + m_function.amplitude / 2 * gen::shapeValue(m_function.shape, cycles, duty),
+                                  -range, range);
+            }
+            m_preview.setUniform(0.0, dt, y);
         }
-        m_preview.setUniform(0.0, dt, y);
         lo = m_function.offset - m_function.amplitude / 2;
         hi = m_function.offset + m_function.amplitude / 2;
         break;
@@ -624,29 +670,47 @@ void GenChannel::updatePreview()
     case Arbitrary:
         if (!hasWaveform()) {
             m_preview.clear();
-            span = 1.0;
             break;
         } else {
             const std::vector<double>& w = *m_source.samples;
-            std::vector<double> y(w.size());
+            std::vector<double> pass(w.size());
             lo = hi = std::clamp(m_gain * w[0], -range, range);
             for (size_t i = 0; i < w.size(); ++i) {
                 const double v = m_gain * w[i];
-                y[i] = std::clamp(v, -range, range);
+                pass[i] = std::clamp(v, -range, range);
                 clipped += std::abs(v) > range;
-                lo = std::min(lo, y[i]);
-                hi = std::max(hi, y[i]);
+                lo = std::min(lo, pass[i]);
+                hi = std::max(hi, pass[i]);
             }
-            m_preview.setUniform(0.0, 1.0 / m_updateRate, y);
-            span = double(w.size()) / m_updateRate;
+            const double dt = 1.0 / m_updateRate;
+            const size_t total = size_t(std::max(1.0, std::ceil(span / dt - 1e-9)));
             step = w.size() < 400;
+            if (total <= w.size()) {
+                m_preview.setUniform(0.0, dt, pass);   // one pass fills the window
+            } else {
+                // Continuous: the waveform repeats; Run Once: it holds its last sample (or 0 V).
+                const bool once = m_generationMode == RunOnce;
+                const double after = once ? (m_zeroAfterRunOnce ? 0.0 : pass.back()) : 0.0;
+                if (once) {
+                    lo = std::min(lo, after);
+                    hi = std::max(hi, after);
+                }
+                if (total > kMaxPreviewSamples) {
+                    step = false;
+                    band(lo, hi);
+                } else {
+                    std::vector<double> y(total);
+                    for (size_t i = 0; i < total; ++i)
+                        y[i] = once ? (i < pass.size() ? pass[i] : after) : pass[i % pass.size()];
+                    m_preview.setUniform(0.0, dt, y);
+                }
+            }
         }
         break;
     case Dc: {
         const std::vector<double> y{m_dcLevel, m_dcLevel};
-        m_preview.setUniform(0.0, 1.0, y);
+        m_preview.setUniform(0.0, span, y);
         lo = hi = m_dcLevel;
-        span = 1.0;
         break;
     }
     }
@@ -666,6 +730,10 @@ void GenChannel::updatePreview()
     m_clipped = clipped;
     emit previewChanged();
     updateSpectrum();
+    if (own != m_lastNaturalSpan) {
+        m_lastNaturalSpan = own;
+        emit naturalSpanChanged();
+    }
 }
 
 void GenChannel::updateSpectrum()

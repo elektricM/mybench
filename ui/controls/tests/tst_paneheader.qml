@@ -198,14 +198,25 @@ Item {
             verify(knobPos.x > bigPos.x)
             verify(knobPos.x + knob.width <= more.mapToItem(panelHeader, 0, 0).x)
             fuzzyCompare(bigPos.y + big.height / 2, (panelHeader.height - 1) / 2, 1)
-            // A narrow pane: the content is clipped at its end, ⋯ stays inside the header and
-            // nothing overlaps the state text.
+            // A narrow pane: the content moves to a second row under the title, whole; ⋯ stays in
+            // the title row (round 5: content was clipped to nothing on KDE, overlapped on Bode).
             panel.width = 330
             waitForRendering(panel)
-            const clipItem = big.parent.parent
-            verify(clipItem.clip)
-            verify(clipItem.width < clipItem.implicitWidth, clipItem.width + "/" + clipItem.implicitWidth)
-            verify(more.mapToItem(panelHeader, 0, 0).x + more.width <= panelHeader.width, more.mapToItem(panelHeader, 0, 0).x + "+" + more.width + " in " + panelHeader.width + " clip " + clipItem.width)
+            verify(panelHeader.contentWrapped)
+            compare(big.parent.parent.objectName, "paneHeaderWrapRow")
+            const bigWrapped = big.mapToItem(panelHeader, 0, 0)
+            const moreWrapped = more.mapToItem(panelHeader, 0, 0)
+            verify(bigWrapped.y >= moreWrapped.y + more.height, "content under the title row")
+            verify(knob.mapToItem(panelHeader, 0, 0).x + knob.width <= panelHeader.width)
+            compare(panelHeader.height, Theme.paneHeaderHeight + 52 + 2 * Theme.spacingXs)
+            verify(moreWrapped.x + more.width <= panelHeader.width)
+            panel.width = 1100
+            waitForRendering(panel)
+            verify(!panelHeader.contentWrapped)
+            compare(big.parent.objectName, "paneHeaderContent")
+            compare(big.parent.parent.objectName, "paneHeaderContentClip")
+            verify(big.visible && knob.visible, "content shown again after unwrapping")
+            compare(panelHeader.height, 52 + 2 * Theme.spacingXs + 1)
             // The panel's own run controls carry the state: no state text in the header.
             verify(!findChild(panelHeader, "paneState").visible)
             verify(findChild(header, "paneState").visible === false)    // showRunControls false above
@@ -225,6 +236,8 @@ Item {
             tryVerify(() => (styled = findChild(dialog, "confirmDialog")) !== null && dialog.opened)
             const accept = findChild(styled.footer, "confirmAcceptButton")
             compare(accept.text, "Quit")
+            // Our own title row in every style (KDE's Dialog header carries a red ×).
+            compare(styled.header.objectName, "confirmTitle")
             verify(!accept.highlighted)                     // destructive: not the accent primary
             const spy = createTemporaryObject(spyComponent, root, { target: dialog, signalName: "accepted" })
             tryVerify(() => accept.activeFocus)             // the verb is the default button
@@ -270,7 +283,6 @@ Item {
             const reset = findChild(header, "resetButton")
             const title = findChild(header, "paneTitle")
             const big = findChild(header, "bigRun")
-            const clipItem = big.parent.parent
             waitForRendering(panel)
             verify(reset.visible)
             verify(!title.truncated)
@@ -282,10 +294,10 @@ Item {
             for (let i = 0; i < header.menu.count; ++i)
                 texts.push(header.menu.itemAt(i).text)
             verify(texts.indexOf("Reset Settings…") >= 0, texts.join("|"))
-            panel.width = 470
+            panel.width = 400
             waitForRendering(panel)
-            verify(title.truncated)
-            compare(clipItem.width, clipItem.implicitWidth)          // content not clipped yet
+            verify(header.contentWrapped)                            // content on its own row
+            compare(big.width, big.implicitWidth)
             const more = findChild(header, "moreButton")
             verify(more.mapToItem(header, 0, 0).x + more.width <= header.width)
             panel.width = 900

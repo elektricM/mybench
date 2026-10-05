@@ -230,6 +230,41 @@ private slots:
         QCOMPARE(m_root->property("expectedRangeIndex").toInt(), 2);
     }
 
+    // Round 5: expected-range picture buttons (pictogram + the deciding bound), statistics as the
+    // shared MeasurementCards, a palette with more than one tool, the FREQOUT knob ready while off,
+    // Single live while running (stop after the next reading).
+    void round5Controls()
+    {
+        CtrController& ctr = controller();
+        if (!createPanel(ctr))
+            QSKIP("no graphics device");
+        const QStringList labels{u"1 Hz"_s, u"10 mHz"_s, u"100 µHz"_s};   // lowest expected frequency
+        for (int i = 0; i < 3; ++i) {
+            QObject* button = find(u"expectedRange"_s + QString::number(i));
+            QVERIFY(button);
+            QVERIFY(!button->property("glyph").toString().isEmpty());
+            QCOMPARE(button->property("text").toString(), labels[i]);
+        }
+        QObject* stat = find(u"ctrStatCard"_s);
+        QVERIFY(stat);
+        QVERIFY(stat->metaObject()->indexOfProperty("stats") >= 0);   // a MeasurementCard
+        QCOMPARE(stat->property("title").toString(), ctr.displayName());
+        QVERIFY(shown(u"ctrStatistics"_s));
+        QObject* tools = find(u"ctrTools"_s);
+        QVERIFY(tools && tools->property("visible").toBool());
+        QVERIFY(tools->property("model").toList().size() >= 2);
+        QVERIFY2(shown(u"ctrFreqOut"_s), "FREQOUT knob shown (dimmed) while the output is off");
+
+        auto* single = qobject_cast<QQuickItem*>(find(u"ctrSingleButton"_s));
+        QVERIFY(single && single->isEnabled());
+        ctr.run();
+        QTRY_VERIFY_WITH_TIMEOUT(ctr.isRunning(), 5000);
+        render();
+        QVERIFY2(single->isEnabled(), "Single while running = stop after the next reading");
+        ctr.stop();
+        QTRY_VERIFY_WITH_TIMEOUT(ctr.isIdle(), 5000);
+    }
+
     // Review aid: MYBENCH_SHOT_DIR=<dir> saves the Pulse Train + FREQOUT view (dark theme default).
     void pulseTrainShot()
     {

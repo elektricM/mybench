@@ -7,10 +7,11 @@ import MyBench.Controls
 import MyBench.Plot
 
 // Counter/Timer panel (docs/instruments/ctr.md), round-2 layout (docs/UI.md "Round 2"):
-// instrument bar in the pane header (Run, Single, Reset); display on the left (big readout,
-// secondary value, trend or pulse diagram, statistics cards); right column with the mode picture
-// buttons, the active mode's settings, the pulse-train and FREQOUT cards and a tool palette whose
-// tools (Connections) float over the display. Options the device cannot do are hidden.
+// instrument bar in the pane header (Run, Single, Reset Stats); display on the left (big readout,
+// secondary value, trend or pulse diagram); statistics as measurement cards under it; the shared
+// right column with the mode picture buttons, the active mode's settings, the pulse-train and
+// FREQOUT cards and the tool palette (Connections, Export) pinned at the bottom, whose panels
+// float over the display. Options the device cannot do are hidden.
 Item {
     id: root
 
@@ -36,6 +37,20 @@ Item {
         const unit = frequencyRange ? "Hz" : "s"
         return Units.format(r.min, unit, 3) + " – " + Units.format(r.max, unit, 3)
     }
+    // The button label: the bound that picks the timebase (lowest frequency / longest interval;
+    // the row label says which).
+    function expectedRangeLabel(r: var): string {
+        return frequencyRange ? Units.format(r.min, "Hz", 3) : Units.format(r.max, "s", 3)
+    }
+    // The pictogram: the covered decades as a bracket over a log axis of all the presets.
+    function expectedRangeGlyph(r: var): string {
+        const all = expectedRanges
+        const lo = Math.log10(Math.min(...all.map(e => e.min))), hi = Math.log10(Math.max(...all.map(e => e.max)))
+        const x = v => (2 + 28 * (Math.log10(v) - lo) / (hi - lo)).toFixed(1)
+        const a = x(r.min), b = x(r.max)
+        return "M2 15h28 M2 13v4 M30 13v4 M" + a + " 9H" + b + " M" + a + " 5v8 M" + b + " 5v8"
+    }
+    readonly property var timebaseNames: ["100 MHz", "20 MHz", "100 kHz"]
     function selectExpectedRange(index: int) {
         const r = expectedRanges[index]
         if (frequencyRange) {
@@ -158,24 +173,6 @@ Item {
         font.features: Theme.tabularFigures
         wrapMode: Text.WordWrap
     }
-    // One statistic card at the bottom of the display.
-    component StatCard: Rectangle {
-        property alias label: stat.label
-        property alias value: stat.value
-        property alias valueColor: stat.color
-        Layout.fillWidth: true
-        Layout.preferredWidth: 1
-        implicitHeight: stat.implicitHeight + 2 * Theme.spacingS
-        radius: Theme.radiusM
-        color: Theme.cardFill
-        border.color: Theme.cardBorder
-        CtrStat {
-            id: stat
-            anchors.fill: parent
-            anchors.margins: Theme.spacingS
-        }
-    }
-
     InstrumentPanel {
         id: panel
         anchors.fill: parent
@@ -198,26 +195,35 @@ Item {
                     shortcutText: "⌘R"
                     onToggled: root.controller.toggle()
                 }
+                // Single: idle = one reading (or one buffer); running = stop after the next one.
                 Button {
                     objectName: "ctrSingleButton"
                     visible: root.measuring
                     text: qsTr("Single")
-                    Layout.preferredHeight: 52
+                    icon.source: Theme.icon("step")
+                    implicitHeight: Theme.controlHeightL
                     enabled: root.controller.canRun
+                             || (root.controller.state === InstrumentController.Running
+                                 && root.controller.runMode === InstrumentController.Continuous)
                     focusPolicy: Qt.TabFocus
                     ToolTip.visible: hovered
-                    ToolTip.text: root.controller.sampling === CtrController.Buffered
+                    ToolTip.text: root.controller.running ? qsTr("Stop after the next reading")
+                                  : root.controller.sampling === CtrController.Buffered
                                   ? qsTr("Measure %1 intervals, then stop").arg(root.controller.bufferedSamples)
                                   : qsTr("Take one reading, then stop")
                     onClicked: root.controller.runOnce()
                 }
-                ActionButton {
+                // Clears the statistics (and the count): distinct from the header's ↺ (settings).
+                Button {
                     objectName: "ctrResetButton"
                     visible: root.measuring
-                    text: root.narrow ? "" : root.counting || root.encoder ? qsTr("Reset Count") : qsTr("Reset Stats")
-                    iconName: "reset"
-                    toolTip: root.counting || root.encoder ? qsTr("Clear statistics and trend, count again from the initial value")
-                                                           : qsTr("Clear statistics and trend")
+                    text: root.counting || root.encoder ? qsTr("Reset Count") : qsTr("Reset Stats")
+                    icon.source: Theme.icon("reset")
+                    implicitHeight: Theme.controlHeightL
+                    focusPolicy: Qt.TabFocus
+                    ToolTip.visible: hovered
+                    ToolTip.text: root.counting || root.encoder ? qsTr("Clear statistics and trend, count again from the initial value")
+                                                                : qsTr("Clear statistics and trend")
                     onClicked: root.controller.resetMeasurement()
                 }
             }
@@ -302,43 +308,6 @@ Item {
                             horizontalAlignment: Text.AlignHCenter
                             // Only the output state (generation, idle state and delay are in the card).
                             text: root.controller.outputState
-                        }
-                        // FREQOUT actual value beside a counter mode (under the readouts).
-                        Rectangle {
-                            visible: root.controller.freqOutEnabled && !root.counterOff
-                            Layout.alignment: Qt.AlignHCenter
-                            implicitWidth: freqOutRow.implicitWidth + 2 * Theme.spacingM
-                            implicitHeight: freqOutRow.implicitHeight + 2 * Theme.spacingS
-                            radius: Theme.radiusM
-                            color: Theme.cardFill
-                            border.color: Theme.cardBorder
-                            RowLayout {
-                                id: freqOutRow
-                                anchors.centerIn: parent
-                                spacing: Theme.spacingS
-                                Led {
-                                    on: root.controller.freqOutActual > 0
-                                    size: 8
-                                }
-                                Text {
-                                    text: qsTr("FREQOUT")
-                                    color: Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeS
-                                    font.weight: Font.DemiBold
-                                }
-                                Text {
-                                    text: Units.format(root.controller.freqOutActual > 0 ? root.controller.freqOutActual
-                                                                                         : root.controller.coercedFreqOut, "Hz", 5)
-                                    color: Theme.text
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.features: Theme.tabularFigures
-                                }
-                                Text {
-                                    text: "DIO 4"
-                                    color: Theme.textMuted
-                                    font.pixelSize: Theme.fontSizeS
-                                }
-                            }
                         }
                     }
 
@@ -431,500 +400,465 @@ Item {
                     font.pixelSize: Theme.fontSizeS
                     wrapMode: Text.WordWrap
                 }
-
-                // Statistics cards (Measure).
-                RowLayout {
-                    objectName: "ctrStatistics"
-                    visible: root.measuring
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingS
-                    StatCard { label: qsTr("Min"); value: root.fmt(root.controller.statMinimum, false) }
-                    StatCard { label: qsTr("Max"); value: root.fmt(root.controller.statMaximum, false) }
-                    StatCard { label: qsTr("Mean"); value: root.fmt(root.controller.statMean, true) }
-                    StatCard { label: "σ"; value: root.fmt(root.controller.statDeviation, true) }
-                    StatCard {
-                        label: root.controller.sampling === CtrController.Buffered && root.interval ? qsTr("Intervals") : qsTr("Count")
-                        value: String(root.controller.statCount)
-                        valueColor: Theme.textSecondary
-                    }
-                }
             }
 
-            // --- Right column -----------------------------------------------------------------
-            Rectangle {
+            // --- Right column (shared, fixed width; tools pinned at the bottom) ---------------
+            InstrumentColumn {
                 id: column
+                objectName: "ctrColumn"
                 anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-                width: root.narrow ? Theme.instrumentColumnCompactWidth : Theme.instrumentColumnWidth
-                color: Theme.window
-                Rectangle { width: 1; height: parent.height; color: Theme.separator }
+                compact: root.narrow
 
-                Flickable {
-                    id: columnFlick
-                    anchors { fill: parent; leftMargin: 1 }
-                    contentHeight: columnLayout.implicitHeight + 2 * Theme.spacingS
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    ScrollBar.vertical: ScrollBar { }
-
-                    ColumnLayout {
-                        id: columnLayout
-                        x: Theme.spacingS
-                        y: Theme.spacingS
-                        width: columnFlick.width - 2 * Theme.spacingS
-                        spacing: Theme.spacingS
-
-                        // Mode: picture buttons.
-                        ChannelCard {
-                            objectName: "ctrModeCard"
-                            Layout.fillWidth: true
-                            title: qsTr("Counter")
-                            subtitle: qsTr("ctr0")
-                            color: Theme.accent
-                            checkable: false
-                            compact: root.narrow
-                            GridLayout {
+                // Mode: picture buttons.
+                ChannelCard {
+                    objectName: "ctrModeCard"
+                    Layout.fillWidth: true
+                    title: qsTr("Counter")
+                    subtitle: qsTr("ctr0")
+                    color: Theme.accent
+                    checkable: false
+                    compact: root.narrow
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 2
+                        columnSpacing: 4
+                        rowSpacing: 4
+                        Repeater {
+                            model: root.modes
+                            PictureButton {
+                                required property var modelData
+                                objectName: "ctrMode_" + modelData.text
+                                visible: root.modeSupported(modelData)
                                 Layout.fillWidth: true
-                                columns: 2
-                                columnSpacing: 4
-                                rowSpacing: 4
-                                Repeater {
-                                    model: root.modes
-                                    PictureButton {
-                                        required property var modelData
-                                        objectName: "ctrMode_" + modelData.text
-                                        visible: root.modeSupported(modelData)
-                                        Layout.fillWidth: true
-                                        Layout.preferredWidth: 1
-                                        text: root.narrow && modelData.short ? modelData.short : modelData.text
-                                        glyph: modelData.glyph
-                                        ToolTip.visible: hovered && root.narrow && modelData.short !== undefined
-                                        ToolTip.text: modelData.text
-                                        checked: root.modeActive(modelData)
-                                        onClicked: root.selectMode(modelData)
-                                    }
-                                }
+                                Layout.preferredWidth: 1
+                                text: root.narrow && modelData.short ? modelData.short : modelData.text
+                                glyph: modelData.glyph
+                                ToolTip.visible: hovered && root.narrow && modelData.short !== undefined
+                                ToolTip.text: modelData.text
+                                checked: root.modeActive(modelData)
+                                onClicked: root.selectMode(modelData)
                             }
-                            Text {
-                                Layout.fillWidth: true
-                                visible: root.controller.unsupportedInUse.length > 0
-                                text: qsTr("Not supported by this device: %1. Run is refused until you change them.").arg(root.controller.unsupportedInUse.join(", "))
-                                color: Theme.warning
-                                font.pixelSize: Theme.fontSizeS
-                                wrapMode: Text.WordWrap
-                            }
-                        }
-
-                        // The active measurement's settings.
-                        ChannelCard {
-                            objectName: "ctrSettingsCard"
-                            visible: root.measuring
-                            Layout.fillWidth: true
-                            title: qsTr("Input")
-                            subtitle: root.controller.terminals
-                            color: Theme.signalCh0
-                            checkable: false
-                            compact: root.narrow
-
-                            LabeledRow {
-                                visible: root.measurement !== CtrController.SemiPeriod && !root.encoder
-                                label: root.measurement === CtrController.TwoEdgeSeparation ? qsTr("First edge (DIO 2)")
-                                     : root.measurement === CtrController.PulseWidth ? qsTr("Starting edge")
-                                     : root.counting ? qsTr("Edges to count") : qsTr("Active edge")
-                                SegmentedControl {
-                                    Layout.fillWidth: true
-                                    model: root.unsupported("counter.fallingEdge")
-                                           ? [{ icon: "slope-rising", text: qsTr("Rising") }]
-                                           : [{ icon: "slope-rising", text: qsTr("Rising") }, { icon: "slope-falling", text: qsTr("Falling") }]
-                                    currentIndex: root.controller.activeEdge
-                                    onActivated: index => root.controller.activeEdge = index
-                                }
-                            }
-                            LabeledRow {
-                                visible: root.measurement === CtrController.TwoEdgeSeparation
-                                label: qsTr("Second edge (DIO 1)")
-                                SegmentedControl {
-                                    Layout.fillWidth: true
-                                    model: [{ icon: "slope-rising", text: qsTr("Rising") }, { icon: "slope-falling", text: qsTr("Falling") }]
-                                    currentIndex: root.controller.secondEdge
-                                    onActivated: index => root.controller.secondEdge = index
-                                }
-                            }
-                            LabeledRow {
-                                visible: root.counting
-                                label: qsTr("Direction")
-                                SegmentedControl {
-                                    id: directionControl
-                                    Layout.fillWidth: true
-                                    // Only the supported directions; `value` = CtrController.CountDirection.
-                                    model: {
-                                        const m = [{ text: qsTr("Up"), value: CtrController.CountUp }]
-                                        if (!root.unsupported("counter.countDown"))
-                                            m.push({ text: qsTr("Down"), value: CtrController.CountDown })
-                                        if (!root.unsupported("counter.externalDirection"))
-                                            m.push({ text: qsTr("Ext."), value: CtrController.CountExternal,
-                                                     toolTip: qsTr("DIO 2 high counts up, low counts down") })
-                                        return m
-                                    }
-                                    currentIndex: model.findIndex(e => e.value === root.controller.countDirection)
-                                    onActivated: index => root.controller.countDirection = directionControl.model[index].value
-                                }
-                            }
-                            LabeledRow {
-                                visible: root.counting && !root.unsupported("counter.initialCount")
-                                label: qsTr("Initial count")
-                                SiField {
-                                    Layout.fillWidth: true
-                                    engineering: false
-                                    decimals: 0
-                                    stepSize: 1
-                                    from: 0
-                                    to: 4294967295
-                                    value: root.controller.initialCount
-                                    onValueModified: v => root.controller.initialCount = v
-                                }
-                            }
-                            RowLayout {
-                                visible: root.counting && !root.unsupported("counter.resetOnDio")
-                                Layout.fillWidth: true
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Reset on DIO 1 rising edge")
-                                    color: Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeCaption
-                                    wrapMode: Text.WordWrap
-                                }
-                                ToggleSwitch {
-                                    checked: root.controller.resetOnDio1
-                                    onToggled: root.controller.resetOnDio1 = checked
-                                }
-                            }
-
-                            // Encoders.
-                            LabeledRow {
-                                visible: root.encoder
-                                label: qsTr("Decoding")
-                                SegmentedControl {
-                                    Layout.fillWidth: true
-                                    model: [{ text: "X1", toolTip: qsTr("One count per cycle of A") },
-                                            { text: "X2", toolTip: qsTr("Counts on both edges of A") },
-                                            { text: "X4", toolTip: qsTr("Counts on every edge of A and B") },
-                                            { text: qsTr("2-P"), toolTip: qsTr("Two-pulse: DIO 0 counts up, DIO 2 counts down") }]
-                                    currentIndex: root.controller.decoding
-                                    onActivated: index => root.controller.decoding = index
-                                }
-                            }
-                            RowLayout {
-                                visible: root.measurement === CtrController.LinearEncoder
-                                Layout.fillWidth: true
-                                LabeledRow {
-                                    label: qsTr("Distance / pulse")
-                                    SiField {
-                                        Layout.fillWidth: true
-                                        unit: root.controller.distanceUnit
-                                        from: 1e-9
-                                        to: 1e6
-                                        digits: 5
-                                        value: root.controller.distancePerPulse
-                                        onValueModified: v => root.controller.distancePerPulse = v
-                                    }
-                                }
-                                LabeledRow {
-                                    Layout.preferredWidth: 56
-                                    Layout.fillWidth: false
-                                    label: qsTr("Unit")
-                                    TextField {
-                                        Layout.fillWidth: true
-                                        text: root.controller.distanceUnit
-                                        onEditingFinished: root.controller.distanceUnit = text
-                                    }
-                                }
-                            }
-                            LabeledRow {
-                                visible: root.measurement === CtrController.AngularEncoder
-                                label: qsTr("Pulses / revolution")
-                                SiField {
-                                    Layout.fillWidth: true
-                                    engineering: false
-                                    decimals: 0
-                                    stepSize: 1
-                                    from: 1
-                                    to: 16777216
-                                    value: root.controller.pulsesPerRevolution
-                                    onValueModified: v => root.controller.pulsesPerRevolution = Math.round(v)
-                                }
-                            }
-                            RowLayout {
-                                visible: root.encoder
-                                Layout.fillWidth: true
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Z index (DIO 1)")
-                                    color: Theme.textSecondary
-                                    font.pixelSize: Theme.fontSizeCaption
-                                }
-                                ToggleSwitch {
-                                    checked: root.controller.zIndexEnabled
-                                    onToggled: root.controller.zIndexEnabled = checked
-                                }
-                            }
-                            LabeledRow {
-                                visible: root.encoder && root.controller.zIndexEnabled
-                                label: qsTr("Z index value")
-                                SiField {
-                                    Layout.fillWidth: true
-                                    engineering: false
-                                    decimals: 3
-                                    unit: root.measurement === CtrController.AngularEncoder ? "°" : root.controller.distanceUnit
-                                    value: root.controller.zIndexValue
-                                    onValueModified: v => root.controller.zIndexValue = v
-                                }
-                            }
-
-                            // Expected range (interval measurements): sets the timebase.
-                            LabeledRow {
-                                visible: root.interval
-                                label: qsTr("Expected range")
-                                // One button per counter timebase; the tooltip names it.
-                                ColumnLayout {
-                                    objectName: "ctrExpectedRange"
-                                    Layout.fillWidth: true
-                                    spacing: 4
-                                    Repeater {
-                                        model: root.expectedRanges
-                                        delegate: Button {
-                                            required property var modelData
-                                            required property int index
-                                            objectName: "expectedRange" + index
-                                            Layout.fillWidth: true
-                                            text: root.expectedRangeText(modelData)
-                                            checkable: true
-                                            highlighted: checked
-                                            checked: root.expectedRangeIndex === index
-                                            focusPolicy: Qt.TabFocus
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: root.controller.timebaseText
-                                            onClicked: {
-                                                root.selectExpectedRange(index)
-                                                checked = Qt.binding(() => root.expectedRangeIndex === index)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Acquisition.
-                            LabeledRow {
-                                label: qsTr("Acquisition")
-                                SegmentedControl {
-                                    Layout.fillWidth: true
-                                    model: root.interval && !root.unsupported("counter.buffered")
-                                           ? [{ text: qsTr("On Demand"), toolTip: qsTr("One reading every update interval (the latest measurement)") },
-                                              { text: qsTr("Buffered"), toolTip: qsTr("Every period / interval is measured once (exact statistics)") }]
-                                           : [{ text: qsTr("On Demand"), toolTip: qsTr("One reading every update interval (the latest measurement)") }]
-                                    currentIndex: root.controller.sampling
-                                    onActivated: index => root.controller.sampling = index
-                                }
-                            }
-                            KnobField {
-                                objectName: "ctrUpdateInterval"
-                                visible: root.controller.sampling === CtrController.OnDemand
-                                Layout.fillWidth: true
-                                label: qsTr("Update interval")
-                                unit: "s"
-                                knobSize: 34
-                                compact: root.narrow
-                                from: 0.01
-                                to: 10
-                                logarithmic: true
-                                digits: 3
-                                defaultValue: 0.1
-                                value: root.controller.updateInterval
-                                onValueModified: v => root.controller.updateInterval = Number(v.toPrecision(3))
-                            }
-                            LabeledRow {
-                                visible: root.controller.sampling === CtrController.Buffered
-                                label: qsTr("Intervals per Single")
-                                SiField {
-                                    Layout.fillWidth: true
-                                    engineering: false
-                                    decimals: 0
-                                    stepSize: 100
-                                    from: 1
-                                    to: 1000000
-                                    value: root.controller.bufferedSamples
-                                    onValueModified: v => root.controller.bufferedSamples = Math.round(v)
-                                }
-                            }
-                        }
-
-                        // Pulse train (ctr0 output on DIO 3).
-                        ChannelCard {
-                            objectName: "ctrPulseCard"
-                            visible: root.pulsing
-                            Layout.fillWidth: true
-                            title: qsTr("Pulse Train")
-                            subtitle: "DIO 3"
-                            color: Theme.signalCh0
-                            checkable: false
-                            compact: root.narrow
-                            facts: [qsTr("100 MHz ÷ %1").arg(Math.round(100e6 / root.controller.coercedPulseFrequency))]
-
-                            SegmentedControl {
-                                Layout.fillWidth: true
-                                model: [qsTr("Freq & Duty"), qsTr("High & Low")]
-                                currentIndex: root.controller.pulseDefinition
-                                onActivated: index => root.controller.pulseDefinition = index
-                            }
-                            KnobField {
-                                objectName: "ctrPulseFrequency"
-                                visible: root.controller.pulseDefinition === CtrController.FrequencyAndDuty
-                                Layout.fillWidth: true
-                                label: qsTr("Frequency")
-                                unit: "Hz"
-                                digits: 5
-                                compact: root.narrow
-                                accentColor: Theme.signalCh0
-                                from: root.controller.minimumPulseFrequency
-                                to: root.controller.maximumPulseFrequency
-                                logarithmic: true
-                                defaultValue: 1000
-                                value: root.controller.pulseFrequency
-                                caption: qsTr("Actual %1").arg(Units.format(root.controller.coercedPulseFrequency, "Hz", 6))
-                                onValueModified: v => root.controller.pulseFrequency = v
-                            }
-                            KnobField {
-                                objectName: "ctrPulseDuty"
-                                visible: root.controller.pulseDefinition === CtrController.FrequencyAndDuty
-                                Layout.fillWidth: true
-                                label: qsTr("Duty cycle")
-                                unit: "%"
-                                digits: 4
-                                knobSize: 34
-                                compact: root.narrow
-                                accentColor: Theme.signalCh0
-                                from: 0.01
-                                to: 99.99
-                                stepSize: 1
-                                defaultValue: 50
-                                value: root.controller.dutyCycle * 100
-                                formatter: v => v.toFixed(2) + " %"
-                                caption: qsTr("Actual %1 %").arg((root.controller.coercedDutyCycle * 100).toFixed(3))
-                                onValueModified: v => root.controller.dutyCycle = v / 100
-                            }
-                            KnobField {
-                                visible: root.controller.pulseDefinition === CtrController.HighAndLowTime
-                                Layout.fillWidth: true
-                                label: qsTr("High time")
-                                unit: "s"
-                                digits: 5
-                                knobSize: 34
-                                compact: root.narrow
-                                accentColor: Theme.signalCh0
-                                from: 20e-9
-                                to: 40
-                                logarithmic: true
-                                value: root.controller.highTime
-                                onValueModified: v => root.controller.setHighLowTimes(v, root.controller.lowTime)
-                            }
-                            KnobField {
-                                visible: root.controller.pulseDefinition === CtrController.HighAndLowTime
-                                Layout.fillWidth: true
-                                label: qsTr("Low time")
-                                unit: "s"
-                                digits: 5
-                                knobSize: 34
-                                compact: root.narrow
-                                accentColor: Theme.signalCh0
-                                from: 20e-9
-                                to: 40
-                                logarithmic: true
-                                value: root.controller.lowTime
-                                onValueModified: v => root.controller.setHighLowTimes(root.controller.highTime, v)
-                            }
-                            LabeledRow {
-                                visible: !root.unsupported("pulse.idleHigh")
-                                label: qsTr("Idle state")
-                                SegmentedControl {
-                                    Layout.fillWidth: true
-                                    model: [qsTr("Low"), qsTr("High")]
-                                    currentIndex: root.controller.idleHigh ? 1 : 0
-                                    onActivated: index => root.controller.idleHigh = index === 1
-                                }
-                            }
-                            LabeledRow {
-                                visible: !root.unsupported("pulse.initialDelay")
-                                label: qsTr("Initial delay")
-                                SiField {
-                                    Layout.fillWidth: true
-                                    unit: "s"
-                                    from: 0
-                                    to: 100
-                                    value: root.controller.initialDelay
-                                    onValueModified: v => root.controller.initialDelay = v
-                                }
-                            }
-                            LabeledRow {
-                                label: qsTr("Generation")
-                                SegmentedControl {
-                                    Layout.fillWidth: true
-                                    model: [qsTr("Continuous"), qsTr("Finite")]
-                                    currentIndex: root.controller.pulseGeneration
-                                    onActivated: index => root.controller.pulseGeneration = index
-                                }
-                            }
-                            LabeledRow {
-                                visible: root.controller.pulseGeneration === CtrController.FinitePulses
-                                label: qsTr("Pulses")
-                                SiField {
-                                    Layout.fillWidth: true
-                                    engineering: false
-                                    decimals: 0
-                                    stepSize: 1
-                                    from: 1
-                                    to: 1e9
-                                    value: root.controller.pulseCount
-                                    onValueModified: v => root.controller.pulseCount = Math.round(v)
-                                }
-                            }
-                        }
-
-                        // FREQOUT (DIO 4): switch in the header, knob over the achievable frequencies.
-                        ChannelCard {
-                            objectName: "ctrFreqOutCard"
-                            Layout.fillWidth: true
-                            collapseWhenOff: true      // off = header only: the column keeps its tools in view
-                            title: qsTr("FREQOUT")
-                            subtitle: "DIO 4"
-                            color: Theme.signalCh1
-                            compact: root.narrow
-                            checked: root.controller.freqOutEnabled
-                            onToggled: on => root.controller.freqOutEnabled = on
-                            facts: [root.controller.freqOutDivider]
-                            KnobField {
-                                objectName: "ctrFreqOut"
-                                Layout.fillWidth: true
-                                label: qsTr("Frequency")
-                                unit: "Hz"
-                                compact: root.narrow
-                                accentColor: Theme.signalCh1
-                                values: root.freqOutKnobValues
-                                labels: root.freqOutKnobLabels
-                                currentIndex: Math.max(0, Math.min(root.freqOutValues.length - 1, root.knobToTable(Math.max(0, root.controller.freqOutIndex))))
-                                toolTip: qsTr("Square wave on DIO 4; changes apply while running")
-                                onIndexActivated: index => root.controller.selectFreqOut(root.knobToTable(index))
-                            }
-                        }
-
-                        // Tools.
-                        ToolPalette {
-                            objectName: "ctrTools"
-                            Layout.fillWidth: true
-                            columns: 3
-                            model: [{ id: "connections", text: qsTr("Connections"), icon: "pin" }]
-                            currentId: root.tool
-                            onActivated: id => root.tool = root.tool === id ? "" : id
                         }
                     }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: root.controller.unsupportedInUse.length > 0
+                        text: qsTr("Not supported by this device: %1. Run is refused until you change them.").arg(root.controller.unsupportedInUse.join(", "))
+                        color: Theme.warning
+                        font.pixelSize: Theme.fontSizeS
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                // The active measurement's settings.
+                ChannelCard {
+                    objectName: "ctrSettingsCard"
+                    visible: root.measuring
+                    Layout.fillWidth: true
+                    title: qsTr("Input")
+                    subtitle: root.controller.terminals
+                    color: Theme.signalCh0
+                    checkable: false
+                    compact: root.narrow
+
+                    LabeledRow {
+                        visible: root.measurement !== CtrController.SemiPeriod && !root.encoder
+                        label: root.measurement === CtrController.TwoEdgeSeparation ? qsTr("First edge (DIO 2)")
+                             : root.measurement === CtrController.PulseWidth ? qsTr("Starting edge")
+                             : root.counting ? qsTr("Edges to count") : qsTr("Active edge")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: root.unsupported("counter.fallingEdge")
+                                   ? [{ icon: "slope-rising", text: qsTr("Rising") }]
+                                   : [{ icon: "slope-rising", text: qsTr("Rising") }, { icon: "slope-falling", text: qsTr("Falling") }]
+                            currentIndex: root.controller.activeEdge
+                            onActivated: index => root.controller.activeEdge = index
+                        }
+                    }
+                    LabeledRow {
+                        visible: root.measurement === CtrController.TwoEdgeSeparation
+                        label: qsTr("Second edge (DIO 1)")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [{ icon: "slope-rising", text: qsTr("Rising") }, { icon: "slope-falling", text: qsTr("Falling") }]
+                            currentIndex: root.controller.secondEdge
+                            onActivated: index => root.controller.secondEdge = index
+                        }
+                    }
+                    LabeledRow {
+                        visible: root.counting
+                        label: qsTr("Direction")
+                        SegmentedControl {
+                            id: directionControl
+                            Layout.fillWidth: true
+                            // Only the supported directions; `value` = CtrController.CountDirection.
+                            model: {
+                                const m = [{ text: qsTr("Up"), value: CtrController.CountUp }]
+                                if (!root.unsupported("counter.countDown"))
+                                    m.push({ text: qsTr("Down"), value: CtrController.CountDown })
+                                if (!root.unsupported("counter.externalDirection"))
+                                    m.push({ text: qsTr("Ext."), value: CtrController.CountExternal,
+                                             toolTip: qsTr("DIO 2 high counts up, low counts down") })
+                                return m
+                            }
+                            currentIndex: model.findIndex(e => e.value === root.controller.countDirection)
+                            onActivated: index => root.controller.countDirection = directionControl.model[index].value
+                        }
+                    }
+                    LabeledRow {
+                        visible: root.counting && !root.unsupported("counter.initialCount")
+                        label: qsTr("Initial count")
+                        SiField {
+                            Layout.fillWidth: true
+                            engineering: false
+                            decimals: 0
+                            stepSize: 1
+                            from: 0
+                            to: 4294967295
+                            value: root.controller.initialCount
+                            onValueModified: v => root.controller.initialCount = v
+                        }
+                    }
+                    RowLayout {
+                        visible: root.counting && !root.unsupported("counter.resetOnDio")
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Reset on DIO 1 rising edge")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeCaption
+                            wrapMode: Text.WordWrap
+                        }
+                        ToggleSwitch {
+                            checked: root.controller.resetOnDio1
+                            onToggled: root.controller.resetOnDio1 = checked
+                        }
+                    }
+
+                    // Encoders.
+                    LabeledRow {
+                        visible: root.encoder
+                        label: qsTr("Decoding")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [{ text: "X1", toolTip: qsTr("One count per cycle of A") },
+                                    { text: "X2", toolTip: qsTr("Counts on both edges of A") },
+                                    { text: "X4", toolTip: qsTr("Counts on every edge of A and B") },
+                                    { text: qsTr("2-P"), toolTip: qsTr("Two-pulse: DIO 0 counts up, DIO 2 counts down") }]
+                            currentIndex: root.controller.decoding
+                            onActivated: index => root.controller.decoding = index
+                        }
+                    }
+                    RowLayout {
+                        visible: root.measurement === CtrController.LinearEncoder
+                        Layout.fillWidth: true
+                        LabeledRow {
+                            label: qsTr("Distance / pulse")
+                            SiField {
+                                Layout.fillWidth: true
+                                unit: root.controller.distanceUnit
+                                from: 1e-9
+                                to: 1e6
+                                digits: 5
+                                value: root.controller.distancePerPulse
+                                onValueModified: v => root.controller.distancePerPulse = v
+                            }
+                        }
+                        LabeledRow {
+                            Layout.preferredWidth: 56
+                            Layout.fillWidth: false
+                            label: qsTr("Unit")
+                            TextField {
+                                Layout.fillWidth: true
+                                text: root.controller.distanceUnit
+                                onEditingFinished: root.controller.distanceUnit = text
+                            }
+                        }
+                    }
+                    LabeledRow {
+                        visible: root.measurement === CtrController.AngularEncoder
+                        label: qsTr("Pulses / revolution")
+                        SiField {
+                            Layout.fillWidth: true
+                            engineering: false
+                            decimals: 0
+                            stepSize: 1
+                            from: 1
+                            to: 16777216
+                            value: root.controller.pulsesPerRevolution
+                            onValueModified: v => root.controller.pulsesPerRevolution = Math.round(v)
+                        }
+                    }
+                    RowLayout {
+                        visible: root.encoder
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Z index (DIO 1)")
+                            color: Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeCaption
+                        }
+                        ToggleSwitch {
+                            checked: root.controller.zIndexEnabled
+                            onToggled: root.controller.zIndexEnabled = checked
+                        }
+                    }
+                    LabeledRow {
+                        visible: root.encoder && root.controller.zIndexEnabled
+                        label: qsTr("Z index value")
+                        SiField {
+                            Layout.fillWidth: true
+                            engineering: false
+                            decimals: 3
+                            unit: root.measurement === CtrController.AngularEncoder ? "°" : root.controller.distanceUnit
+                            value: root.controller.zIndexValue
+                            onValueModified: v => root.controller.zIndexValue = v
+                        }
+                    }
+
+                    // Expected range (interval measurements): sets the timebase.
+                    LabeledRow {
+                        visible: root.interval
+                        label: root.frequencyRange ? qsTr("Lowest expected frequency") : qsTr("Longest expected interval")
+                        // One picture button per counter timebase: the bound that matters as the
+                        // label, the covered decades as the pictogram, the full range in the tooltip.
+                        GridLayout {
+                            objectName: "ctrExpectedRange"
+                            Layout.fillWidth: true
+                            columns: 3
+                            columnSpacing: 4
+                            rowSpacing: 4
+                            Repeater {
+                                model: root.expectedRanges
+                                delegate: PictureButton {
+                                    required property var modelData
+                                    required property int index
+                                    objectName: "expectedRange" + index
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    implicitWidth: 56
+                                    text: root.expectedRangeLabel(modelData)
+                                    glyph: root.expectedRangeGlyph(modelData)
+                                    accentColor: Theme.signalCh0
+                                    checked: root.expectedRangeIndex === index
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("%1 · timebase %2").arg(root.expectedRangeText(modelData)).arg(root.timebaseNames[index])
+                                    onClicked: root.selectExpectedRange(index)
+                                }
+                            }
+                        }
+                    }
+
+                    // Acquisition.
+                    LabeledRow {
+                        label: qsTr("Acquisition")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: root.interval && !root.unsupported("counter.buffered")
+                                   ? [{ text: qsTr("On Demand"), toolTip: qsTr("One reading every update interval (the latest measurement)") },
+                                      { text: qsTr("Buffered"), toolTip: qsTr("Every period / interval is measured once (exact statistics)") }]
+                                   : [{ text: qsTr("On Demand"), toolTip: qsTr("One reading every update interval (the latest measurement)") }]
+                            currentIndex: root.controller.sampling
+                            onActivated: index => root.controller.sampling = index
+                        }
+                    }
+                    KnobField {
+                        objectName: "ctrUpdateInterval"
+                        visible: root.controller.sampling === CtrController.OnDemand
+                        Layout.fillWidth: true
+                        label: qsTr("Update interval")
+                        unit: "s"
+                        knobSize: 34
+                        compact: root.narrow
+                        from: 0.01
+                        to: 10
+                        logarithmic: true
+                        digits: 3
+                        defaultValue: 0.1
+                        value: root.controller.updateInterval
+                        onValueModified: v => root.controller.updateInterval = Number(v.toPrecision(3))
+                    }
+                    LabeledRow {
+                        visible: root.controller.sampling === CtrController.Buffered
+                        label: qsTr("Intervals per Single")
+                        SiField {
+                            Layout.fillWidth: true
+                            engineering: false
+                            decimals: 0
+                            stepSize: 100
+                            from: 1
+                            to: 1000000
+                            value: root.controller.bufferedSamples
+                            onValueModified: v => root.controller.bufferedSamples = Math.round(v)
+                        }
+                    }
+                }
+
+                // Pulse train (ctr0 output on DIO 3).
+                ChannelCard {
+                    objectName: "ctrPulseCard"
+                    visible: root.pulsing
+                    Layout.fillWidth: true
+                    title: qsTr("Pulse Train")
+                    subtitle: "DIO 3"
+                    color: Theme.signalCh0
+                    checkable: false
+                    compact: root.narrow
+                    facts: [qsTr("100 MHz ÷ %1").arg(Math.round(100e6 / root.controller.coercedPulseFrequency))]
+
+                    SegmentedControl {
+                        Layout.fillWidth: true
+                        model: [qsTr("Freq & Duty"), qsTr("High & Low")]
+                        currentIndex: root.controller.pulseDefinition
+                        onActivated: index => root.controller.pulseDefinition = index
+                    }
+                    KnobField {
+                        objectName: "ctrPulseFrequency"
+                        visible: root.controller.pulseDefinition === CtrController.FrequencyAndDuty
+                        Layout.fillWidth: true
+                        label: qsTr("Frequency")
+                        unit: "Hz"
+                        digits: 5
+                        compact: root.narrow
+                        accentColor: Theme.signalCh0
+                        from: root.controller.minimumPulseFrequency
+                        to: root.controller.maximumPulseFrequency
+                        logarithmic: true
+                        defaultValue: 1000
+                        value: root.controller.pulseFrequency
+                        caption: qsTr("Actual %1").arg(Units.format(root.controller.coercedPulseFrequency, "Hz", 6))
+                        onValueModified: v => root.controller.pulseFrequency = v
+                    }
+                    KnobField {
+                        objectName: "ctrPulseDuty"
+                        visible: root.controller.pulseDefinition === CtrController.FrequencyAndDuty
+                        Layout.fillWidth: true
+                        label: qsTr("Duty cycle")
+                        unit: "%"
+                        digits: 4
+                        knobSize: 34
+                        compact: root.narrow
+                        accentColor: Theme.signalCh0
+                        from: 0.01
+                        to: 99.99
+                        stepSize: 1
+                        defaultValue: 50
+                        value: root.controller.dutyCycle * 100
+                        formatter: v => v.toFixed(2) + " %"
+                        caption: qsTr("Actual %1 %").arg((root.controller.coercedDutyCycle * 100).toFixed(3))
+                        onValueModified: v => root.controller.dutyCycle = v / 100
+                    }
+                    KnobField {
+                        visible: root.controller.pulseDefinition === CtrController.HighAndLowTime
+                        Layout.fillWidth: true
+                        label: qsTr("High time")
+                        unit: "s"
+                        digits: 5
+                        knobSize: 34
+                        compact: root.narrow
+                        accentColor: Theme.signalCh0
+                        from: 20e-9
+                        to: 40
+                        logarithmic: true
+                        value: root.controller.highTime
+                        onValueModified: v => root.controller.setHighLowTimes(v, root.controller.lowTime)
+                    }
+                    KnobField {
+                        visible: root.controller.pulseDefinition === CtrController.HighAndLowTime
+                        Layout.fillWidth: true
+                        label: qsTr("Low time")
+                        unit: "s"
+                        digits: 5
+                        knobSize: 34
+                        compact: root.narrow
+                        accentColor: Theme.signalCh0
+                        from: 20e-9
+                        to: 40
+                        logarithmic: true
+                        value: root.controller.lowTime
+                        onValueModified: v => root.controller.setHighLowTimes(root.controller.highTime, v)
+                    }
+                    LabeledRow {
+                        visible: !root.unsupported("pulse.idleHigh")
+                        label: qsTr("Idle state")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [qsTr("Low"), qsTr("High")]
+                            currentIndex: root.controller.idleHigh ? 1 : 0
+                            onActivated: index => root.controller.idleHigh = index === 1
+                        }
+                    }
+                    LabeledRow {
+                        visible: !root.unsupported("pulse.initialDelay")
+                        label: qsTr("Initial delay")
+                        SiField {
+                            Layout.fillWidth: true
+                            unit: "s"
+                            from: 0
+                            to: 100
+                            value: root.controller.initialDelay
+                            onValueModified: v => root.controller.initialDelay = v
+                        }
+                    }
+                    LabeledRow {
+                        label: qsTr("Generation")
+                        SegmentedControl {
+                            Layout.fillWidth: true
+                            model: [qsTr("Continuous"), qsTr("Finite")]
+                            currentIndex: root.controller.pulseGeneration
+                            onActivated: index => root.controller.pulseGeneration = index
+                        }
+                    }
+                    LabeledRow {
+                        visible: root.controller.pulseGeneration === CtrController.FinitePulses
+                        label: qsTr("Pulses")
+                        SiField {
+                            Layout.fillWidth: true
+                            engineering: false
+                            decimals: 0
+                            stepSize: 1
+                            from: 1
+                            to: 1e9
+                            value: root.controller.pulseCount
+                            onValueModified: v => root.controller.pulseCount = Math.round(v)
+                        }
+                    }
+                }
+
+                // FREQOUT (DIO 4): switch in the header, knob over the achievable frequencies.
+                ChannelCard {
+                    objectName: "ctrFreqOutCard"
+                    Layout.fillWidth: true
+                    // Off: the knob stays (dimmed) so a frequency can be chosen before switching on.
+                    title: qsTr("FREQOUT")
+                    subtitle: "DIO 4"
+                    color: Theme.signalCh1
+                    compact: root.narrow
+                    checked: root.controller.freqOutEnabled
+                    onToggled: on => root.controller.freqOutEnabled = on
+                    facts: [root.controller.freqOutDivider]
+                    KnobField {
+                        objectName: "ctrFreqOut"
+                        Layout.fillWidth: true
+                        label: qsTr("Frequency")
+                        unit: "Hz"
+                        compact: root.narrow
+                        accentColor: Theme.signalCh1
+                        values: root.freqOutKnobValues
+                        labels: root.freqOutKnobLabels
+                        currentIndex: Math.max(0, Math.min(root.freqOutValues.length - 1, root.knobToTable(Math.max(0, root.controller.freqOutIndex))))
+                        toolTip: qsTr("Square wave on DIO 4; changes apply while running")
+                        onIndexActivated: index => root.controller.selectFreqOut(root.knobToTable(index))
+                    }
+                }
+
+                tools: ToolPalette {
+                    objectName: "ctrTools"
+                    columns: root.narrow ? 2 : 3
+                    model: [{ id: "connections", text: qsTr("Connections"), icon: "pin" },
+                            { id: "export", text: qsTr("Export"), icon: "export" }]
+                    currentId: root.tool
+                    onActivated: id => root.tool = root.tool === id ? "" : id
                 }
             }
 
@@ -947,6 +881,50 @@ Item {
                     color: Theme.warning
                 }
             }
+            ToolPanel {
+                objectName: "ctrExportPanel"
+                visible: root.tool === "export"
+                anchors { right: column.left; top: parent.top; margins: Theme.spacingS }
+                width: Theme.toolPanelWidth
+                z: 10
+                title: qsTr("Export")
+                onCloseRequested: root.tool = ""
+                Button { Layout.fillWidth: true; text: qsTr("Export Data…"); icon.source: Theme.icon("download"); onClicked: { root.tool = ""; panel.exportData() } }
+                Button { Layout.fillWidth: true; text: qsTr("Export Image…"); icon.source: Theme.icon("image"); onClicked: { root.tool = ""; panel.exportImage(false) } }
+                Button { Layout.fillWidth: true; text: qsTr("Export PDF…"); icon.source: Theme.icon("file"); onClicked: { root.tool = ""; panel.exportImage(true) } }
+                Button { Layout.fillWidth: true; text: qsTr("Print…"); icon.source: Theme.icon("printer"); onClicked: { root.tool = ""; panel.printPanel() } }
+            }
         }
+
+        // Statistics of the readings (Measure): the shared measurement cards.
+        measurements: [
+            Flow {
+                objectName: "ctrStatistics"
+                visible: root.measuring
+                width: parent ? parent.width : 0
+                spacing: Theme.spacingS
+                padding: Theme.spacingS
+                MeasurementCard {
+                    objectName: "ctrStatCard"
+                    removable: false
+                    width: Math.max(implicitWidth, root.narrow ? 220 : 300)
+                    title: root.controller.functionTitle
+                    color: Theme.signalCh0
+                    value: root.controller.statCount > 0 ? root.controller.valueText : "—"
+                    stats: root.controller.statCount > 0
+                           ? ({ min: root.fmt(root.controller.statMinimum, false), max: root.fmt(root.controller.statMaximum, false),
+                                mean: root.fmt(root.controller.statMean, true), stdDev: root.fmt(root.controller.statDeviation, true) })
+                           : ({})
+                }
+                MeasurementCard {
+                    objectName: "ctrCountCard"
+                    removable: false
+                    width: Math.max(implicitWidth, root.narrow ? 140 : 160)
+                    title: root.controller.sampling === CtrController.Buffered && root.interval ? qsTr("Intervals") : qsTr("Readings")
+                    color: Theme.textSecondary
+                    value: String(root.controller.statCount)
+                }
+            }
+        ]
     }
 }

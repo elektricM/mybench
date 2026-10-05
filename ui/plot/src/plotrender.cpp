@@ -997,7 +997,7 @@ void PlotPrivate::buildOverlays()
         }
     }
     // Delta between the first two vertical cursors.
-    if (verticals.size() >= 2 && !xAxis->isLog()) {
+    if (cursorDeltaVisible && verticals.size() >= 2 && !xAxis->isLog()) {
         auto [p0, c0] = verticals[0];
         auto [p1, c1] = verticals[1];
         if (p0 > p1) {

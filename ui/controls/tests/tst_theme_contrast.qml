@@ -93,6 +93,14 @@ TestCase {
                 verify(distance(signals[i], signals[j]) >= 25, label + ": signals " + i + "/" + j + " too close")
         }
         verify(ratio(Theme.signalCursor, Theme.display) >= 4.5, label + ": cursor")
+        // The two cursors of a pair are told apart by color, and from every trace.
+        const cursors = [Theme.cursor1, Theme.cursor2]
+        verify(distance(cursors[0], cursors[1]) >= 25, label + ": cursor1/cursor2 too close")
+        for (let c = 0; c < cursors.length; ++c) {
+            verify(ratio(cursors[c], Theme.display) >= 3, label + ": cursor " + (c + 1) + " contrast")
+            for (let i = 0; i < signals.length; ++i)
+                verify(distance(cursors[c], signals[i]) >= 25, label + ": cursor " + (c + 1) + " / signal " + i + " too close")
+        }
     }
 
     function test_referencePalettes_data() {

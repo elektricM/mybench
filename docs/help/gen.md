@@ -23,40 +23,47 @@ same time, and you can start, stop or change one without disturbing the other.
 1. On the **AO 0** card, pick **Sine**, **Square** or **Triangle**.
 2. Turn the **Frequency**, **Amplitude** (peak to peak) and **Offset** knobs, or click a value and
    type it (`1.5k` means 1500 Hz); **−** / **+** step it.
-3. Press **Run**. The preview of the channel shows the output samples; its legend (`AO 0`) has a
-   filled swatch while the output is on.
+3. Press **Run**. The display shows the output; its legend (`AO 0`) has a filled swatch while the
+   output is on.
 4. Press **Stop**: the output returns to 0 V.
 
 ## Quick start: arbitrary waveform
 
-1. On a channel card, pick **Arbitrary**, then **Choose…** (or the **Arbitrary** tool below the
-   cards).
-2. **Open…** a file (`.mbw` editor document, `.wav`, `.csv`/`.txt`, raw `.bin`, or, on a best-effort
-   basis, an NI `.wdt` waveform or `.wfm` editor document), pick one of the **Library** shapes, or
-   **Edit** it in the Waveform Editor.
-3. Set **Update Rate** (a file that stores its sample rate sets it for you) and **Gain** on the card.
-4. Choose **Continuous** or **Once** in the Arbitrary tool, then press **Run** (or **Single** to play
-   every Arbitrary channel once; Single is grayed while no Arbitrary channel has a waveform).
+1. On a channel card, pick **Arb** (Arbitrary). The card then shows everything about the waveform.
+2. Open a file with the folder button (`.mbw` editor document, `.wav`, `.csv`/`.txt`, raw `.bin`, or,
+   on a best-effort basis, an NI `.wdt` waveform or `.wfm` editor document), pick a shape with the
+   book button (**Library**), or press **Open in Editor** to edit it (or draw a new one) in the
+   Waveform Editor.
+3. Set **Gain** and **Update Rate** (a file that stores its sample rate sets it for you).
+4. Choose **Continuous** or **Once**, then press **Run** (or **Single** to play every Arbitrary
+   channel once; Single appears while an Arbitrary channel has a waveform).
 
 ## The bar at the top
 
 - **Run / Stop** starts every channel that has a waveform picked (when no output is on yet; a card's
   switch starts or stops that channel alone); below it, `Generating · 200 kS/s` or `Stopped`. **Stop** stops everything: outputs go to 0 V, including a
   channel that holds the end of a Run Once (the header then offers to release it).
-- **Single** plays every Arbitrary channel once.
-- **AO 0 / AO 1** | **Audio out**: the output pair. Changing it while running moves the signals.
-- **Time** | **Frequency**: the preview shows volts against time, or the spectrum in dBV (the
-  harmonics of a function, the FFT of a waveform).
-- **⋯** also holds **Presets**, **Align Phases** (restart both Function channels at phase 0 on the
-  same sample) and **Sweep All** (sweep every stopped Function channel).
+- **Single** plays every Arbitrary channel once (shown only while an Arbitrary channel has a
+  waveform).
+- **Output**: **AO 0 / AO 1** | **Audio out**, the output pair. Changing it while running moves the
+  signals.
+- **⋯** also holds **Export AO 0 / AO 1 Waveform…** (CSV or WAV), **Waveform Editor**, **Align
+  Phases** (restart both Function channels at phase 0 on the same sample) and **Sweep the Function
+  channels** (every stopped Function channel), besides Export Image, Print and Reset.
 
 ## The display
 
-- One line per channel, in the channel color (AO 0 orange, AO 1 magenta): what the output
-  generates, or `output off`.
-- Below, a live preview of each channel that has a waveform. A DC channel shows a chart of its level;
-  you can drag the level line. At high frequencies the preview shows the real output samples as
-  steps (for example 10 samples per period at 20 kHz).
+- **One plot for both outputs**, as on a bench generator: AO 0 in orange, AO 1 in magenta, on one
+  time axis. The axis spans two periods of the slower function (or one pass of the longest
+  waveform), so the phase between the channels is visible; a much faster channel shows as a band.
+  A channel whose output is off is drawn faded; an Off channel is not drawn. Switching a channel on
+  or off never resizes the display.
+- Above the plot: the legend (filled swatch = output on, `Off` = no waveform picked) and **Time** |
+  **Frequency** (volts against time, or the spectrum in dBV: the harmonics of a function, the FFT
+  of a waveform).
+- DC levels are flat lines with a handle you can drag. When every channel in use is DC, the plot is
+  a 60 s chart of the levels. At high frequencies the plot shows the real output samples as steps
+  (for example 10 samples per period at 20 kHz).
 - In a narrow pane (for example beside the Oscilloscope) the knobs fold away: each parameter keeps
   its typeable value with **−** / **+**, and the tools show icons only.
 
@@ -65,8 +72,9 @@ same time, and you can start, stop or change one without disturbing the other.
 - The **switch** in the card header turns that output on or off (off = 0 V). It is the only output
   switch; the card stays open while the output is off so you can prepare the next signal.
 - The waveform pictures pick what the channel produces: **Sine**, **Square**, **Triangle** (function
-  generator), **DC** (not on the AC-coupled audio outputs) or **Arbitrary**. Click the picked one
-  again to set the channel **Off** (no picture lit): Run then leaves it out.
+  generator), **DC** (not on the AC-coupled audio outputs) or **Arb** (arbitrary). Click the picked
+  one again to set the channel **Off**: the card shrinks to its pictures and reads `Off`, and Run
+  leaves it out. Switching an Off channel on brings back its last waveform.
 - Every knob change applies live while the channel generates (phase-continuous, no restart).
   Double-click a knob to return to its default.
 
@@ -88,9 +96,16 @@ running output. Stop returns to 0 V. From anywhere, the command palette (⌘K / 
 
 ### Arbitrary
 
-- The card shows the waveform name, **Gain** (-10 to 10, multiplies the waveform; samples beyond
-  ±10 V, ±2 V audio, are clipped and a warning tells how many) and **Update Rate** (0.1 S/s to
-  200 kS/s).
+- The waveform name (hover it for the file and its samples), the folder button (**Open…**), the book
+  button (**Library** shapes, one cycle each, and **Clear Waveform**) and **Open in Editor** (edit
+  this waveform in the Waveform Editor, or draw a new one; **‹ Generator** brings you back).
+- **Gain** (-10 to 10, multiplies the waveform; samples beyond ±10 V, ±2 V audio, are clipped and the
+  card tells how many) and **Update Rate** (0.1 S/s to 200 kS/s).
+- **Continuous** / **Once** (Once plays one pass and holds the last value until you switch the
+  output off or press Stop; **Then 0 V** returns to 0 V instead, the ELVISmx behaviour) and **Hold**
+  / **Linear** interpolation.
+- With both channels Arbitrary, the AO 1 card offers **Same rate as AO 0** (one shared Update Rate,
+  as in ELVISmx).
 - The generator always starts immediately (the myDAQ has no generator trigger input).
 
 ## Tools
@@ -102,15 +117,11 @@ The tool buttons below the cards open a floating panel over the display (× or E
   exactly on a step; each step lasts exactly the Step Interval. The card shows the step, a bar the
   progress; the channel stops (0 V) after the last step. The frequency is locked during the sweep;
   amplitude, offset and duty stay live.
-- **Arbitrary**: per Arbitrary channel, **Open…**, **Edit** (in the Waveform Editor), **Clear**, the
-  **Library** shapes (one cycle each), **Continuous** / **Once** (Once plays one pass and holds the
-  last value until you switch the output off or press Stop), **Return to 0 V after Run Once** (the
-  ELVISmx behaviour), **Hold** / **Linear** interpolation; and **Link update rates** (both
-  Arbitrary channels share one Update Rate, as in ELVISmx).
-- **Editor**: opens the Waveform Editor; **‹ Generator** at its top left brings you back.
 - **Presets**: ready-made setups (1 kHz sine, TTL clock, quadrature pair, sweep, ±5 V reference,
   ELVISmx defaults), your own saved setups (the bin deletes one) and **Save Current Settings…**.
-- **Export**: a channel's waveform as CSV or WAV, or an image of the panel.
+
+The tool palette stays at the bottom of the right column; the cards above it scroll when they do
+not fit.
 
 Files: `.mbw` documents are rendered at their own sample rate; `.wav` uses the first channel with
 full scale = 1 V; text files take the first column (the second when the first is a `Time` column)

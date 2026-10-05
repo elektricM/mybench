@@ -40,8 +40,8 @@ QString launchOptionsHelp()
         "  --theme dark|light       color scheme (QStyleHints::colorScheme)\n"
         "  --dpr <ratio>            screenshot device pixel ratio (default 1, 2 = retina)\n"
         "  --samples <n>            MSAA samples of the offscreen target (default 1)\n"
-        "  --style <name>           controls style: native (default: macOS, FluentWinUI3, org.kde.desktop\n"
-        "                           or Fusion; Fusion offscreen), mybench, Fusion, Basic, ...\n"
+        "  --style <name>           controls style: native (default: macOS, FluentWinUI3 or Fusion;\n"
+        "                           Fusion offscreen), org.kde.desktop, mybench, Fusion, Basic, ...\n"
         "  --grab <file.png>        real window on the real platform, grabbed after --delay, then exit\n"
         "  --help-launch            show this help\n"
         "Environment: QSG_RHI_BACKEND=metal|vulkan|opengl|d3d11|d3d12 forces the graphics API.\n");
@@ -560,19 +560,6 @@ const LaunchOptions &launchOptions()
 namespace {
 QString g_quickStyle;
 
-#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
-bool qmlModuleInstalled(const QString &relativeDir)
-{
-    QStringList roots{QLibraryInfo::path(QLibraryInfo::QmlImportsPath)};
-    for (const char *variable : {"QML_IMPORT_PATH", "QML2_IMPORT_PATH"})
-        roots += qEnvironmentVariable(variable).split(QDir::listSeparator(), Qt::SkipEmptyParts);
-    for (const QString &root : std::as_const(roots)) {
-        if (QFileInfo::exists(root + u'/' + relativeDir + QStringLiteral("/qmldir")))
-            return true;
-    }
-    return false;
-}
-#endif
 }  // namespace
 
 QString nativeQuickStyle()
@@ -582,8 +569,11 @@ QString nativeQuickStyle()
 #elif defined(Q_OS_WIN)
     return QStringLiteral("FluentWinUI3");
 #else
-    return qmlModuleInstalled(QStringLiteral("org/kde/desktop")) ? QStringLiteral("org.kde.desktop")
-                                                                   : QStringLiteral("Fusion");
+    // Fusion (Qt's desktop style; it follows the KDE/GNOME palette through the platform theme).
+    // KDE's org.kde.desktop is not the default: it needs Kirigami, adds its own dialog headers and
+    // control metrics, and broke the instrument bars (Alex, round 4); `--style org.kde.desktop`
+    // still selects it.
+    return QStringLiteral("Fusion");
 #endif
 }
 
