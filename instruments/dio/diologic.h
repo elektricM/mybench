@@ -2,8 +2,7 @@
 // right-justified bit mapping, Digital Writer patterns and actions, numeric value formatting.
 // Unit-tested in instruments/dio/tests/.
 //
-// Sources: docs/instruments/algorithms/dio.md (ELVISmx behaviour, authoritative) and
-// docs/instruments/dio.md (functional spec).
+// Source: docs/instruments/dio.md (functional spec; ELVISmx behaviour is authoritative).
 #pragma once
 
 #include <QString>

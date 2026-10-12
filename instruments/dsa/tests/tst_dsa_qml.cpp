@@ -88,7 +88,7 @@ private slots:
             QVERIFY(!button->property("glyph").toString().isEmpty());
         }
 
-        // Round 5: the shared right column (fixed width, palette pinned and shown), pictograms and
+        // The shared right column (fixed width, palette pinned and shown), pictograms and
         // readable labels on the input buttons, the range as ±10 V / ±2 V.
         QQuickItem* column = findItem(item, u"dsaColumn"_s);
         QVERIFY(column);
@@ -115,9 +115,9 @@ private slots:
         offscreen.setRootItem(nullptr);
     }
 
-    // Round 5: Single is meaningful while running (finish after this record) instead of a grey
+    // Single is meaningful while running (finish after this record) instead of a grey
     // slab; Restart lives beside the averaging progress, only while it applies; the magnitude axis
-    // cannot be panned or zoomed into an empty region (Alex); every averaging mode has a pictogram;
+    // cannot be panned or zoomed into an empty region; every averaging mode has a pictogram;
     // the cursor card shows C1 and C2.
     void runningControls()
     {

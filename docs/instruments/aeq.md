@@ -1,7 +1,6 @@
 # Audio Equalizer (`aeq`)
 
-Read [app.md](app.md) first. Behaviour recovered from the ELVISmx featured application:
-[algorithms/featured.md §5](algorithms/featured.md). MYBENCH version of the ELVISmx **Audio
+Read [app.md](app.md) first. Behaviour matches the ELVISmx featured application. MYBENCH version of the ELVISmx **Audio
 Equalizer** featured app: live three-band tone control from an input to an output.
 
 ## 1. ELVISmx parity
@@ -74,11 +73,10 @@ with output level = input level + |H(1 kHz)|, live bypass at 25 % = −12 dB, no
 - The display weighting index (3) of the ELVISmx spectrum: 8.2. MYBENCH shows unweighted dBV.
 - Never launched: 8.5 lists what a manual session must confirm.
 
-## 8. ELVISmx reference (recovered by code study, not launched)
+## 8. ELVISmx reference (not launched)
 
-Source tags: **FP** = front panel resources of `NI ELVISmx Audio Equalizer.vi`; **VI** = constants
-of the VI and its embedded configured NI Express VIs (`VINS1..8`); **SVT** = NI Sound and
-Vibration library. Confidence H / M / L. All wording is ours.
+Source tags: **FP** = the panel as ELVISmx shows it; **VI** = ELVISmx application behaviour (defaults,
+filter configuration, call order); **SVT** = NI Sound and Vibration library behaviour. Confidence H / M / L. All wording is ours.
 
 ### 8.1 Panel
 
@@ -100,10 +98,10 @@ Vibration library. Confidence H / M / L. All wording is ours.
   `Audio Input` / `Audio Output`. AO sample clock 50 kS/s, continuous, **regeneration off**, buffer
   1 000 000 samples. AI reads **10 000 samples** per channel per loop (0.2 s at 50 kS/s), timeout
   10 s. AO is pre-filled before start with `delay x rate` samples. (VI, H)
-- Filters (three configured NI Filter Express VIs): IIR **Bessel order 4**; Bass = lowpass
+- Filters (three configured NI filter blocks): IIR **Bessel order 4**; Bass = lowpass
   **320 Hz**; Midtone = bandpass **320 ... 2560 Hz**; Treble = bandpass **2560 ... 20 840 Hz**.
   Band gain 10^(dB/20); sum of the bands; times Volume; written to AO. (VI, H; summation order M)
-- Conversion Express VIs (`VINS2..5`) only convert between waveform and dynamic-data types. (H)
+- Type-conversion blocks only convert between waveform and dynamic-data types. (H)
 - Frequency display: NI 1/24-octave analysis, **25 Hz ... 25 000 Hz**, averaging type
   Exponential with **Custom 10 ms**, equal-confidence 1 dB (unused), dB on, **weighting value 3**.
   The value 3 is the same enumeration as the Octave Analyzer's weighting ring (Linear, A, B, C) *if*

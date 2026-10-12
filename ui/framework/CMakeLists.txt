@@ -49,12 +49,8 @@ if(MYBENCH_HELP_PAGES)
     )
 endif()
 
-# The license shown by About > License (the pending-license notice until a LICENSE is added).
-if(EXISTS ${PROJECT_SOURCE_DIR}/LICENSE)
-    set(MYBENCH_LICENSE_FILE ${PROJECT_SOURCE_DIR}/LICENSE)
-else()
-    set(MYBENCH_LICENSE_FILE ${PROJECT_SOURCE_DIR}/packaging/license-pending.txt)
-endif()
+# The license shown by About > License.
+set(MYBENCH_LICENSE_FILE ${PROJECT_SOURCE_DIR}/LICENSE)
 set_source_files_properties(${MYBENCH_LICENSE_FILE} PROPERTIES QT_RESOURCE_ALIAS LICENSE)
 qt_add_resources(mybench_framework "mybench_license"
     PREFIX /mybench

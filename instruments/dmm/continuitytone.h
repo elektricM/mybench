@@ -1,6 +1,6 @@
 // ContinuityTone: the Multimeter's continuity beeper, a continuous 1 kHz sine on the computer's
 // sound output while the probes are shorted (as ELVISmx does: 44.1 kS/s, 16 bit, stereo, 75 %
-// volume; docs/instruments/algorithms/dmm.md 5).
+// volume; docs/instruments/dmm.md).
 //
 // Built on Qt Multimedia when it is available (MYBENCH_DMM_HAVE_AUDIO); otherwise, or when no
 // audio output exists, or on the offscreen platform (screenshots, tests), it is silent and

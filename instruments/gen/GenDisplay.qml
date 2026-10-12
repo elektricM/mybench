@@ -5,7 +5,7 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// The generator display (round 5): ONE plot with both outputs in their channel colors, as on a
+// The generator display: ONE plot with both outputs in their channel colors, as on a
 // bench generator. Time: both channels on one time axis (the controller gives them a shared
 // window, two periods of the slowest function or one pass of the longest waveform); DC levels are
 // flat lines with a draggable level handle, or a 60 s strip chart when every used output is DC.

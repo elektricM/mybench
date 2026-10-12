@@ -1,6 +1,6 @@
 // DsaController: the Spectrum Analyzer (docs/instruments/dsa.md; ELVISmx "Dynamic Signal
-// Analyzer", docs/instruments/algorithms/dsa.md) with a third-octave analysis mode (the ELVISmx
-// featured application "Octave Analyzer", docs/instruments/algorithms/featured.md §4).
+// Analyzer") with a third-octave analysis mode (the ELVISmx
+// featured application "Octave Analyzer", docs/instruments/dsa.md).
 //
 // FFT mode: one continuous AI task at fs = coerceAiRate(2 × span); contiguous records of
 // N = 2 × lines samples, read in chunks of at most 100 ms; windowed spectrum, averaging, max/min

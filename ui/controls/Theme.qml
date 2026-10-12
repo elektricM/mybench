@@ -124,7 +124,7 @@ QtObject {
     readonly property color positive: dark ? "#3FB950" : "#1A7F37"
     readonly property color caution: dark ? "#D29922" : "#9A6700"
     readonly property color negative: dark ? "#F85149" : "#CF222E"
-    // The Run / Stop button fills (round 5): green to start, red to stop, white text ≥ 4.5:1.
+    // The Run / Stop button fills: green to start, red to stop, white text ≥ 4.5:1.
     readonly property color runFill: "#1F883D"
     readonly property color stopFill: "#CF222E"
 
@@ -221,7 +221,7 @@ QtObject {
     readonly property int splitMinWidth: 900
     readonly property int paneMinWidth: 450
     readonly property int shortHeight: 600
-    // Instrument panels (round 2, docs/UI.md §13.8b): the column of cards and knobs right of the
+    // Instrument panels (docs/UI.md §13.8b): the column of cards and knobs right of the
     // display, its width below `instrumentCompactWidth` (pane width), and the floating tool panels.
     readonly property int instrumentColumnWidth: 260
     readonly property int instrumentColumnCompactWidth: 220

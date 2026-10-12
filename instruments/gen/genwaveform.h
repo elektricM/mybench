@@ -1,5 +1,4 @@
-// Waveform documents of the Waveform Editor and their renderer (docs/instruments/gen.md 4.3,
-// docs/instruments/algorithms/gen.md 3). UI-free (QtCore only): used by the editor, by the
+// Waveform documents of the Waveform Editor and their renderer (docs/instruments/gen.md 4.3). UI-free (QtCore only): used by the editor, by the
 // Arbitrary channels (.mbw files) and by the unit tests.
 //
 // A document is a sequence of segments; each segment has a duration and a list of components

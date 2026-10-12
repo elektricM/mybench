@@ -55,7 +55,7 @@ private slots:
 #elif defined(Q_OS_WIN)
         QCOMPARE(nativeQuickStyle(), QStringLiteral("FluentWinUI3"));
 #else
-        QCOMPARE(nativeQuickStyle(), QStringLiteral("Fusion"));   // not org.kde.desktop (round 5)
+        QCOMPARE(nativeQuickStyle(), QStringLiteral("Fusion"));   // not org.kde.desktop
 #endif
         QCOMPARE(resolveQuickStyle(QStringLiteral("native"), false), nativeQuickStyle());
         QCOMPARE(resolveQuickStyle(QStringLiteral("Native"), false), nativeQuickStyle());

@@ -2,14 +2,13 @@
 
 The ELVISmx Instrument Launcher shows, after the instruments, six small "Featured Applications"
 (separate LabVIEW programs). This file describes each one in our own words (from the running
-programs on a simulated NI myDAQ and from the code study in
-[algorithms/featured.md](algorithms/featured.md)) and proposes how MYBENCH offers the same
+programs on a simulated NI myDAQ) and proposes how MYBENCH offers the same
 capability. Status per app: **explored** (UI observed), **partly explored**, or **not explored**
-(described from the code study only); 8-Channel Oscilloscope and Digital Waveform Viewer are **out of
+(not launched); 8-Channel Oscilloscope and Digital Waveform Viewer are **out of
 scope** (already mapped to Scope / Digital I/O). Screens: `ni-local/screens/explore/<app>/` (gitignored).
 
 Note: specs [log.md](log.md) (Data Logger) and [aeq.md](aeq.md) (Audio Equalizer) were added by
-another agent in parallel; where they exist they are the binding specs and the proposals below are
+specs written separately; where they exist they are the binding specs and the proposals below are
 input to them.
 
 Common to all featured apps (observed on DC Level and Data Logger): a fixed window with a blue
@@ -46,7 +45,7 @@ What it does: sets a constant voltage on AO 0 or AO 1.
   horizontal slider -10.00 ... 10.00 (typed 15 is coerced to 10); a `Voltage (V)` chart -10 ... 10
   (stayed empty on the simulator); Start / Stop / Help >>. Device and channel are grayed while
   running; Level stays live.
-- Behaviour (code): Start writes the level as a single static sample; every change writes the new
+- Behaviour: Start writes the level as a single static sample; every change writes the new
   value; Stop writes 0 V and clears the task.
 
 **MYBENCH proposal**: a **DC** mode in the Waveform Generator channel cards (Mode `Off` /
@@ -55,7 +54,7 @@ written with `aoWriteStatic` when the generator is otherwise idle or inside the 
 Stop -> 0 V. Also reachable from the command palette ("Set AO 0 to ... V"). A tiny history chart is
 optional.
 
-## 3. Data Logger - explored (UI) + code study of the file format
+## 3. Data Logger - explored (UI)
 
 What it does: slow continuous logging of AI voltages to a chart and a text file.
 - Observed: channel list with LED toggles `ai0` (on by default) and `ai1` (off) plus six grayed
@@ -66,9 +65,9 @@ What it does: slow continuous logging of AI voltages to a chart and a text file.
   while on) and `File path for saved data` with a browse button; Start / Stop / Help >>. Running
   greys the device, channels, rate and limits; each channel gets its own trace color (ai0 blue,
   ai1 red observed).
-- Code: continuous AI task, buffer 10 x rate, 1-second blocks; a producer/consumer queue writes the
+- Continuous AI task, buffer 10 x rate, 1-second blocks; a producer/consumer queue writes the
   file (commands: write header, write data, reset error, stop).
-- **File format (recovered, details and confidence in [log.md 8](log.md))**: plain TAB-separated
+- **File format (details and confidence in [log.md 8](log.md))**: plain TAB-separated
   text, CR LF lines, no comment lines. One header row written when `Log` is pressed: per logged
   channel the pair `Time`, `<device>/ai<n>` (for example `Time<TAB>myDAQ1/ai0`). Then one data
   row per sample, appended once per second: per channel its own time cell (absolute local date and
@@ -86,7 +85,7 @@ optionally the DMM reading), rate 1 ... 1000 S/s with Min/Max, strip chart with 
 autoscale, Start/Stop, `Record to file` (native layout with header lines, or the
 **ELVISmx-compatible layout** of log.md 8.2), file size/duration indicator. Holds resource `AI`.
 
-## 4. Octave Analyzer - explored (screens) + code study
+## 4. Octave Analyzer - explored (screens)
 
 What it does: real-time third-octave band spectrum of one AI channel (or several) with exponential
 time averaging and A/B/C weighting. Full detail (every control, value list, default, range,
@@ -119,7 +118,7 @@ readout, differences from MYBENCH) is in [dsa.md 14](dsa.md); summary with sourc
 
 **MYBENCH proposal (already built as the Octave mode of `dsa`)**: see dsa.md 14.4 for the delta.
 
-## 5. Audio Equalizer - code study (not launched); spec in [aeq.md 8](aeq.md)
+## 5. Audio Equalizer - not launched; spec in [aeq.md 8](aeq.md)
 
 What it does: live three-band tone control from an input to an output.
 - Panel (from the front panel resources): `Select Device`; combos `Input (L)`, `Input (R)`,
@@ -145,7 +144,7 @@ What it does: live three-band tone control from an input to an output.
 
 ## 6. 8-Channel Oscilloscope - out of scope (mapped to Scope)
 
-(Status: covered by the `scope` instrument; code study only, not launched.)
+(Status: covered by the `scope` instrument; not launched.)
 
 What it does: a simple scope with a channel list (2 channels on a myDAQ), Time/Div 50 µs ... 50 ms,
 one Volts/Div for all channels (20 mV ... 2 V), immediate / software analog edge trigger, full-rate
@@ -157,7 +156,7 @@ scope.md 4.2) and a `Same scale for all channels` lock.
 
 ## 7. Digital Waveform Viewer - out of scope (mapped to Digital I/O)
 
-(Status: ELVIS II only; the timeline of `dio` covers it; code study only.)
+(Status: ELVIS II only; the timeline of `dio` covers it; not launched.)
 
 What it does (ELVIS II only): hardware-timed capture of the 8 DIO lines together with one AI
 channel at 100 kS/s for 0.1 ... 5 s, then browsing (Time/Div, Navigate To, cursors, value

@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
-// The cursor readout at the end of the result row (round 5), drawn like a MeasurementCard.
+// The cursor readout at the end of the result row, drawn like a MeasurementCard.
 // Cursors on: a small table — C1 and C2 (frequency, gain, phase) in the cursor colors and their
 // difference C2 − C1 with the gain slope in dB/decade. Cursors off: the last measured point.
 Item {

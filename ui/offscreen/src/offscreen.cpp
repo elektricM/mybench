@@ -571,7 +571,7 @@ QString nativeQuickStyle()
 #else
     // Fusion (Qt's desktop style; it follows the KDE/GNOME palette through the platform theme).
     // KDE's org.kde.desktop is not the default: it needs Kirigami, adds its own dialog headers and
-    // control metrics, and broke the instrument bars (Alex, round 4); `--style org.kde.desktop`
+    // control metrics, and broke the instrument bars; `--style org.kde.desktop`
     // still selects it.
     return QStringLiteral("Fusion");
 #endif

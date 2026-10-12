@@ -1,0 +1,47 @@
+# Flatpak build of MYBENCH (docs/BUILDING.md "Flatpak").
+#   flatpak-builder --user --install-deps-from=flathub --force-clean --repo=repo build \
+#       packaging/linux/flatpak/io.github.elektricM.MYBENCH.yml
+#   flatpak build-bundle repo MYBENCH.flatpak io.github.elektricM.MYBENCH
+# USB access needs the udev rule on the host (packaging/linux/60-mybench-mydaq.rules); a Flatpak
+# cannot install it. docs/INSTALL.md has the steps.
+app-id: io.github.elektricM.MYBENCH
+runtime: org.kde.Platform
+runtime-version: "6.11"
+sdk: org.kde.Sdk
+command: mybench
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=all              # the myDAQ over USB (libusb on /dev/bus/usb) and the GPU
+  - --filesystem=home         # sessions, logs and exported data
+modules:
+  - name: libusb
+    config-opts:
+      - --disable-static
+      - --disable-udev          # no udev in the sandbox; libusb scans /dev/bus/usb instead
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - "*.la"
+    sources:
+      - type: archive
+        url: https://github.com/libusb/libusb/releases/download/v1.0.29/libusb-1.0.29.tar.bz2
+        sha256: 5977fc950f8d1395ccea9bd48c06b3f808fd3c2c961b44b0c2e6e29fc3a70a85
+
+  - name: mybench
+    buildsystem: simple
+    build-commands:
+      - cmake -S . -B _build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/app
+        -DMYBENCH_APP_ID=io.github.elektricM.MYBENCH -DMYBENCH_INTEGRATIONS=OFF
+        -DMYBENCH_UDEV_RULES_DIR=share/mybench/udev
+      - cmake --build _build --target mybench
+      - cmake --install _build --component app
+    sources:
+      - type: dir
+        path: ../../..
+        skip:
+          - build-all
+          - ni-local
+          - captures

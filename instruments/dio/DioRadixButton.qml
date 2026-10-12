@@ -6,7 +6,7 @@ import MyBench.Controls
 
 // The LabVIEW-style radix prefix of a numeric value ("x", "d", "b"...): click it to choose
 // Decimal, Hex, Octal, Binary or SI notation. `radix` is a DioController.Radix. A custom part
-// (docs/UI.md round 3): built on QtQuick.Templates, so no native style is overridden.
+// (docs/UI.md): built on QtQuick.Templates, so no native style is overridden.
 T.AbstractButton {
     id: root
 

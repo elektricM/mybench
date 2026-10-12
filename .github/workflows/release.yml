@@ -3,6 +3,7 @@
 #   Linux    MYBENCH-<v>-linux-x86_64.AppImage   (ubuntu-22.04 baseline, Qt bundled)
 #            mybench_<v>_amd64.deb               (Ubuntu 26.04 / Debian with Qt >= 6.9, system Qt)
 #            mybench-<v>-1.x86_64.rpm            (Fedora 44, system Qt)
+#            MYBENCH-<v>-linux-x86_64.flatpak   (KDE 6.11 runtime from Flathub)
 #   Windows  MYBENCH-<v>-windows-x64.exe (NSIS) + .zip
 # Each package is installed/started once in the job (simulator, offscreen) before upload.
 # Push a tag v<version> (matching project(VERSION) in CMakeLists.txt) or run it by hand.
@@ -144,6 +145,37 @@ jobs:
           name: rpm
           path: build/package/*.rpm
 
+  flatpak:
+    name: Linux Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bundle name
+        run: |
+          version=$(sed -nE 's/^project\(MYBENCH VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+          case "$GITHUB_REF" in refs/tags/v*) version=${GITHUB_REF#refs/tags/v} ;; esac
+          echo "BUNDLE=MYBENCH-$version-linux-x86_64.flatpak" >> "$GITHUB_ENV"
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: ${{ env.BUNDLE }}
+          manifest-path: packaging/linux/flatpak/io.github.elektricM.MYBENCH.yml
+          cache-key: flatpak-${{ github.sha }}
+          upload-artifact: false
+      - name: Start the bundle
+        continue-on-error: true   # sandbox start inside the CI container is best effort
+        run: |
+          flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak --user install -y --noninteractive "$BUNDLE"
+          QT_QPA_PLATFORM=offscreen flatpak run io.github.elektricM.MYBENCH --page home --screenshot "$HOME/home-flatpak.png"
+          test -s "$HOME/home-flatpak.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: ${{ env.BUNDLE }}
+
   windows:
     name: Windows installer
     runs-on: windows-latest
@@ -197,11 +229,14 @@ jobs:
   publish:
     name: Draft GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, appimage, deb, rpm, windows]
+    needs: [macos, appimage, deb, rpm, flatpak, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/release-notes
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -210,4 +245,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: docs/release-notes/${{ github.ref_name }}.md
           files: dist/*

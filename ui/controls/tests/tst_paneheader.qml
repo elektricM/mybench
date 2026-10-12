@@ -41,7 +41,7 @@ Item {
         }
     }
 
-    // Round-2 layouts: the panel's own run controls in the header (headerContent), no header Run.
+    // Layouts: the panel's own run controls in the header (headerContent), no header Run.
     Component {
         id: contentPanel
         InstrumentPanel {
@@ -199,7 +199,7 @@ Item {
             verify(knobPos.x + knob.width <= more.mapToItem(panelHeader, 0, 0).x)
             fuzzyCompare(bigPos.y + big.height / 2, (panelHeader.height - 1) / 2, 1)
             // A narrow pane: the content moves to a second row under the title, whole; ⋯ stays in
-            // the title row (round 5: content was clipped to nothing on KDE, overlapped on Bode).
+            // the title row (content was clipped to nothing on KDE, overlapped on Bode).
             panel.width = 330
             waitForRendering(panel)
             verify(panelHeader.contentWrapped)

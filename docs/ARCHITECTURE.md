@@ -27,7 +27,7 @@ is implemented in `core/`.
 | `app/` | `mybench`: the single-window application shell (nav, workspace, dashboard). |
 | `tests/` | Qt Test unit tests. |
 | `integrations/` | The myDAQ in other tools: libsigrok driver (PulseView, sigrok-cli), ngscopeclient bridge. |
-| `tools/` | Python reverse-engineering tools (pcap decoding, replay). |
+| `tools/` | Device lock for hardware tests, capture-to-mock converter for the replay tests, UI screenshot matrix. |
 | `ni-local/` | **gitignored**: NI reference material (drivers, help text, screenshots). Never copy from it into the repo. |
 
 Instruments (all ELVISmx myDAQ features, some merged, see docs/UI.md): `dmm`, `scope`, `gen`

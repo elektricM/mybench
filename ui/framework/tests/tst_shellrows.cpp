@@ -1,5 +1,4 @@
-// Application-shell behaviour of MyBench.Framework (docs/audit.md "Application shell" rows 23,
-// 26, 27, 28): toast stack and pause toasts, the event log's warning counter and technical
+// Application-shell behaviour of MyBench.Framework (application shell): toast stack and pause toasts, the event log's warning counter and technical
 // details, hot-plug polling and the simulator controls of DeviceHub. Simulated myDAQ only.
 #include <mybench/framework.h>
 

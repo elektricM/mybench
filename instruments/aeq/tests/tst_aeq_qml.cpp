@@ -84,7 +84,7 @@ private slots:
         QVERIFY(column);
         QCOMPARE(column->width(), 260.0);
 
-        // Round 5: bass / midtone / treble have their own colors — distinct from each other, from
+        // Bass / midtone / treble have their own colors — distinct from each other, from
         // the cursor pair (treble was Theme.cursor2) and from the accent of the After trace.
         {
             const QColor bass = root->property("bassColor").value<QColor>();

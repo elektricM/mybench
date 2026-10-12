@@ -140,8 +140,11 @@ The install step:
    - The offscreen platform plugin is added, so headless `--screenshot` works.
    - The bundle is pruned to what qmlimportscanner reports. Removed are: our static
      `MyBench.*` modules, the unused Controls styles, and unused plugin types (SQL, TLS,
-     input methods; image formats except SVG). Then any framework or dylib that is no longer
-     reachable goes too.
+     input methods; image formats except SVG and WebP). Then any framework or dylib that is no
+     longer reachable goes too.
+   - The run-time styles (macOS, Fusion, Basic) are kept together with every module their own QML
+     imports, followed transitively. For example, the macOS BusyIndicator needs
+     `QtQuick.Controls.iOS.impl` and WebP images. A missing one fails the install.
    - Every Mach-O file is checked: all its dependencies must resolve inside the bundle or in
      `/System` and `/usr/lib`. The install **fails** if anything points to `/opt/homebrew`,
      `/usr/local` or the build tree.
@@ -247,3 +250,19 @@ Each job:
 `.github/workflows/release.yml` runs on tags `v*`. It builds the DMG (universal), the AppImage,
 the DEB, the RPM and the Windows installer, checks each one (mount/install and start
 offscreen), and attaches all of them to a draft GitHub release.
+
+### Linux: Flatpak
+
+The manifest is `packaging/linux/flatpak/io.github.elektricM.MYBENCH.yml`. It uses the KDE 6.11
+runtime and builds libusb (without udev) as a module:
+
+```sh
+flatpak install --user flathub org.kde.Sdk//6.11 org.kde.Platform//6.11
+flatpak-builder --user --force-clean --repo=flatpak-repo build-flatpak \
+    packaging/linux/flatpak/io.github.elektricM.MYBENCH.yml
+flatpak build-bundle flatpak-repo MYBENCH.flatpak io.github.elektricM.MYBENCH
+```
+
+The manifest builds from the working tree, so run it from a clean checkout. The release workflow
+builds the bundle in the `flatpak-github-actions:kde-6.11` container. The app gets `--device=all`
+for USB; the udev rule must still be installed on the host.

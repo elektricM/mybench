@@ -1,5 +1,4 @@
-// ScopeController: the Oscilloscope (docs/instruments/scope.md; ELVISmx behaviour in
-// docs/instruments/algorithms/scope.md).
+// ScopeController: the Oscilloscope (docs/instruments/scope.md).
 //
 // Two channels (AI 0 / AI 1 or AudioInput Left / Right), ELVISmx timebase and record policy,
 // software edge trigger with Auto / Normal / Clear timeout handling, RMS / Freq / Vp-p (+ extra)

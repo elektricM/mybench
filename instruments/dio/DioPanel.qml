@@ -6,7 +6,7 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Digital I/O panel (docs/instruments/dio.md), round-2 layout (docs/UI.md "Round 2"): the ELVISmx
+// Digital I/O panel (docs/instruments/dio.md), PicoScope-style layout (docs/UI.md §13.8b): the ELVISmx
 // Digital Reader and Digital Writer in one display. Pane header: Run, Single, radix (Hex | Bin |
 // Dec); Release Outputs is the pane header's own. Display: Inputs / Outputs values, eight line
 // tiles (DIO 7 ... DIO 0: HIGH / LOW state in the direction's color, a click flips an output in

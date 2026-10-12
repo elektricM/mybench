@@ -1,4 +1,4 @@
-// Generation engine of the Waveform Generator (docs/instruments/gen.md 3, algorithms/gen.md 1-2).
+// Generation engine of the Waveform Generator (docs/instruments/gen.md 3).
 //
 // UI-free and device-agnostic: it only uses the mydaq::Device API, so it runs the same on the
 // simulator, the USB backend and in the unit tests. The worker thread calls Engine::run(), which

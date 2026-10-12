@@ -1,5 +1,5 @@
 // Third-octave analysis for the Spectrum Analyzer's "1/3 Octave" mode (the ELVISmx featured
-// application "Octave Analyzer", docs/instruments/algorithms/featured.md §4).
+// application "Octave Analyzer", docs/instruments/dsa.md).
 //
 // Base-10 third-octave bands (IEC 61260): exact centres fm = 1000 · 10^(n/10) Hz, edges
 // fm · 10^(∓1/20), nominal labels 20 Hz … 20 kHz (the 31 ISO bands of ELVISmx). Each band is a 6th-order Butterworth band-pass

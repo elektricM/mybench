@@ -1,5 +1,4 @@
-// Spectrum processing of the Spectrum Analyzer (docs/instruments/dsa.md §3,
-// docs/instruments/algorithms/dsa.md §3). Plain C++ on top of mydaq::dsp, used by the worker
+// Spectrum processing of the Spectrum Analyzer (docs/instruments/dsa.md §3). Plain C++ on top of mydaq::dsp, used by the worker
 // thread (SpectrumProcessor) and by the UI thread (peak search for the cursor actions). No Qt
 // objects, no device access: everything here is unit-tested directly.
 #pragma once
@@ -61,7 +60,7 @@ struct Measurements {
 // Never NaN/infinite: undefined values are 0 (dsa.md §3.4 "never NaN on screen").
 Measurements measure(const mydaq::dsp::PowerSpectrum& spectrum, std::span<const double> record);
 
-// ELVISmx "Vpk": the peak-to-peak amplitude divided by 2 (algorithms/dsa.md §3.6).
+// ELVISmx "Vpk": the peak-to-peak amplitude divided by 2.
 double halfPeakToPeak(std::span<const double> record);
 
 // The record multiplied by the window scaled to unit coherent gain (the ELVISmx "Scaled Time

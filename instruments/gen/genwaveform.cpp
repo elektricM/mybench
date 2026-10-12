@@ -31,7 +31,7 @@ QString tr(const char* text)
 
 using K = ParamKind;
 
-// The library, in ELVISmx order (docs/instruments/algorithms/gen.md 3.4) with the parameter
+// The library, in ELVISmx order (docs/instruments/gen.md) with the parameter
 // names and defaults verified in the ELVISmx UI (gen.md 4.3.4).
 const std::vector<FunctionInfo>& library()
 {

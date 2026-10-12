@@ -20,7 +20,7 @@ libusb-1.0.
 
 ```sh
 integrations/sigrok/apply.sh <libsigrok-src> <prefix>
-# Martin's PulseView build:
+# Example with a local PulseView build:
 integrations/sigrok/apply.sh ~/projects/pulseview-pico/src/libsigrok ~/projects/pulseview-pico/prefix
 ```
 
@@ -58,7 +58,7 @@ Notes for the pulseview-pico tree:
 
 *Connect to a Device* → driver **NI myDAQ (ni-mydaq)** → *Scan for devices using driver above* →
 select **NI myDAQ** → OK. Or start it directly: `pulseview -d ni-mydaq`
-(`/Applications/PulseView.app/Contents/MacOS/pulseview -d ni-mydaq` on Martin's Mac).
+(`/Applications/PulseView.app/Contents/MacOS/pulseview -d ni-mydaq` on macOS).
 
 - Sample rate and sample count are in the toolbar. The *Configure Device* button has
   **Continuous**: when ticked, the acquisition runs until *Stop*, ignoring the sample count.

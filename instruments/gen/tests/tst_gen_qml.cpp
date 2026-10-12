@@ -1,4 +1,4 @@
-// Generator panel layout (offscreen, round-5 layout): one display left (both outputs in one plot),
+// Generator panel layout (offscreen): one display left (both outputs in one plot),
 // channel cards and the tool palette in the InstrumentColumn right, no form inspector; waveform
 // pictures, the Arbitrary card's Open in Editor and the card switches drive the controller.
 #include "gencontroller.h"
@@ -116,7 +116,7 @@ private slots:
         }
         const QRectF controls = rects.value(u"genControls"_s);
         QVERIFY(rects.value(u"genPlot"_s).right() <= controls.left() + 0.5);
-        // One display for both outputs (round 5): no per-channel preview plots.
+        // One display for both outputs: no per-channel preview plots.
         QVERIFY(!findItem(item, u"genPreview0"_s));
         QVERIFY(!findItem(item, u"genPreview1"_s));
         // The column has the shared fixed width.
@@ -209,7 +209,7 @@ private slots:
         // asked controller.channel(i): that channel must stay C++-owned (was a double delete).
     }
 
-    // Alex (round 4): switching AO 1 on/off or changing its waveform never resizes the display or
+    // Switching AO 1 on/off or changing its waveform never resizes the display or
     // the column; both outputs share the one plot and its time axis.
     void oneDisplayStableGeometry()
     {

@@ -18,9 +18,11 @@ firmware on first use.
 
 1. Open `MYBENCH-<version>-macOS-<arch>.dmg` and drag **MYBENCH** to **Applications**.
 2. The release builds are signed ad hoc, not with an Apple Developer ID, so Gatekeeper blocks
-   the first launch. Unblock it once with either method:
-   - Control-click MYBENCH in Applications, choose **Open**, then **Open** again.
-   - Or run `xattr -dr com.apple.quarantine /Applications/MYBENCH.app`.
+   the first launch ("MYBENCH cannot be opened" / "Apple could not verify…"). Unblock it once
+   with either method:
+   - Try to open MYBENCH, then go to **System Settings → Privacy & Security**, scroll down and
+     click **Open Anyway**. (On macOS 14 and older, Control-click the app and choose **Open**.)
+   - Or run `xattr -dr com.apple.quarantine /Applications/MYBENCH.app` in Terminal.
 3. Plug in the myDAQ. It appears in the device menu at the top left. macOS needs no driver and
    no permission prompt.
 
@@ -64,12 +66,25 @@ An AppImage cannot install system files, so install the udev rule once by hand (
 Integration with the desktop menu is up to your AppImage launcher, such as Gear Lever or
 AppImageLauncher.
 
+### Flatpak
+
+```sh
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user MYBENCH-<version>-linux-x86_64.flatpak
+flatpak run io.github.elektricM.MYBENCH
+```
+
+The bundle uses the KDE 6.11 runtime from Flathub, which the install step fetches if it is
+missing. Like the AppImage, a Flatpak cannot install the udev rule, so install it once by hand
+(below). The app gets access to USB devices and to your home folder (sessions and exported data).
+
 ### USB permission (udev rule)
 
 Without the rule, only root can open the myDAQ. MYBENCH then reports the device as busy or
 inaccessible.
 
-The rule is in the repository at `packaging/linux/60-mybench-mydaq.rules`. The AppImage also
+The rule is in the repository at `packaging/linux/60-mybench-mydaq.rules`. The Flatpak
+carries it at `/app/share/mybench/udev/`. The AppImage also
 carries it at `usr/lib/udev/rules.d/`, which you can see with `--appimage-extract`. The rule
 itself is one line:
 

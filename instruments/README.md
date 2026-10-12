@@ -361,7 +361,7 @@ Updates at most ~10 Hz. Check both sizes with `mybench-<id> --tile --screenshot 
 
 ## Framework hooks
 
-Shared hooks of the shell and framework (added for the acceptance audit, docs/audit.md). All are
+Shared hooks of the shell and framework (added during the acceptance review). All are
 opt-in and backwards compatible: an instrument that uses none of them behaves as before.
 
 ### Safe state: panel close, session reset, Stop of an idle output holder
@@ -564,7 +564,7 @@ InstrumentPanel {
 ## Panel patterns (reference: Oscilloscope)
 
 `instruments/scope` is the reference v2 panel. The other instruments copy these patterns; a
-deviation gets a reason in the work package's checkpoint.
+deviation gets a reason in the commit message or the code review.
 
 **Files.** `<Name>Panel.qml` holds the `InstrumentPanel` and its inspector sections inline. A section
 used more than once is its own file (`ScopeChannelSection.qml`, per channel), the display is its

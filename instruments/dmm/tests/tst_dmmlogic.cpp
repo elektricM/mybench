@@ -1,5 +1,5 @@
 // Multimeter logic: ELVISmx range tables, autoranging, display formats, overload limits,
-// statistics and the log format (docs/instruments/algorithms/dmm.md).
+// statistics and the log format (docs/instruments/dmm.md).
 #include "dmmlogic.h"
 
 #include <QTest>

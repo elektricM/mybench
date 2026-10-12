@@ -153,8 +153,8 @@ See 3.5 (MYBENCH content; ELVISmx's version of this tab is for ELVIS II+ hardwar
 | Enabled | checkbox | on/off | on / off | always | yes (next record; verified) |
 | Probe | combo | `1x` (ELVIS: `10x`) | `1x` | never (grayed, verified) | - |
 | Coupling | combo | `DC`, `AC` (ELVIS: `GND`) | follows Source: `DC` for AI, `AC` for audio (verified) | never (value set automatically) | - |
-| Scale Volts/Div | ring knob + combo | AI sources: `5 V`, `2 V`, `1 V`, `500 mV`, `200 mV`, `100 mV`, `50 mV`, `20 mV`, `10 mV`; audio sources: `1 V` ... `10 mV` only (verified in ELVISmx UI and code). The drop-down lists the largest value first. Switching a channel to audio coerces a larger value to `1 V` (verified) | `1 V` | always | yes |
-| Vertical Position (Div) | knob + numeric | -5 ... +5 div, increment 0.1 (verified in code); typed values are coerced (`10` -> `5`, verified in UI); shown without trailing zeros (`0`, `-1.5`) | 0 | always | yes (display only, see 4.6) |
+| Scale Volts/Div | ring knob + combo | AI sources: `5 V`, `2 V`, `1 V`, `500 mV`, `200 mV`, `100 mV`, `50 mV`, `20 mV`, `10 mV`; audio sources: `1 V` ... `10 mV` only (verified in ELVISmx UI). The drop-down lists the largest value first. Switching a channel to audio coerces a larger value to `1 V` (verified) | `1 V` | always | yes |
+| Vertical Position (Div) | knob + numeric | -5 ... +5 div, increment 0.1 (as observed in ELVISmx); typed values are coerced (`10` -> `5`, verified in UI); shown without trailing zeros (`0`, `-1.5`) | 0 | always | yes (display only, see 4.6) |
 
 The controls of a disabled channel stay enabled (verified), so the channel can be prepared before
 it is enabled. Every control has a tooltip equal to its name (ELVISmx); no right-click menus.
@@ -163,7 +163,7 @@ it is enabled. Every control has a tooltip equal to its name (ELVISmx); no right
 
 | Control | Type | Values | Default |
 |---|---|---|---|
-| Time/Div | ring knob + combo | `5 µs`, `10 µs`, `20 µs`, `50 µs`, `100 µs`, `200 µs`, `500 µs`, `1 ms`, `2 ms`, `5 ms`, `10 ms`, `20 ms`, `50 ms`, `100 ms`, `200 ms` (15 values; the drop-down lists `200 ms` first; ELVISmx writes `us`) - **verified in ELVISmx UI and code** | `5 ms` |
+| Time/Div | ring knob + combo | `5 µs`, `10 µs`, `20 µs`, `50 µs`, `100 µs`, `200 µs`, `500 µs`, `1 ms`, `2 ms`, `5 ms`, `10 ms`, `20 ms`, `50 ms`, `100 ms`, `200 ms` (15 values; the drop-down lists `200 ms` first; ELVISmx writes `us`) - **verified in ELVISmx UI** | `5 ms` |
 
 Live while running (the next record uses the new timebase; verified). **[MYBENCH extension, may]**
 `1 µs`, `2 µs` and `500 ms` ... `10 s` (slow timebases with a rolling display) may be added after
@@ -176,7 +176,7 @@ the ELVISmx list; they are marked as extensions in the UI and never used by defa
 | Type | combo | `Immediate`, `Digital` (item disabled: ELVIS only), `Edge` (verified) | `Immediate` | always |
 | Source | combo | `TRIG`, `SYNC` (items always disabled: ELVIS only), `Chan 0 Source`, `Chan 1 Source` (verified) | `TRIG` (shown grayed while Immediate) | Type = Edge |
 | Slope | toggle button | Positive (rising, icon `slope-rising`) / Negative (falling); click toggles (verified) | Positive | Type = Edge |
-| Level (V) | numeric | **-100 ... +100 V** (typed `150` is coerced to `100`, verified in UI and code), increment 0.1 V, shown without trailing zeros | 0 | Type = Edge |
+| Level (V) | numeric | **-100 ... +100 V** (typed `150` is coerced to `100`, verified in the ELVISmx UI), increment 0.1 V, shown without trailing zeros | 0 | Type = Edge |
 | Horizontal Position (%) | slider + numeric | 0 ... 100 %, increment 1 % | 50 | Type = Edge |
 
 Rules (verified in ELVISmx UI):
@@ -224,7 +224,7 @@ MYBENCH keeps these two items disabled (tooltip "NI ELVIS II+ only") and adds, p
 | Input Range **[MYBENCH extension]** | combo | `Auto`, `±10 V`, `±2 V` | `Auto` | Audio sources: fixed `±2 V`, disabled. Auto = the ELVISmx rule of 4.3. |
 
 and a `Trigger` group with `Hysteresis (div)` **[MYBENCH extension]**: numeric 0.00 ... 2.00 div,
-increment 0.05, **default 0.00** (ELVISmx has no hysteresis, verified in code; see 4.4).
+increment 0.05, **default 0.00** (ELVISmx has no hysteresis, as observed in ELVISmx; see 4.4).
 
 ### 3.6 Indicators
 
@@ -242,7 +242,7 @@ increment 0.05, **default 0.00** (ELVISmx has no hysteresis, verified in code; s
 | dT | t(C2) - t(C1), signed, seconds | |
 | 1/dT **[MYBENCH extension]** | 1/|dT| in Hz, appended to the cursor line | |
 
-Measurement formatting (verified in ELVISmx UI and code): engineering notation with SI prefix and
+Measurement formatting (verified in ELVISmx UI): engineering notation with SI prefix and
 unit; **3 decimals when the mantissa is ≥ 1, 2 decimals below 1**: `6.861 V`, `20.053 Hz`,
 `19.992 V`, `-299.39 mV`, `707.11 mV`, `0.00 V`, `25.00 us` (MYBENCH writes `µs`); `?` when the
 value is undefined (NaN/infinite: empty data, no detectable tone for Freq).
@@ -265,7 +265,7 @@ value is undefined (NaN/infinite: empty data, no detectable tone for Freq).
 
 ### 4.2 Record, sample rate and acquisition
 
-ELVISmx rule (verified in ELVISmx code, algorithms/scope.md 2, and with NI I/O Trace): for
+ELVISmx rule (as observed in ELVISmx, and with NI I/O Trace): for
 Time/Div = τ, screen time `Ts = 10 τ`, `Rmax = maxAiRate()` (200 kS/s):
 - if `Rmax × Ts ≤ 2500`: rate `= Rmax`, `samples = Rmax × Ts`;
 - else rate `= 2500 / Ts` and `samples = 2500` (the rate never drops below 1500 S/s on the myDAQ
@@ -295,7 +295,7 @@ Each acquisition cycle (verified with NI I/O Trace):
   Edge**), one read of all samples (timeout 10 s), then the task is cleared. MYBENCH may keep the
   task between cycles (restart only), since the result is identical.
 - **Immediate**: the record is displayed as is. Horizontal Position has no effect.
-- **Edge** (verified in code): read `2N`; `pre = N × H / 100` (H = Horizontal Position);
+- **Edge** (as observed in ELVISmx): read `2N`; `pre = N × H / 100` (H = Horizontal Position);
   scan the trigger channel's samples from index `pre` to `pre + N - 1` for the first crossing
   (4.4); if found at index `k`, the displayed record of every channel is samples `[k - pre, k - pre + N)`,
   so the trigger sample sits at H % of the screen (no sub-sample interpolation in ELVISmx;
@@ -308,7 +308,7 @@ Each acquisition cycle (verified with NI I/O Trace):
 
 ### 4.3 Input range (per channel)
 
-ELVISmx rule (verified in code and with NI I/O Trace): the range depends only on Volts/Div:
+ELVISmx rule (as observed in ELVISmx and with NI I/O Trace): the range depends only on Volts/Div:
 `5 V`, `2 V`, `1 V`, `500 mV` per div -> **±10 V**; `200 mV` ... `10 mV` per div -> **±2 V**. Vertical
 Position is not taken into account. Audio sources: always ±2 V. AI channels are configured
 differential; audio inputs referenced single-ended (RSE). MYBENCH Input Range `Auto` = this rule;
@@ -318,7 +318,7 @@ beyond the range clip in hardware.
 ### 4.4 Software edge trigger
 
 - Applied to the trigger source channel's samples (after coupling, i.e. mean-removed for audio).
-- ELVISmx (verified in code): rising = `previous < Level ≤ sample`; falling = `previous > Level ≥
+- ELVISmx (as observed in ELVISmx): rising = `previous < Level ≤ sample`; falling = `previous > Level ≥
   sample`; the first sample of the search window never triggers; **no hysteresis**.
 - **[MYBENCH extension]** Hysteresis (Advanced tab, default 0 = ELVISmx behaviour): with h > 0 the
   signal must first be below `Level - h` (rising) / above `Level + h` (falling) before a crossing
@@ -356,7 +356,7 @@ beyond the range clip in hardware.
 ### 4.7 Measurements
 
 Computed per shown channel on the displayed record (N samples, after coupling), for channels whose
-Display Measurements box is checked and whose channel is enabled (verified in ELVISmx code):
+Display Measurements box is checked and whose channel is enabled (as observed in ELVISmx):
 - RMS: `sqrt(mean(x^2))` over the whole record (rectangular window, DC included).
 - Freq: frequency of the dominant tone found by an FFT-based single-tone estimate on the record
   (`dsp::estimateTone`: windowed FFT peak refined by interpolation); shown only when the detected
@@ -369,11 +369,10 @@ Graph Properties > Measurements can hide individual items (4.9).
 
 ### 4.8 Autoscale
 
-One-shot action on the button (works idle or running; verified idle). ELVISmx (code: M/H
-confidence, algorithms/scope.md 6; UI: verified that it acquires by itself and changes Volts/Div):
+One-shot action on the button (works idle or running; verified idle). ELVISmx (M/H confidence; UI: verified that it acquires by itself and changes Volts/Div):
 1. A separate acquisition per enabled channel on the ±10 V range (audio ±2 V). NI I/O Trace
    observed one finite task per channel with 2001 samples at 200 kS/s (the current timebase's
-   record, 1 ms/div); the code study describes 16 000 samples at up to 50 kS/s with retries. MYBENCH:
+   record, 1 ms/div); an alternative observation gives 16 000 samples at up to 50 kS/s with retries. MYBENCH:
    one acquisition per channel of `max(N, 16 000)` samples at the current record's rate.
 2. Tone detection on that block (frequency and tone amplitude) and `A = (max - min) / 2 × 2.2`.
 3. Volts/Div = the entry nearest to `A × 3 / 10` in the channel's list (observed: a ±10 V ramp gave
@@ -545,7 +544,7 @@ No AO/DMM/DIO calls.
 
 ## 12. Open questions / assumptions
 
-1. **Volts/Div and Time/Div lists** - resolved (verified in ELVISmx UI and code): 5 µs ... 200 ms
+1. **Volts/Div and Time/Div lists** - resolved (verified in ELVISmx UI): 5 µs ... 200 ms
    (15 values), AI 10 mV ... 5 V, audio 10 mV ... 1 V.
 2. **Sample rate policy** - resolved: ELVISmx keeps 2500 points per screen (4.2 table); the
    100 000-point mode is a MYBENCH option.
@@ -555,7 +554,7 @@ No AO/DMM/DIO calls.
 5. **Advanced Settings tab** - resolved: only the grayed ELVIS II+ items.
 6. **C2 default** - resolved: `CH 1`.
 7. **Autoscale** - partly resolved (4.8): observed acquisition size (2001 samples at the current
-   rate) differs from the code study (16 000 samples); both are listed. The exact Volts/Div snapping
+   rate) differs from another observation (16 000 samples); both are listed. The exact Volts/Div snapping
    could not be checked with the simulator's synthetic signal.
 8. **Instrument Control placement**: kept outside the tabs in MYBENCH (run bar).
 9. **Log content** - resolved for TXT (8). TDMS logging is not replicated.

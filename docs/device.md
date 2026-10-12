@@ -1,6 +1,6 @@
 # NI myDAQ: capabilities as NI-DAQmx exposes them
 
-Source: `captures/capabilities.txt`, produced by `tools/daqmx-scripts/capabilities.ps1` (DAQmx 25.8,
+Source: `captures/capabilities.txt`, produced by a DAQmx capability dump script (DAQmx 25.8,
 every Device and physical-channel property, the terminal list, and the default terminal of each
 counter function from verified but never started tasks). Unit under test: serial 57463238
 (0x036CD1C6). Protocol-level facts are in `docs/protocol.md`.

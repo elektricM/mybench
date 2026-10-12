@@ -5,7 +5,21 @@ name: CI
 on:
   push:
     branches: [main, dev]
+    paths-ignore:
+      - "README.md"
+      - "LICENSE"
+      - "docs/*.md"
+      - "docs/images/**"
+      - "docs/instruments/**"
+      - "docs/release-notes/**"
   pull_request:
+    paths-ignore:
+      - "README.md"
+      - "LICENSE"
+      - "docs/*.md"
+      - "docs/images/**"
+      - "docs/instruments/**"
+      - "docs/release-notes/**"
   workflow_dispatch:
 
 concurrency:

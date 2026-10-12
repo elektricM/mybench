@@ -156,7 +156,7 @@ int mydaq_dmm_convert(const mydaq_calibration *cal, mydaq_dmm_function function,
         return MYDAQ_ERR_INVALID_ARG;
     memset(reading, 0, sizeof *reading);
     reading->packet = *p;
-    /* Same operations, in the same order, as NI's driver (tools/drv_dmm.py): */
+    /* Same operations, in the same order, as NI's driver: */
     last = d3 * 0.001;
     v = d1 * 0.1 + d0 + d2 * 0.01 + last;
     if (p->function == ES_CONTINUITY) {

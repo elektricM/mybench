@@ -249,9 +249,9 @@ handle_events, close). `tests/mock/` implements it twice:
   DIO, DMM packets, one-way frames) with fault injection (`mydaq_mock_unplug`,
   `mydaq_mock_inject_event`). Used for API, threading and error-path tests and by the C++ tests.
 
-Adding a subsystem once the USB agent marks it READY in `docs/protocol.md`:
+Adding a subsystem once `docs/protocol.md` marks it READY:
 
-1. Capture it with NI-DAQmx (`tools/capture.sh`); convert: `tools/pcap2mock.py captures/X.pcap`
+1. Capture it with NI-DAQmx (a USB capture of the NI driver); convert: `tools/pcap2mock.py captures/X.pcap`
    (writes `libmydaq/tests/data/X.mock`).
 2. Add the public API to `mydaq.h` (enums, config struct, functions, docs; return `mydaq_error`).
 3. Implement it in a new `src/<subsystem>.c`: build bodies with `md_buf`/`md_put_*`, send with

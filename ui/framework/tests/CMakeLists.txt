@@ -28,7 +28,7 @@ endif()
 add_test(NAME framework_hooks COMMAND tst_hooks)
 set_tests_properties(framework_hooks PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;MYBENCH_NO_USB=1")
 
-# Application-shell rows of docs/audit.md: toast stack and pause toasts, event log warnings and
+# Application-shell behaviour: toast stack and pause toasts, event log warnings and
 # details, hot-plug polling rate, simulator controls.
 qt_add_executable(tst_shellrows tst_shellrows.cpp)
 target_link_libraries(tst_shellrows PRIVATE mybench_framework Qt6::Test)

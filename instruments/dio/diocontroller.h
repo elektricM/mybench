@@ -1,5 +1,4 @@
-// DioController: Digital I/O (docs/instruments/dio.md; ELVISmx behaviour in
-// docs/instruments/algorithms/dio.md) — the ELVISmx Digital Reader and Digital Writer merged.
+// DioController: Digital I/O (docs/instruments/dio.md) — the ELVISmx Digital Reader and Digital Writer merged.
 //
 // Every line is In (read), Out (driven) or unused. The ELVISmx group presets (0 - 3, 4 - 7,
 // 0 - 7) remain the main way to choose them; a line is never read and driven at once. One worker

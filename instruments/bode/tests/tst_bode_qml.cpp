@@ -107,7 +107,7 @@ private slots:
         QVERIFY(root->findChild<QObject*>(u"sweepCard"_s));
         QVERIFY(root->findChild<QObject*>(u"stepsKnob"_s));
 
-        // Every picture button of the Sweep card has a pictogram (Alex: "no icons here?").
+        // Every picture button of the Sweep card has a pictogram.
         for (const char* group : {"modeButtons", "polarityButtons"}) {
             auto* row = root->findChild<QQuickItem*>(QString::fromLatin1(group));
             QVERIFY2(row, group);
@@ -197,7 +197,7 @@ private slots:
     }
 
     // After a sweep: no wiring diagram over the data; with only a reference shown, none either
-    // (Alex image 1). Cursors: C1 / C2 in Theme.cursor1 / cursor2 on both plots and the readout
+    // Cursors: C1 / C2 in Theme.cursor1 / cursor2 on both plots and the readout
     // with Δ and the slope.
     void sweepCursorsAndReferences()
     {

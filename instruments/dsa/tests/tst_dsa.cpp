@@ -297,8 +297,8 @@ private slots:
         // Fundamental power is always linear V^2 (0.5 for 1 V peak), whatever the Units.
         QVERIFY2(near(c->fundamentalPower(), 0.5, 0.01), qPrintable(QString::number(c->fundamentalPower())));
         QCOMPARE(c->powerUnit(), u"Vrms²"_s);
-        QVERIFY2(c->fundamentalPowerText().endsWith(u" Vrms²"_s), qPrintable(c->fundamentalPowerText()));   // no "^2" (round 5)
-        // Readable button labels (round 5: "AudioInputLeft" and "+/- 10V" were elided / ELVISmx text).
+        QVERIFY2(c->fundamentalPowerText().endsWith(u" Vrms²"_s), qPrintable(c->fundamentalPowerText()));   // no "^2"
+        // Readable button labels ("AudioInputLeft" and "+/- 10V" were elided / ELVISmx text).
         QCOMPARE(c->sourceLabels(), QStringList({u"AI 0"_s, u"AI 1"_s, u"Audio L"_s, u"Audio R"_s}));
         QCOMPARE(c->rangeLabels(), QStringList({u"±10 V"_s, u"±2 V"_s}));
         QVERIFY2(near(c->thd(), 1.0, 0.1), qPrintable(QString::number(c->thd())));

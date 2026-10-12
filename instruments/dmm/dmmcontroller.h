@@ -1,5 +1,4 @@
-// DmmController: the Multimeter (docs/instruments/dmm.md; ELVISmx behaviour in
-// docs/instruments/algorithms/dmm.md).
+// DmmController: the Multimeter (docs/instruments/dmm.md).
 //
 // Reads the isolated DMM continuously (Run) or once (Single) in a worker thread: one reading at a
 // time with dmmRead(), software autoranging with the ELVISmx value -> range table (re-reading on
@@ -46,7 +45,7 @@ class DmmController : public InstrumentController
     // Continuity tone on/off (the visual indicator always works).
     Q_PROPERTY(bool continuityBeep READ continuityBeep WRITE setContinuityBeep NOTIFY continuityBeepChanged)
     // [MYBENCH] "-Over" for negative DC overloads (ELVISmx shows "+Over" for both signs). Not a
-    // setting any more (round-2 UI removed the option): a value in old saved settings is ignored.
+    // setting any more (the option was removed): a value in old saved settings is ignored.
     Q_PROPERTY(bool signedOverload READ signedOverload WRITE setSignedOverload NOTIFY signedOverloadChanged STORED false)
     // [MYBENCH] start measuring when the panel or tile is first shown (default off).
     Q_PROPERTY(bool autoStart READ autoStart WRITE setAutoStart NOTIFY autoStartChanged)

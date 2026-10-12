@@ -1,4 +1,4 @@
-// Digital I/O panel QML (offscreen, round-2 layout): the pattern picture buttons select the writer
+// Digital I/O panel QML (offscreen): the pattern picture buttons select the writer
 // pattern and stay bound to the controller; only the settings of the chosen pattern are shown;
 // the sample interval exists once (Reader card); the header radix sets the controller radix.
 #include "diocontroller.h"
@@ -181,7 +181,7 @@ private slots:
         QCOMPARE(tools->property("model").toList().size(), 2);   // Labels, Export
     }
 
-    // Round 5: one place per line. The tile sets the direction (the Lines card keeps only the
+    // One place per line. The tile sets the direction (the Lines card keeps only the
     // Read / Write group shortcuts), shows HIGH / LOW in the direction's color and flips an output
     // on a click in the Manual pattern.
     void linesOnTheTiles()

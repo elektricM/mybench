@@ -1,5 +1,4 @@
-// BodeController: the Bode Analyzer (docs/instruments/bode.md, ELVISmx behaviour in
-// docs/instruments/algorithms/bode.md).
+// BodeController: the Bode Analyzer (docs/instruments/bode.md, ELVISmx behaviour matched).
 //
 // Run = one sweep: a sine on AO 0 steps logarithmically from Start to Stop; AI 0 measures the
 // stimulus, AI 1 the circuit's response (BodeSweeper, worker thread). Each measured point keeps
@@ -64,7 +63,7 @@ class BodeController : public InstrumentController
 
     // --- View state (not persisted) --------------------------------------------------------------
     Q_PROPERTY(int cursorIndex READ cursorIndex WRITE setCursorIndex NOTIFY cursorChanged STORED false)
-    // Second cursor (C2, round 5): with C1 it measures a difference — Δf, Δgain, Δphase and the slope.
+    // Second cursor (C2): with C1 it measures a difference — Δf, Δgain, Δphase and the slope.
     Q_PROPERTY(int cursor2Index READ cursor2Index WRITE setCursor2Index NOTIFY cursorChanged STORED false)
 
     // --- Plan of the current settings ------------------------------------------------------------

@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import QtTest
 import MyBench.Controls
 
-// Instrument controls of the UI redesign round 2: KnobField (typing, snapping, steppers),
+// Instrument controls of the UI redesign: KnobField (typing, snapping, steppers),
 // ChannelCard, ToolPalette, ToolPanel, PictureButton, MeasurementCard, RunButton, dark default.
 Item {
     id: root
@@ -260,8 +260,7 @@ Item {
             verify(button.checked)
         }
 
-        // One fixed width whatever the cards hold (a setting never resizes the display, Alex
-        // round 4); the palette stays at the bottom while the cards scroll.
+        // One fixed width whatever the cards hold (a setting never resizes the display); the palette stays at the bottom while the cards scroll.
         function test_instrumentColumn() {
             const column = createTemporaryObject(columnComponent, root)
             compare(column.width, Theme.instrumentColumnWidth)
@@ -281,7 +280,7 @@ Item {
             compare(slot.y + slot.height, column.height, "palette pinned while the cards scroll")
         }
 
-        // Without a pictogram: a compact text button, no empty picture slot (Alex, round 4).
+        // Without a pictogram: a compact text button, no empty picture slot .
         function test_pictureButtonTextOnly() {
             const plain = createTemporaryObject(autoPictureComponent, root)
             const picture = createTemporaryObject(pictureComponent, root)
@@ -355,7 +354,7 @@ Item {
             verify(button.running, "busy ignores clicks")
         }
 
-        // Green Run, red Stop (round 5: the state reads from across the bench).
+        // Green Run, red Stop (the state reads from across the bench).
         function test_runButtonColors() {
             const button = createTemporaryObject(runComponent, root)
             compare(button.baseFill, Theme.runFill)

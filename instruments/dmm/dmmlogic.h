@@ -2,8 +2,7 @@
 // display formats, overload limits, statistics and the log file format. Kept separate from the
 // controller so it can be unit-tested (instruments/dmm/tests/).
 //
-// Sources: docs/instruments/algorithms/dmm.md (ELVISmx behaviour recovered from the binaries,
-// authoritative) and docs/instruments/dmm.md (functional spec).
+// Source: docs/instruments/dmm.md (functional spec; ELVISmx behaviour is authoritative).
 #pragma once
 
 #include <mydaq/device.h>

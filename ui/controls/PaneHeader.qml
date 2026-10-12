@@ -163,7 +163,7 @@ Rectangle {
         return width + contentRow.implicitWidth + row.spacing
     }
     // Content that does not fit beside the title moves to a second row under it: it is never
-    // clipped or squeezed over its neighbours (Alex, round 4: empty Scope bar, overlapping Bode bar).
+    // clipped or squeezed over its neighbours.
     // (`hasContent`, not contentRow.visible: the effective visibility includes the parent's, which
     // would keep a hidden slot hidden for good.)
     readonly property bool hasContent: contentRow.children.length > 0

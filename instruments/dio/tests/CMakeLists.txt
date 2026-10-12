@@ -13,7 +13,7 @@ foreach(name diologic diocontroller)
                          ENVIRONMENT "MYBENCH_NO_USB=1;QT_QPA_PLATFORM=offscreen")
 endforeach()
 
-# Round-2 panel (pane-header bar, right column, no inspector) loads and runs without QML
+# Panel (pane-header bar, right column, no inspector) loads and runs without QML
 # warnings (binding loops, undefined assignments, missing properties) in the dark and light themes.
 foreach(theme dark light)
     add_test(NAME dio_qml_clean_${theme}

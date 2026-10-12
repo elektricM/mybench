@@ -1,6 +1,6 @@
 // BodeSweeper: measures one frequency point after another on a mydaq::Device (worker thread).
 //
-// Per point (docs/instruments/algorithms/bode.md §3-§5, docs/instruments/bode.md §3.2):
+// Per point (docs/instruments/bode.md §3.2):
 //   1. Stimulus on AO 0: a regenerated buffer of whole periods of a sine (about 10 000 samples
 //      per period, at most the AO maximum rate; the planned buffer gives the exact frequency).
 //   2. Input ranges. Standard (ELVISmx): a 16 000-sample pre-measurement at the highest AI rate (80 ms) on ±10 V picks each

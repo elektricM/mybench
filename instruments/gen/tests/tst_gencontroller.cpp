@@ -122,7 +122,7 @@ private slots:
         QVERIFY(m_gen->isIdle());
     }
 
-    // Switching the output of an Off channel on brings its last waveform back (round 5: the card
+    // Switching the output of an Off channel on brings its last waveform back (the card
     // switch no longer springs back on an Off channel); an empty Arbitrary channel stays refused.
     void offChannelSwitchOnRestoresWaveform()
     {
@@ -371,7 +371,7 @@ private slots:
 
     void restoreIgnoresHiddenOptions()
     {
-        // Round 2 UI: no Engine combo, no "Whole 250 ms steps" switch; old sessions that set
+        // UI: no Engine combo, no "Whole 250 ms steps" switch; old sessions that set
         // them are restored with the defaults.
         m_gen->setEngineMode(GenController::Regenerate);
         m_gen->channel0()->setSweepBlockTiming(true);

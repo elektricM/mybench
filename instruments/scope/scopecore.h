@@ -1,8 +1,8 @@
 // Oscilloscope core: the acquisition and analysis logic of the Scope, free of QML so it can be
 // unit tested against the simulator (instruments/scope/tests).
 //
-// Behaviour follows docs/instruments/algorithms/scope.md (recovered ELVISmx behaviour, the
-// authoritative source) and docs/instruments/scope.md (MYBENCH functional spec):
+// Behaviour follows docs/instruments/scope.md (MYBENCH functional spec; ELVISmx behaviour is
+// authoritative):
 //   - value lists (Time/Div 5 µs … 200 ms, Volts/Div 10 mV … 5 V for AI, … 1 V for audio);
 //   - record length / sample rate policy (≈ 2501 samples per screen, ELVISmx §2);
 //   - input range from Volts/Div (≥ 500 mV/div → ±10 V, else ±2 V; audio always ±2 V);

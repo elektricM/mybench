@@ -8,7 +8,7 @@ import MyBench.Controls
 
 // Waveform Generator panel (docs/instruments/gen.md): the ELVISmx Function Generator, Arbitrary
 // Waveform Generator, Waveform Editor and DC Level in one pane.
-// Generator view (round 5): instrument bar in the pane header (Run, Single while an Arbitrary
+// Generator view: instrument bar in the pane header (Run, Single while an Arbitrary
 // channel can play once, the output connector); ONE display with both outputs (GenDisplay, with its
 // legend and Time | Frequency above the plot); on the right the InstrumentColumn: one card per
 // channel (output switch, waveform pictures, knob fields; Arbitrary: file, library, Open in

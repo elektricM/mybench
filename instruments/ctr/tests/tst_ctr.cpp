@@ -217,7 +217,7 @@ private slots:
     }
 
     // Single while running continuously (Buffered): stops after the current read instead of
-    // running on (round 5: Single is live while running, not a grey slab).
+    // running on (Single is live while running, not a grey slab).
     void bufferedLiveSingleStops()
     {
         resetSim();

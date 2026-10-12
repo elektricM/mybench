@@ -1,4 +1,4 @@
-// DMM panel layout (offscreen, round-2 layout): display left, control column right, statistics
+// DMM panel layout (offscreen): display left, control column right, statistics
 // cards at the bottom, at wide, split and narrow sizes.
 #include "dmmcontroller.h"
 
@@ -30,7 +30,7 @@ private slots:
         mybench::InstrumentController::setRestoreSavedSettings(false);
     }
 
-    // Round-2 layout at wide, split and narrow sizes: the readout and the trend (display, left)
+    // Layout at wide, split and narrow sizes: the readout and the trend (display, left)
     // never overlap the control column (right); the function buttons, the trend plot and the
     // statistics cards are laid out inside the pane; no form inspector is left.
     void layoutAtSizes_data()
@@ -157,7 +157,7 @@ private slots:
         offscreen.setRootItem(nullptr);
     }
 
-    // Round 5: the column is the shared InstrumentColumn (fixed width, tools pinned); the ranges
+    // The column is the shared InstrumentColumn (fixed width, tools pinned); the ranges
     // are picture buttons with gauge pictograms whose labels fit, also with the 6 resistance
     // ranges in the compact column; Single works while measuring (stops after the next reading,
     // never a permanently grey button); the statistics restart is named apart from the header ↺.

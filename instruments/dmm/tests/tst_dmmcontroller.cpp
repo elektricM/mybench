@@ -62,7 +62,7 @@ private slots:
         QCOMPARE(m_dmm->fullScaleFraction(), -1.0);
     }
 
-    // Round-2 UI: the "Signed overload" option is gone. Old saved settings that still carry it
+    // UI: the "Signed overload" option is gone. Old saved settings that still carry it
     // are ignored on restore, and it is no longer saved.
     void signedOverloadIgnoredOnRestore()
     {

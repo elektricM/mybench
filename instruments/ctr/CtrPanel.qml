@@ -6,7 +6,7 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Counter/Timer panel (docs/instruments/ctr.md), round-2 layout (docs/UI.md "Round 2"):
+// Counter/Timer panel (docs/instruments/ctr.md), PicoScope-style layout (docs/UI.md §13.8b):
 // instrument bar in the pane header (Run, Single, Reset Stats); display on the left (big readout,
 // secondary value, trend or pulse diagram); statistics as measurement cards under it; the shared
 // right column with the mode picture buttons, the active mode's settings, the pulse-train and

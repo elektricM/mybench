@@ -22,7 +22,7 @@ if(TARGET mybench-gen)
                          FAIL_REGULAR_EXPRESSION "Unable to assign|TypeError|ReferenceError|is not defined|Binding loop")
 endif()
 
-# The round-2 panel layout and its picture buttons / tool palette in an offscreen window.
+# The panel layout and its picture buttons / tool palette in an offscreen window.
 add_executable(tst_gen_qml tst_gen_qml.cpp)
 target_link_libraries(tst_gen_qml PRIVATE mybench_instrument_gen mybench_instrument_genplugin mybench_offscreen
                                           Qt6::Test Qt6::Quick)

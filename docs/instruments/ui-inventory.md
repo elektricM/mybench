@@ -78,13 +78,13 @@ Window `Digital Multimeter - NI ELVISmx`, 412 x 508 px, fixed size.
 
 ## 3. Featured applications
 
-Coverage marks (2026-09-28): **explored** = UI observed; **code** = recovered from the VIs only
+Coverage marks (2026-09-28): **explored** = UI observed; **code** = described from ELVISmx behaviour only
 (no launch). Details and sources: [featured-apps.md](featured-apps.md).
 
 | App | Status | What is covered | Coverage |
 |---|---|---|---|
 | DC Level | explored | controls, range, Start/Stop behaviour; DAQmx calls not captured | `gen.md` DC mode, `featured-apps.md 2` |
-| Data Logger | explored + code | controls, defaults (rate 1000), log file layout recovered (header pair per channel, absolute date-time cells, `E` values, TAB, CRLF, append), path control (`*.lvm`, shared Documents); real file and dialog still to observe | `log.md 2, 8`, `featured-apps.md 3` |
+| Data Logger | explored + code | controls, defaults (rate 1000), log file layout (header pair per channel, absolute date-time cells, `E` values, TAB, CRLF, append), path control (`*.lvm`, shared Documents); real file and dialog still to observe | `log.md 2, 8`, `featured-apps.md 3` |
 | Octave Analyzer | explored (screens) + code | every control, Mode / Time Constant / band index / weighting behaviour, tabs, staircase display, Settled; SVT engine | `dsa.md 14`, `featured-apps.md 4` |
 | Audio Equalizer | code only | panel elements, defaults, ranges, filter design, constants, two rate/delay configurations; never launched | `aeq.md 8`, `featured-apps.md 5` |
 | 8-Channel Oscilloscope | out of scope | mapped to the Oscilloscope | `scope.md`, `featured-apps.md 6` |
@@ -253,7 +253,7 @@ Window `Digital Reader - NI ELVISmx`, 357 x 366 px, fixed. Screens: `explore/dio
 | Instrument Control | Device, Acquisition Mode (`Run Continuously`, `Run Once`), Run, Stop, Help | Stop grayed while idle | `dio.md 3.1` |
 | Polling | back to back, no pause | | `dio.md 3.1` (MYBENCH 100 ms) |
 
-## 12. Not explored (for a follow-up agent)
+## 12. Not explored
 
 - Featured apps: Audio Equalizer never launched (defaults of the routing combos, plots); Data Logger
   real log file, browse dialog and Help panel; Octave Analyzer filter class, dB reference; DC Level

@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import MyBench.Framework
 import MyBench.Controls
 
-// The trigger, always visible in the right column (round 5): type (Immediate | Edge picture
+// The trigger, always visible in the right column: type (Immediate | Edge picture
 // buttons), and for Edge the mode (Auto | Normal, in the header), the source channel, the slope
 // (pictograms) and the level knob. The sliders button in the header unfolds the less used settings: timeout,
 // holdoff, hysteresis and "clear while waiting". The horizontal (trigger) position is a knob in the

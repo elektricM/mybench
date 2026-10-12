@@ -3,7 +3,7 @@ import QtQuick
 import QtQuick.Layouts
 import MyBench.Controls
 
-// The math trace as a channel card in the right column (round 5, the only math control): the
+// The math trace as a channel card in the right column (the only math control): the
 // switch in the header, then the operation (picture buttons), Scale and Position knobs. Off, the
 // card folds to its header and names the operation.
 ChannelCard {

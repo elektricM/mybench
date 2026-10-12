@@ -1,5 +1,4 @@
-// Waveform Editor documents: library, rendering rules and .mbw files (docs/instruments/gen.md 4.3,
-// algorithms/gen.md 3).
+// Waveform Editor documents: library, rendering rules and .mbw files (docs/instruments/gen.md 4.3).
 #include "genwaveform.h"
 
 #include <QTest>

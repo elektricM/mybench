@@ -21,7 +21,7 @@ if(NOT MSVC)
     target_compile_options(mybench-controls-gallery PRIVATE -Wall -Wextra)
 endif()
 
-# Native look (round 3): every gallery page under the macOS style must load without "The current
+# Native look: every gallery page under the macOS style must load without "The current
 # style does not support customization" (a component that overrides background/contentItem/
 # indicator of a natively drawn control). Offscreen still evaluates the style, so it runs in CI.
 if(APPLE)

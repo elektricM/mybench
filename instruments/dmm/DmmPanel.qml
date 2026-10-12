@@ -7,7 +7,7 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Multimeter panel (docs/instruments/dmm.md), round-5 layout (docs/UI.md "Round 2"):
+// Multimeter panel (docs/instruments/dmm.md), PicoScope-style layout (docs/UI.md §13.8b):
 // - pane header: Run/Stop, Single (also while running: stops after the next reading), Hold,
 //   Relative (null offset); the header ↺ resets the settings;
 // - display (left, largest): the big readout, % FS bar, one status line, the trend;

@@ -140,7 +140,7 @@ protected:
     DataTable exportTable() const override;
 
 private:
-    void resetHiddenOptions();   // Auto engine, exact sweep Step Interval (gen.md; round-2 UI)
+    void resetHiddenOptions();   // Auto engine, exact sweep Step Interval (gen.md)
     gen::EngineSettings engineSettings() const;
     void postLive();
     void applyEngineStatus(const gen::EngineStatus& status);

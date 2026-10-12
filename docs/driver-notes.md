@@ -1,6 +1,6 @@
 # myDAQ driver notes (static analysis of NI's Windows driver)
 
-Status: 2026-09-28, first pass. Companion to `docs/protocol.md` (the USB agent's capture-based
+Status: 2026-09-28, first pass. Companion to `docs/protocol.md` (the capture-based
 protocol description). This file records what NI's driver binaries tell us about the protocol, in
 our own words: message formats, object and method ids, argument layouts, constants, formulas,
 sequences. No NI code or data is reproduced; the binaries stay in `ni-local/` (gitignored).
@@ -14,13 +14,13 @@ those files (image base 0x180000000) so every claim can be re-checked.
 
 Confidence: **H** = read directly from code and/or reproduced bit-exactly against captures;
 **M** = strong inference from code structure + captures; **L** = hypothesis.
-Verification scripts (all run against every capture in `captures/`):
+Verification (internal analysis scripts, not published; all run against every capture in `captures/`):
 
-| script | checks | result |
+| check | what | result |
 |---|---|---|
-| `tools/drv_fusion.py` | method table below (argument and reply types) against every command frame | **3565/3565 requests, 3361/3361 replies decode exactly** (every capture in captures/, 91 files, incl. counter/FREQOUT) |
-| `tools/drv_dmm.py` | DMM packet → value conversion + calibration slots + set_mode table | **30/30 DMM readings bit-exact** (DC/AC V, DC/AC A, Ω overload) |
-| `tools/drv_calmem.py` | calibration memory map (directory, section CRCs, timestamps, all tables) + AI/AO formulas on every capture | **all 6 CRCs OK; 87441/87441 AI values (on-demand + streamed, 1–2 channels, mixed ranges, finite + continuous) and 4/4 AO codes bit-exact** |
+| frame decoding | method table below (argument and reply types) against every command frame | **3565/3565 requests, 3361/3361 replies decode exactly** (every capture in captures/, 91 files, incl. counter/FREQOUT) |
+| DMM conversion | DMM packet → value conversion + calibration slots + set_mode table | **30/30 DMM readings bit-exact** (DC/AC V, DC/AC A, Ω overload) |
+| calibration memory | calibration memory map (directory, section CRCs, timestamps, all tables) + AI/AO formulas on every capture | **all 6 CRCs OK; 87441/87441 AI values (on-demand + streamed, 1–2 channels, mixed ranges, finite + continuous) and 4/4 AO codes bit-exact** |
 
 ---
 
@@ -36,8 +36,8 @@ Verification scripts (all run against every capture in `captures/`):
   writes class id, instance, method id, version 1, then serialises the arguments. The class id
   is an immediate constant in each stub; the generated source file name (e.g.
   `raptorapi/.../tAIScanningFrontEnd.ipp`) names the class. This is how the table in 1.4 was
-  obtained; reproduce with `tools/drv_ghidra/DecompAll.java` (Ghidra headless export, output
-  kept outside the repo) + `tools/drv_stubs.py`.
+  obtained; reproducible with a Ghidra headless export (output
+  kept outside the repo).
 - niraptru.dll (user mode) computes everything DAQmx-level: coerced rates, calibration scaling,
   DMM packet parsing. Kernel and user parts exchange "settings" objects; only the kernel talks USB.
 
@@ -89,7 +89,7 @@ off  type  request                          reply
 |---|---|---|
 | -225229 (0xfffc9033) | cleared after `endpoint.flush?`; after `control.stream_table` it makes the driver fall back to a default stream table (niraptrk 0x180011450, 0x180011f70) | "method not supported" |
 | -225202 | converted to the DAQmx timeout error -200474 after `dmm.read` and `ai_tap.read` (niraptru 0x18048bef0, niraptrk 0x18006eb70) | device-side timeout: no data within the timeout argument |
-| -225270 | after `hwverify.verify` (0x0506 m08) NI clears it and **re-sends verify every 50 ms for up to 10 s** before failing (niraptrk 0x180066a80 → 0x180067500). The USB agent saw it once on this call right after a VM hand-over | device still starting up: poll `hwverify.verify` until it returns 0 |
+| -225270 | after `hwverify.verify` (0x0506 m08) NI clears it and **re-sends verify every 50 ms for up to 10 s** before failing (niraptrk 0x180066a80 → 0x180067500). It was seen once on this call right after a VM hand-over | device still starting up: poll `hwverify.verify` until it returns 0 |
 
 - **Padding**: the host pads requests with zeros to a multiple of 4. The device pads replies to a
   multiple of 4 but the pad bytes are not always zero (`ep_info` replies end in `ff`), and a
@@ -179,7 +179,7 @@ the channel list); DIO port0 = instance 1; stream endpoint objects use the strea
 | 0x0c90 | DMM (`tDMMControl`) | 08 init · 09 set_mode(u8 mode, u8 hw_autorange) · 0a read(u32 1, u32 timeout ms) → u8[] packet (§8) |
 | 0x0c92 | power task status | 09 () — sent when an output task starts, together with a subscription to event 0xdead of class 0x0c91 (power fault) |
 
-The complete machine-readable table is `M` in `tools/drv_fusion.py` (the counter/PLL/filter
+The complete machine-readable table is kept in an internal analysis script (the counter/PLL/filter
 classes are listed there only as far as needed; their full signatures are in section 7).
 
 ## 2. Device open / init (H, sequence = captures; meaning = code)
@@ -235,7 +235,7 @@ index (±10 V = field 1 but calibration range 0; ±2 V = field 2 = calibration r
   counter, no padding. Bulk transfer sizes seen were multiples of the scan size, but a native
   driver should carry partial scans across transfers anyway.
   A finite task delivers exactly N·nch·2 bytes. Each sample is converted with the range record
-  of its own scan-list entry (mixed ±10/±2 V scans work). `tools/drv_calmem.py` reproduces
+  of its own scan-list entry (mixed ±10/±2 V scans work). an internal check reproduces
   every streamed DAQmx value bit-exactly.
 - On demand (`ai_tap.read` reply): u16 (0), then u8[] holding **big-endian** i16 samples (the
   command channel is BE). One scan per read in DAQmx's usage.
@@ -338,7 +338,7 @@ Little-endian. `u32 0x5bc` used size; `u16 0, u16 0x100` (format version 1.0, M)
 | 0xcb0f | 0x4a0 | DMM calibration, copy B (identical) |
 
 Each section: `u16 length`, content, `u16` check word, stored LE. **Check word (H, all 5
-sections and the directory verify, `tools/drv_calmem.py`)**: CRC-16, polynomial 0x8005, init
+sections and the directory verify)**: CRC-16, polynomial 0x8005, init
 0xFFFF, MSB-first, no final XOR, computed over the content with a 0x00 byte inserted after every
 content byte (NI's table-driven routine processes each byte as a 16-bit step, niraptrk
 0x18004b470). Directory check word at 0x40 = same CRC over 0x0c..0x3f. Only needed for writing. AI/AO content starts at section+2, DMM at section+0x12.
@@ -363,7 +363,7 @@ Absolute offsets in copy A: AI mode 0x112, AI ranges 0x156 (±10 V) / 0x166 (±2
 0x18e (ranges from 0x19f), ao1 0x1bf (0x1d0), audio-out L 0x1f0, R 0x221. Copy B = +0x154.
 The mode polynomial here is the identity (order 3, c = 0, 1, 0, 0).
 
-Formulas (H for AI/AO: reproduces every DAQmx value, `tools/verify_cal.py` and `drv_calmem.py`):
+Formulas (H for AI/AO: reproduces every DAQmx value, checked with internal scripts):
 - AI: `v = offset + gain · P(code)` with P the mode polynomial (identity here) → `offset + gain·code`,
   evaluated in double from the float32 constants.
 - AO: `code = round(offset + gain · volts)` (gain in codes/V).
@@ -373,7 +373,7 @@ Formulas (H for AI/AO: reproduces every DAQmx value, `tools/verify_cal.py` and `
   record with the audio channel type (L, capture).
 
 ### 5.3 DMM section (H — kernel tES51981DMM_EEPROMContentMap 0x1800f55a0 + user
-tMyDAQ_DMMUserCalData / CalibrationDataRetriever; `tools/drv_dmm.py`)
+tMyDAQ_DMMUserCalData / CalibrationDataRetriever)
 
 28 slots of (float32 gain, float32 offset) at section+0x12 + 8·k (0x3ba + 8k in copy A):
 
@@ -423,7 +423,7 @@ Sources: nistc3rk.dll request stubs (class ids, method ids, argument types: **H*
 (user-mode counter "experts": measurement-type table **H**), niraptrk.dll routing maps (**H** for
 the ids), captures `ctr-countedges-pfi0-1s`, `ctr-cifreq-pfi1-timeout`, `co-ptrain-1k-d0.5`,
 `co-ptrain-10k-d0.25`, `co-finite-100-1k`, `pfidio-co-100hz-port0`, `freqout-10k`,
-`freqout-100k`, `ctrloop-freqout-10k` (all decode exactly with `tools/drv_fusion.py`).
+`freqout-100k`, `ctrloop-freqout-10k` (all decode exactly with the internal frame decoder).
 
 ### 7.1 Objects and methods (H for ids/types; names ours, role from captures = M)
 
@@ -603,7 +603,7 @@ Verified natively by counting the output with ctr0 (all within 0.01 %). The outp
 | 8, 9, 10 | DC A 20 mA, 200 mA, 1 A | | |
 
   All 30 DMM readings in the captures (DC/AC V, DC/AC A, Ω overload) are reproduced bit-exactly by
-  `tools/drv_dmm.py`.
+  the internal DMM check.
 - **Second byte = hardware autorange** (H for the data flow): the DMM device expert copies the
   channel's attribute **0x2FF8** (u32) into the second settings field, which the kernel sends as the
   second `set_mode` byte (niraptru 0x180496460 → kernel 0x1800f04c0 → 0x1800f1300). 0 in all
@@ -640,9 +640,9 @@ Verified natively by counting the output with ctr0 (all within 0.01 %). The outp
 - DAQmx's DO sequence (preset 0, then switch direction, then drive) avoids glitches; keep it.
 - PFI/counter use of the DIO lines goes through routing (6.3) and the counter object (6.2).
 
-## 10. Suggestions for the USB agent (captures that settle the remaining unknowns)
+## 10. Captures that settle the remaining unknowns
 
-1. ~~Continuous AI~~ and ~~AI rate sweep~~: done by the USB agent (captures `ai0*-cont-*`,
+1. ~~Continuous AI~~ and ~~AI rate sweep~~: done (captures `ai0*-cont-*`,
    `ai0-r10-finite-{10,10k,12345,100k,200k}`); results are folded into 3.3/3.4. Remaining: one
    finite AI at 7 kS/s (divisor rounding) and a continuous capture that reads steadily for a few
    seconds without overflow (read_pos cadence in the normal case).

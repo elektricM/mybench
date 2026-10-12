@@ -52,7 +52,7 @@ behaviour of sections 2-8). Panel name "Spectrum Analyzer", id `dsa`.
 | Source Channel | combo | `AI 0`, `AI 1`, `AudioInput Left`, `AudioInput Right` | `AI 0` | always | restarts acquisition + averaging |
 | Voltage Range | combo | `+/- 10V`, `+/- 2V` | `+/- 10V` | AI sources (audio: shows `+/- 2V`, disabled) | restarts acquisition + averaging |
 | Frequency Span | numeric (Hz) | **405 Hz ... `maxAiRate()/2` (100 kHz)** - typed `5` -> `405`, `500000` -> `100000` (verified in ELVISmx UI); integer display (`40000`), increment 1 (ELVISmx) / 1 % of the decade (MYBENCH arrows) | 40000 | always | restarts acquisition + averaging |
-| Resolution (lines) | combo | **200, 400, 800, 1600, 3200** (verified in UI and code) | 400 | always | restarts acquisition + averaging |
+| Resolution (lines) | combo | **200, 400, 800, 1600, 3200** (verified in the ELVISmx UI) | 400 | always | restarts acquisition + averaging |
 | Window | combo | `None`, `Hanning`, `Hamming`, `Blackman-Harris`, `Exact Blackman`, `Blackman`, `Flat Top`, `4 Term B-Harris`, `7 Term B-Harris`, `Low Sidelobe` (`dsp::windowTypes()` / `windowName()`) | `None` | always | restarts averaging |
 | Averaging Mode | combo | `None`, `Vector`, `RMS`, `Peak Hold` (verified) | `RMS` | always | restarts averaging |
 | Weighting | combo | `Linear`, `Exponential` | `Exponential` | Mode = Vector or RMS | restarts averaging |
@@ -137,7 +137,7 @@ Frequency Span values above `maxAiRate()/2` are coerced.
 
 ### 3.4 Measurements (on the averaged spectrum `P`)
 
-- ELVISmx (verified in UI and code): the harmonic analyzer uses harmonics 2 ... 10; the
+- ELVISmx (verified in the ELVISmx UI): the harmonic analyzer uses harmonics 2 ... 10; the
   fundamental power is estimated over 7 bins around the peak and shown as a **linear power** -
   `Fundamental Frequency Power (Vrms^2)` in RMS mode, `(Vpk^2)` (value doubled) in Peak mode -
   **whatever the Units** (observed `47.17` Vrms² with Units = dB for a 10 V-peak sine; the caption
@@ -316,12 +316,12 @@ AI 0 test signal: 1 kHz sine, 1 V peak, 1 % third harmonic, 0.5 mV rms noise.
   channel named `Source signal`), a blank line, `FFT waveform`, `Units: <unit>`, then one row per
   line `frequency <TAB> value` exactly as displayed (400 rows 0 ... 39 900 Hz at the defaults).
 
-## 14. Octave Analyzer (ELVISmx featured app) - recovered behaviour
+## 14. Octave Analyzer (ELVISmx featured app) - behaviour
 
-Source tags: **SCR** = screenshots `ni-local/screens/explore/octave/` (numbers 01-16); **FP** = front
-panel resources of `NI ELVISmx Octave Analyzer.vi`; **VI** = its constants and call structure; **SVT** =
-NI Sound and Vibration library VIs it calls (third-octave analysis, octave weighting). Confidence H / M / L.
-Method for the code part: [algorithms/featured.md 4](algorithms/featured.md). All text is ours.
+Source tags: **SCR** = screenshots `ni-local/screens/explore/octave/` (numbers 01-16); **FP** = the
+panel as ELVISmx shows it; **VI** = ELVISmx application behaviour (defaults, wiring, call order); **SVT** =
+behaviour of the NI Sound and Vibration third-octave analysis and octave weighting. Confidence H / M / L.
+All text is ours.
 
 ### 14.1 Window and controls
 
@@ -363,7 +363,7 @@ Changing Low/High Band while running re-draws the band set at once (SCR 10-15).
 
 Engine (VI, H unless noted): continuous AI at **50 kS/s**, reads of **1000 samples** per channel
 (20 ms cadence; the test VM raised error `-200279` "cannot keep up with hardware acquisition" and
-offered `Continue`; explorer checkpoint note, M). Each block goes through the NI third-octave analysis with the
+offered `Continue`; M). Each block goes through the NI third-octave analysis with the
 exponential averaging settings {Mode, Time Constant} and the band range, then through the octave
 weighting filter (weights applied to band powers at the band centres, M). The analysis reports
 whether its filters have settled.

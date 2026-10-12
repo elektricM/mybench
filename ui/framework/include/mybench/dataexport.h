@@ -86,7 +86,7 @@ class DataExport : public QObject
     Q_PROPERTY(bool printingAvailable READ printingAvailable CONSTANT)
     Q_PROPERTY(QStringList printers READ printers NOTIFY printersChanged)
     Q_PROPERTY(QString defaultPrinter READ defaultPrinter NOTIFY printersChanged)
-    // For the Print options: { user: "martin", computer: "bench-mac" }.
+    // For the Print options: { user: "alice", computer: "bench-mac" }.
     Q_PROPERTY(QVariantMap identity READ identity CONSTANT)
 
 public:
@@ -143,7 +143,7 @@ public:
     // Ink saver transform: near-neutral pixels are inverted in lightness (black -> white, light
     // text -> dark), coloured pixels keep their hue and are darkened enough to read on white.
     static QImage inkSaver(const QImage& image);
-    // The identity line for `options` ("User: martin · Computer: bench · 2026-09-28 10:15").
+    // The identity line for `options` ("User: alice · Computer: bench · 2026-09-28 10:15").
     static QString identityLine(const QVariantMap& options);
     // A path in the temporary directory for intermediate files (e.g. "png").
     Q_INVOKABLE QString temporaryFilePath(const QString& extension) const;

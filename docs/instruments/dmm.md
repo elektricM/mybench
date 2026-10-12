@@ -133,8 +133,7 @@ part of MYBENCH but must not change the default behaviour described in sections 
 
 Specify Range: `rangeMax` = selected range; an overload shows `+OVER`/`-OVER`.
 
-Auto (software autoranging, one reading per displayed value). ELVISmx rule, **verified in ELVISmx
-code** (algorithms/dmm.md 3) and **verified with NI I/O Trace** on the simulated device (section 13):
+Auto (software autoranging, one reading per displayed value). ELVISmx rule, **as observed in ELVISmx** and **verified with NI I/O Trace** on the simulated device (section 13):
 1. The first reading of a run (or after a function change) is taken on the **largest** range.
 2. After every reading, the next range is chosen directly from `M = |raw reading|` (no step-by-step
    climbing): the smallest range whose 2000-count limit `M` does not reach. **[MYBENCH]** Hysteresis
@@ -167,7 +166,7 @@ An overload at the largest range shows `+OVER`/`-OVER` in Auto mode too.
 A reading is an overload when `|raw reading| > upper limit` of the range in use (2000 counts:
 59.99 / 19.99 / 1.999 / 0.1999 V, 0.999 / 0.1999 / 0.01999 A - note the 1 A range overloads at
 0.999 A -, 19.99 MΩ / 1.999 MΩ / 199.9 kΩ / 19.99 kΩ / 1999 Ω / 199.9 Ω, diode 1.999 V,
-continuity 199.99 Ω; verified in ELVISmx code), or when the backend flags `overload`. The readout
+continuity 199.99 Ω; as observed in ELVISmx), or when the backend flags `overload`. The readout
 then shows **`+Over`** for either sign (ELVISmx has no `-Over`: verified in ELVISmx UI, a negative
 out-of-range value displayed `+Over`, and in code). MYBENCH shows `+OVER`; **[MYBENCH extension]**
 option `Signed overload` shows `-OVER` for negative overloads (off by default).
@@ -202,7 +201,7 @@ readout and the `Diode OPEN` badge. A shorted diode reads ~0 V and shows `GOOD` 
 
 `dmmRead(Continuity, rangeMax)` with the function's single range. The readout shows the resistance.
 When `|reading|` is below **15 Ω** a **continuous 1 kHz tone** plays on the computer's sound output
-for as long as the condition holds (verified in ELVISmx code: a 1000 Hz sine, 44.1 kS/s stereo,
+for as long as the condition holds (as observed in ELVISmx: a 1000 Hz sine, 44.1 kS/s stereo,
 75 % volume, started and stopped as the state changes; not observable with the simulated device).
 MYBENCH plays a generated 1 kHz tone with `QAudioSink` (Qt Multimedia) while the circuit is
 closed, stops it when it opens or the DMM stops, and has a mute toggle; an open circuit is silent
@@ -309,7 +308,7 @@ ELVISmx window `Digital Multimeter`, about 392 x 497 px, fixed size, vertical st
    code); `-OVER` is an optional MYBENCH extension.
 4. **Null re-arm.** "Relative to the measurement made when the checkbox was initially enabled" is
    read as: each off->on transition captures a new null value; values are kept per function.
-5. **Continuity threshold and tone**: 15 Ω and a continuous 1 kHz tone (verified in ELVISmx code);
+5. **Continuity threshold and tone**: 15 Ω and a continuous 1 kHz tone (as observed in ELVISmx);
    not observable with the simulated device (its resistance values are never below 15 Ω).
 6. **Display resolution**: 3½-digit formats per range are inferred from the myDAQ range set and the
    `0.0 V` shown on the 60V range. Resistance readouts seen in ELVISmx (simulated values):

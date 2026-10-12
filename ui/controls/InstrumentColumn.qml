@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// The column of cards right of an instrument's display (round 5, docs/UI.md §13.8b): one fixed
+// The column of cards right of an instrument's display (docs/UI.md §13.8b): one fixed
 // width for every instrument (Theme.instrumentColumnWidth, `compact`: the narrow width), so a
 // changed setting never resizes the display. The cards (the items declared inside) scroll; the
 // tool palette (`tools`) stays pinned at the bottom, always reachable.

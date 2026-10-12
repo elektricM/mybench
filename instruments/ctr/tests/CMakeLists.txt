@@ -11,7 +11,7 @@ endif()
 add_test(NAME ctr COMMAND tst_ctr)
 set_tests_properties(ctr PROPERTIES TIMEOUT 120 ENVIRONMENT "MYBENCH_NO_USB=1;QT_QPA_PLATFORM=offscreen")
 
-# Round-2 panel (pane-header bar, right column, no inspector) loads and runs without QML
+# Panel (pane-header bar, right column, no inspector) loads and runs without QML
 # warnings (binding loops, undefined assignments, missing properties) in the dark and light themes.
 foreach(theme dark light)
     add_test(NAME ctr_qml_clean_${theme}

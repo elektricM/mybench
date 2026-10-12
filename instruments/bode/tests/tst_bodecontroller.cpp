@@ -195,7 +195,7 @@ private slots:
         QCOMPARE(c->cursorIndex(), 0);
     }
 
-    // Round 5: a second cursor (C2, last point when cursors go on) and the difference C2 − C1:
+    // A second cursor (C2, last point when cursors go on) and the difference C2 − C1:
     // the simulator's RC low-pass falls at −20 dB/decade well above 1 kHz.
     void secondCursorAndSlope()
     {

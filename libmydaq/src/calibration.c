@@ -1,7 +1,7 @@
 /* Calibration memory (object 05 07, 2048 bytes; docs/protocol.md section 4) and conversions.
  *
  * The constants are float32; conversions are evaluated in double exactly as NI-DAQmx does,
- * which reproduces every DAQmx value in the captures bit-exactly (tools/verify_cal.py). The
+ * which reproduces every DAQmx value in the captures bit-exactly. The
  * expression must not be contracted into a fused multiply-add (different rounding), hence the
  * pragma here and -ffp-contract=off in the build. */
 #include "internal.h"

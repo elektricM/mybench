@@ -1,5 +1,4 @@
-// Oscilloscope tests: the ELVISmx value tables and algorithms (docs/instruments/algorithms/
-// scope.md), acquisition against the simulated myDAQ, and settings persistence.
+// Oscilloscope tests: the ELVISmx value tables and algorithms (docs/instruments/scope.md), acquisition against the simulated myDAQ, and settings persistence.
 #include "scopecontroller.h"
 #include "scopecore.h"
 
@@ -127,7 +126,7 @@ void TestScope::ratePolicy_data()
     QTest::addColumn<double>("timePerDiv");
     QTest::addColumn<double>("rate");
     QTest::addColumn<qint64>("length");
-    // docs/instruments/algorithms/scope.md §2, Rmax = 200 kS/s.
+    // docs/instruments/scope.md, Rmax = 200 kS/s.
     QTest::newRow("5 us") << 5e-6 << 200000.0 << qint64(11);
     QTest::newRow("10 us") << 10e-6 << 200000.0 << qint64(21);
     QTest::newRow("20 us") << 20e-6 << 200000.0 << qint64(41);
@@ -435,7 +434,7 @@ void TestScope::acquireEdge()
     QVERIFY(x[size_t(r.record->triggerIndex - 1)] > 0.5 && x[size_t(r.record->triggerIndex)] <= 0.5);
 }
 
-// Alex: "triggering is wobbly, even on the simulator". Cause: the record started at the sample
+// Triggering was unstable (also on the simulator). Cause: the record started at the sample
 // after the crossing, so the edge sat anywhere within one sample (0.9 division at 5 us/div) from
 // frame to frame. Sub-sample alignment puts the interpolated crossing at the trigger position.
 void TestScope::triggerJitter()
@@ -629,7 +628,7 @@ void TestScope::phaseMeasurement()
     QVERIFY(std::isnan(sc::phaseBetween(std::vector<double>(10, 1.0), a, fs, 1000.0)));
 }
 
-// Alex: the trigger timeout was too fast and "Waiting for trigger" replaced the trace. Now nothing
+// The trigger timeout used to be too fast and "Waiting for trigger" replaced the trace. Now nothing
 // changes until the (configurable) timeout has passed; Normal keeps the last trace and waits.
 void TestScope::triggerTimeoutModes()
 {

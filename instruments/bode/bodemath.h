@@ -1,5 +1,5 @@
 // Bode Analyzer: pure functions shared by the sweep engine, the controller and the tests
-// (docs/instruments/bode.md, ELVISmx behaviour in docs/instruments/algorithms/bode.md).
+// (docs/instruments/bode.md).
 #pragma once
 
 #include <complex>
@@ -7,7 +7,7 @@
 
 namespace mybench::instruments::bode {
 
-// Limits and fixed parameters recovered from ELVISmx (algorithms/bode.md §1, §3, §4).
+// Limits and fixed parameters matching ELVISmx (docs/instruments/bode.md).
 inline constexpr double kMinFrequency = 1.0;        // Hz, myDAQ clamp
 inline constexpr double kMaxFrequency = 20000.0;    // Hz, myDAQ clamp
 inline constexpr int kMinSteps = 1;

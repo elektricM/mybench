@@ -1,7 +1,6 @@
 # Data Logger (`log`)
 
-Read [app.md](app.md) first. Behaviour recovered from the ELVISmx featured application:
-[algorithms/featured.md §3](algorithms/featured.md). MYBENCH version of the ELVISmx **Data Logger**
+Read [app.md](app.md) first. Behaviour matches the ELVISmx featured application. MYBENCH version of the ELVISmx **Data Logger**
 featured app (slow multi-channel voltage logging with a strip chart and a text file).
 
 ## 1. Purpose
@@ -21,7 +20,7 @@ statistics, and a delimited text file written while recording.
 | Log toggle ("Log"/"Logging…") | | **Record** / **Stop Recording** (run bar) |
 | File path for saved data | | **Log File** card: folder, name, format, options |
 | AI task | continuous, buffer 10 × rate, 1-s blocks | continuous, buffer 10 × rate; reads what is available every ~50 ms (display ≥ 10 Hz) |
-| File | per channel a pair `Time`, `<dev>/ai<n>`; Tab; absolute date-time strings; appended per 1-s block; see §8 (recovered exactly) | see §4 (MYBENCH native layout) and §8 (**ELVISmx-compatible layout**, optional) |
+| File | per channel a pair `Time`, `<dev>/ai<n>`; Tab; absolute date-time strings; appended per 1-s block; see §8 (exact format) | see §4 (MYBENCH native layout) and §8 (**ELVISmx-compatible layout**, optional) |
 | Invalid path | "no data was saved" | warning toast "Could not create <file> (<reason>): no data was saved." |
 
 ## 3. MYBENCH design
@@ -86,14 +85,14 @@ resistance logging, refusal without channels.
 
 ## 7. Open questions
 
-- Everything about the ELVISmx file that code study could not settle is listed in §8.4 and is
-  asked of a real ELVISmx session (`manual-session-apps.md`, Data Logger part).
+- Everything about the ELVISmx file that is not settled yet is listed in §8.4 and is
+  asked of a real ELVISmx session.
 
-## 8. ELVISmx Data Logger file: recovered format
+## 8. ELVISmx Data Logger file format
 
-Source tags: **VI** = `NI ELVISmx Data Logger.vi` (constants, front panel resources) and the NI
-"Export Waveforms To Spreadsheet File (1D)" library VI it calls; **LOG** = real files written by
-that same library VI in the Oscilloscope and DSA `Log` command (see scope.md 8; the Data Logger
+Source tags: **VI** = ELVISmx Data Logger behaviour (defaults, flags, call order) and the NI
+"Export Waveforms To Spreadsheet File (1D)" library function it uses; **LOG** = real files written by
+that same function in the Oscilloscope and DSA `Log` command (see scope.md 8; the Data Logger
 uses the same VI with the header switched off). Confidence H / M / L.
 
 ### 8.1 Dialogs and file handling

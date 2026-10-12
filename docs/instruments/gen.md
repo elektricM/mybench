@@ -220,7 +220,7 @@ ELVISmx window `Function Generator`, about 420 x 480 px, fixed.
 | Control | Type | Values / range | Format, increment | Default | Enabled when | Live while running |
 |---|---|---|---|---|---|---|
 | Sine / Triangle / Square | exclusive buttons | 3 shapes | | Sine | always | yes |
-| Frequency | log knob (end labels `200m` / `20k`) + SiField | 0.2 Hz ... 20 kHz (typed values coerced: `50000` -> `20k`, `0.01` -> `200m`; verified in ELVISmx UI) | up to 5 significant digits with SI suffix, trailing zeros trimmed (`100`, `1.2345k`, `20k`, `200m`; verified); arrow increment = 1 % of the value's decade (MYBENCH; ELVISmx code: 10); knob values rounded to 3 significant digits | 100 Hz | not during a sweep | yes (phase-continuous) |
+| Frequency | log knob (end labels `200m` / `20k`) + SiField | 0.2 Hz ... 20 kHz (typed values coerced: `50000` -> `20k`, `0.01` -> `200m`; verified in ELVISmx UI) | up to 5 significant digits with SI suffix, trailing zeros trimmed (`100`, `1.2345k`, `20k`, `200m`; verified); arrow increment = 1 % of the value's decade (MYBENCH; ELVISmx: 10); knob values rounded to 3 significant digits | 100 Hz | not during a sweep | yes (phase-continuous) |
 | Amplitude | linear knob (`0.0` ... `10.0`) + SiField | 0.00 ... 10.00 Vpp (coerced, verified) | 2 decimals; increment 0.01 (ELVISmx code) | 1.00 Vpp | not during a sweep | yes (ramped over one block) |
 | DC Offset | linear knob (`-5.0` ... `5.0`) + SiField | -5.00 ... +5.00 V (coerced, verified) | 2 decimals; increment 0.02 (ELVISmx code) | 0.00 V | not during a sweep (audio pair: forced 0, disabled) | yes (ramped) |
 | Duty Cycle | SiField | **0 ... 100 %** (coerced, verified; 0 and 100 give a constant level) | integer; increment 1 | 50 % | Square selected and not sweeping (grayed otherwise, verified) | yes |
@@ -571,8 +571,8 @@ preview, by Arbitrary channels and by tests: `parse(json) -> Document`, `seriali
 
 The function list, the order, the parameter names and the defaults below are **verified in the
 ELVISmx UI** (each function selected in the `Function Library:` combo, defaults read from the
-parameter pane; screens `ni-local/screens/explore/weditor/07-*`, `08-*`) and match the code study
-(algorithms/gen.md 3.4). The formulas are MYBENCH definitions that reproduce the shapes observed with
+parameter pane; screens `ni-local/screens/explore/weditor/07-*`, `08-*`) and match the library order.
+The formulas are MYBENCH definitions that reproduce the shapes observed with
 the default parameters on a 10 s segment (NI's exact formulas are not public). All numerics have
 4 decimals; Amplitude/Offset/Level/Start/End/Stop in V (range -1000 ... 1000, increment 0.1),
 frequencies in the document Units (`Freq (Hz)`, `Start (Hz)`, `Stop (Hz)`; 0 ... 10 MHz stored in
@@ -970,7 +970,7 @@ Arbiter
    clean-room study of sample files (four example files exist in the ELVISmx install, kept in
    `ni-local/` only). CSV/WAV cover data exchange.
 2. **Streaming at 200 kS/s** for two channels over USB is assumed feasible (single-channel continuous
-   AO was verified; two-channel AO is still an open hardware question in HANDOFF.md). The 100 kS/s
+   AO was verified; two-channel AO is still an open hardware question). The 100 kS/s
    fallback and the regenerate path (3.6) cover failures.
 3. **Frequency readback** is computed (NCO), not measured - as ELVISmx on a myDAQ, which displays the
    requested/stepped frequency (verified).
@@ -990,7 +990,7 @@ Arbiter
 9. **Library formulas** - parameter sets, defaults and order verified (4.3.4); exact NI formulas
    unknown, MYBENCH formulas reproduce the observed shapes.
 10. **FM operator** semantics are ours; ELVISmx lists `+`, `--`, `x`, `/`, `FM` (verified).
-11. **New Segment duration** 1 s (first segment 10 s) - from the code study; not re-checked in the UI.
+11. **New Segment duration** 1 s (first segment 10 s) - not re-checked in the UI.
 12. **Editor Frequency view** shows a Hann-windowed power spectrum in dBVrms; the ELVISmx ARB
    Frequency display is an FFT power spectrum in dB (`Magnitude (dB)`, verified).
 13. **WAV scaling**: full scale = 1 V (gain 2 fills the audio range, 10 the AO range).

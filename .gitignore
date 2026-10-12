@@ -1,10 +1,40 @@
-ni-local/
+# Build trees and editor/tool caches
 build*/
-compile_commands.json
+/compile_commands.json
 .cache/
+.vscode/
+.idea/
+*.user
 __pycache__/
 *.pyc
 .DS_Store
-.devlock/
-.devlock-session
-.aws
+
+# Flatpak builder state
+.flatpak-builder/
+flatpak-repo/
+*.flatpak
+
+# Local packaging output
+/package/
+*.dmg
+*.AppImage
+
+# Local reference material and device-lab state (not part of the project)
+/ni-local/
+/.devlock/
+/.devlock-session
+/.aws
+
+# Private working notes and analysis (kept locally, not published)
+/CLAUDE.md
+/HANDOFF.md
+/suggestions.md
+/.claude/
+/docs/audit.md
+/docs/ui-proposal.md
+/docs/instruments/algorithms/
+/notes/
+/tools/*
+!/tools/devlock.sh
+!/tools/pcap2mock.py
+!/tools/ui-matrix.sh

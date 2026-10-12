@@ -70,7 +70,7 @@ std::vector<WdtWaveform> parseWdt(const QByteArray& data);
 QByteArray encodeWdt(const std::vector<WdtWaveform>& waveforms);
 
 // --- NI Waveform Editor documents (.wfm), best effort ------------------------------------------------
-// LabVIEW flattened, big-endian (algorithms/gen.md 3.2, 3.5): U16 Units, then an I32-counted array
+// LabVIEW flattened, big-endian: U16 Units, then an I32-counted array
 // of records {I32 Type (0 segment, 1 library, 2 expression, 3 sketch), string (I32 length +
 // bytes), I32 Op, I32 A, SGL B, SGL array C (I32 count + values)}. Segment: name, B = duration;
 // library: A = function index, C = parameters; expression: text, C = {From, To, Cycles}; sketch:

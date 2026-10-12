@@ -3,8 +3,8 @@ import QtTest
 import MyBench.Framework
 import MyBench.Controls
 
-// docs/audit.md "Application shell" rows 20 (Knob default), 21 (SiField wheel/tooltip/name),
-// 24 (resource chip menu), 25 (shortcut hints, workspace tab moves).
+// Application shell: Knob default, SiField wheel/tooltip/name, resource chip menu, shortcut hints,
+// workspace tab moves.
 Item {
     id: root
     width: 640

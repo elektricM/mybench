@@ -1,6 +1,6 @@
 // Scope QML behaviour (offscreen): the FFT view keeps the user's zoom; the panel has every setting
 // exactly once; Immediate trigger hides the Edge fields; measurements are chosen in the measurement
-// strip; the controller migration shows up in the panel; round 5: horizontal and trigger controls
+// strip; the controller migration shows up in the panel; horizontal and trigger controls
 // always visible, no duplicate controls, fixed column, tool panels beside the display, cursor pair
 // colors and readouts.
 #include "scopecontroller.h"
@@ -384,7 +384,7 @@ private slots:
         QVERIFY(panel.shown(u"triggerTypeEdge"_s));
     }
 
-    // Round 5 (Alex: "where are the horizontal controls, trigger"): timebase, trigger position,
+    // Timebase, trigger position,
     // type, mode, source, slope and level are on screen with no tool open; one control per action
     // (no Math/References cards beside their tools, no FFT or Trigger tool, no range chip beside
     // the range buttons); the column keeps one width; an open tool panel pushes the display aside
@@ -477,7 +477,7 @@ private slots:
         QVERIFY2(mode->mapToScene(QPointF(mode->width(), 0)).x() <= cardRight + 0.5, "trigger mode outside the card");
     }
 
-    // Martin: "cursors that are both the same color". C1 / C2 (and H1 / H2) are drawn in the two
+    // The two cursors use different colors. C1 / C2 (and H1 / H2) are drawn in the two
     // cursor pair colors, the same in their card; the card reads Δt, 1/Δt and ΔV.
     void cursorPairColors()
     {

@@ -62,7 +62,7 @@ private slots:
         QVERIFY(DeviceHub::instance()->isConnected());
     }
 
-    // Round-2 UI: one Format choice (Tab / CSV / ELVISmx text) replaces Format + Layout. Old
+    // UI: one Format choice (Tab / CSV / ELVISmx text) replaces Format + Layout. Old
     // settings with layout = ELVISmx restore as the ELVISmx format; choosing Tab/CSV goes back
     // to the native layout.
     void fileTypeMergesLayout()

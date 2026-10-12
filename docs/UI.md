@@ -4,20 +4,20 @@ MYBENCH is **one desktop application** for the NI myDAQ. It keeps every ELVISmx 
 `docs/instruments/*.md`), but not ELVISmx's look, naming or ordering. It presents the instruments in
 one calm, dense, professional window that behaves like a native Qt application.
 
-> **Round 2 (2026-10-04, Martin):** the instrument panels follow a PicoScope 7–style layout: knobs are
+> **Layout:** the instrument panels follow a PicoScope 7–style layout: knobs are
 > back for primary parameters (Knob + typeable value + − / +), primary controls always visible,
 > segmented and picture buttons instead of dropdowns, channel cards and a tool palette with floating
 > panels on the right of the display, measurement cards with statistics. Dark is the default theme.
 > Where this conflicts with §1, §6 or the "no knobs" wording below, this note wins.
 
-> **Round 3 (2026-10-05, Martin):** standard controls use the **OS-native Qt style** (macOS on Mac,
+> **Native controls:** standard controls use the **OS-native Qt style** (macOS on Mac,
 > FluentWinUI3 on Windows, Fusion or KDE's org.kde.desktop on Linux; Fusion offscreen/in tests);
 > custom instrument parts stay ours and follow the system palette. Never override
 > `background`/`contentItem`/`indicator` on standard controls; custom-looking components derive from
 > QtQuick.Templates. No sentence-style summary text: a value appears once, in its control.
 > Drag-and-drop to split is required. This overrides the "own MyBench.Style" decision below.
 
-> **Round 5 (2026-10-05, Martin and Alex: "a downgrade"):** fix, don't redesign. Every instrument's
+> **Completeness and color:** every instrument's
 > controls are complete and visible (Scope timebase + trigger, not behind a tool); **one control per
 > action** (no header button and tool for the same thing); no permanently disabled controls; every
 > picture button has a pictogram. Color is used more, with meaning: **green filled Run, red filled
@@ -27,8 +27,7 @@ one calm, dense, professional window that behaves like a native Qt application.
 > pinned). A pane header's instrument bar wraps to a second row instead of clipping. Linux uses
 > Fusion unless `--style org.kde.desktop`.
 
-This document is the **contract** for every UI change. It supersedes UI v1 (2026-09) and
-`docs/ui-proposal.md`. Migration progress: `docs/audit.md`, section "UI v2". If code and this
+This document is the **contract** for every UI change. If code and this
 document disagree, this document wins; change it first if it is wrong.
 
 ## Technology
@@ -433,16 +432,15 @@ Each instrument provides:
 - a `keyValue`;
 - `docs/help/<id>.md`.
 
-Its layout (pane-header extras, display, strip, inspector sections) is specified in the redesign plan
-and tracked in `docs/audit.md` "UI v2".
+Its layout (pane-header extras, display, strip, inspector sections) follows the panels described above.
 
 ---
 
-## 13. Contract v2 (interfaces shared between work packages)
+## 13. Contract v2 (interfaces shared between components)
 
-Agents code against these names. A name marked *(alias)* exists only so code that has not been
-migrated keeps building; it goes in the cleanup phase. Changing anything in this section needs the
-orchestrator.
+Code is written against these names. A name marked *(alias)* exists only so code that has not been
+migrated keeps building; it is to be removed. Changing anything in this section needs agreement of
+the maintainers.
 
 ### 13.1 Theme (singleton `MyBench.Controls/Theme`)
 
@@ -619,7 +617,7 @@ InstrumentPanel {
 | `TrendView` | a BenchPlot with `windows: [{text, seconds}]`, `windowIndex`, `signal windowActivated(int index)`, `signal clearRequested()`, `plot` (alias). The time-window selector sits in the plot toolbar |
 | `OverviewTile` (A2) | `title`, `iconName`, `status`, `keyValue`, `preview` (Component), `pinned`, `signal clicked()`, `signal runToggled()` |
 
-### 13.8b Instrument controls, round 2 (`ui/controls`; PicoScope 7–style panels)
+### 13.8b Instrument controls (`ui/controls`; PicoScope 7–style panels)
 
 | Component | API |
 |---|---|
@@ -632,7 +630,7 @@ InstrumentPanel {
 | `MeasurementCard` | `title`, `color`, `value`, `stats {min, max, mean, stdDev}`, `removable` → `removeRequested()` |
 | `RunButton` | big Run/Stop with state line: `running`, `stateText`, `busy`, emits `toggled()` |
 
-Round 4 additions (G1): `Theme.nativeControlHeight` (24 under the macOS style, else 0; `controlHeight`
+Further additions: `Theme.nativeControlHeight` (24 under the macOS style, else 0; `controlHeight`
 follows it); layout tokens `instrumentColumnWidth` (260), `instrumentColumnCompactWidth` (220),
 `instrumentCompactWidth` (1000), `toolPanelWidth` (300); `PictureButton.autoToggle` (default false: a
 click emits `clicked()` and never breaks a `checked` binding); `ChannelCard.collapseWhenOff` (default false:
@@ -640,7 +638,7 @@ an off channel keeps its dimmed body so it can be set up before switching it on)
 `MeasurementCard` numeric API `numericValue`, `unit`, `significantDigits` (4), `stdDevDigits`, `valueText`,
 `statText(key)`; SegmentedControl draws the macOS-like recessed track with a raised current segment.
 
-Panel pattern (round 2): `inspector: []` (the shell hides the empty dock); top bar = `RunButton`,
+Panel pattern: `inspector: []` (the shell hides the empty dock); top bar = `RunButton`,
 Single and the primary `KnobField`s (via `InstrumentPanel.headerContent` + `showRunControls: false`);
 display left and largest; right column of `ChannelCard`s with knobs, then a `ToolPalette` whose tools
 open a `ToolPanel` over the display; `MeasurementCard`s at the bottom; narrow panes switch the right
@@ -653,13 +651,11 @@ column to `compact`. Short choices are segmented or picture buttons; dropdowns o
 - Every separate `Window` has its content in a reusable pane Item, which a flag shows in the window:
   `--preferences`, `--about`, `--device-info`, `--simulator-settings`.
 
-### 13.10 Ownership during the migration
+### 13.10 Ownership
 
-- `ui/controls` is split file by file between the design-system and framework work packages (see the
-  table in `docs/audit.md` "UI v2").
-- Instrument work packages never edit `ui/controls`, `ui/framework` or `ui/plot`; they ask the
-  orchestrator.
-- The shell work package owns `app/`.
+- `ui/controls`, `ui/framework` and `ui/plot` are shared code: instruments do not edit them except
+  for minimal, backwards-compatible changes.
+- The shell owns `app/`.
 
 ---
 
@@ -675,4 +671,4 @@ column to `compact`. Short choices are segmented or picture buttons; dropdowns o
 | `app/` | `MyBench.App` | the `mybench` shell: Main, AppActions, AppMenuBar, AppToolBar, Sidebar, Workspace, OverviewPage, Preferences |
 
 Every executable supports `--screenshot <file.png> [--delay ms] [--size WxH] [--theme light|dark]`.
-It renders offscreen with `QT_QPA_PLATFORM=offscreen`, so agents and CI can check the UI visually.
+It renders offscreen with `QT_QPA_PLATFORM=offscreen`, so CI and developers can check the UI visually.

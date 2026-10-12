@@ -1,4 +1,4 @@
-// Data Logger panel layout (offscreen, round-2 layout): chart left, control column right, value
+// Data Logger panel layout (offscreen): chart left, control column right, value
 // cards at the bottom, at wide, split and narrow sizes; the Log File tool's single Format choice
 // shows a restored ELVISmx layout.
 #include "logcontroller.h"
@@ -115,7 +115,7 @@ private slots:
         QCOMPARE(ai0->property("subtitle").toString(), QString());
         QCOMPARE(ai0->property("facts").toStringList(), QStringList{u"±10 V"_s});
 
-        // Round 5: no "Monitoring" / "Not recording" chip (the Record button shows that); the
+        // No "Monitoring" / "Not recording" chip (the Record button shows that); the
         // DMM card off = header only, on = function pictures + a range knob, running = the
         // function and range as facts (never a grid of disabled buttons); tools pinned and shown.
         QVERIFY(!root->findChild<QQuickItem*>(u"logRecordState"_s)->isVisible());

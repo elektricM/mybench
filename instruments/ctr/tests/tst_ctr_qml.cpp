@@ -1,4 +1,4 @@
-// Counter/Timer panel QML (offscreen, round-2 layout): the mode picture buttons switch the counter
+// Counter/Timer panel QML (offscreen): the mode picture buttons switch the counter
 // function and keep their checked state bound to the controller; the settings cards follow the
 // mode; the FREQOUT knob steps over the achievable frequencies (low to high) and selects them.
 #include "ctrcontroller.h"
@@ -193,7 +193,7 @@ private slots:
         QCOMPARE(knob->property("currentIndex").toInt(), last);
     }
 
-    // Round 4: the trend is a TrendView with a time-window selector; the expected range is one
+    // The trend is a TrendView with a time-window selector; the expected range is one
     // button per counter timebase, writing min and max together.
     void trendWindowAndRangeButtons()
     {
@@ -230,7 +230,7 @@ private slots:
         QCOMPARE(m_root->property("expectedRangeIndex").toInt(), 2);
     }
 
-    // Round 5: expected-range picture buttons (pictogram + the deciding bound), statistics as the
+    // Expected-range picture buttons (pictogram + the deciding bound), statistics as the
     // shared MeasurementCards, a palette with more than one tool, the FREQOUT knob ready while off,
     // Single live while running (stop after the next reading).
     void round5Controls()

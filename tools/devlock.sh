@@ -1,15 +1,15 @@
 #!/bin/sh
-# Serialise use of the single physical myDAQ between agents/scripts.
+# Serialise use of the single physical myDAQ between test runs and scripts.
 #
 #   tools/devlock.sh vm OWNER -- CMD...       run CMD holding the lock, device attached to the NI VM
-#                                             (use for captures: capture.sh, DAQmx scripts)
+#                                             (use for captures in the VM)
 #   tools/devlock.sh native OWNER -- CMD...   run CMD holding the lock, device detached from the VM so
 #                                             libusb on the Mac can open it (waits up to 15 s, DEVLOCK_USB_WAIT,
 #                                             until libusb can claim it); re-attached afterwards
 #   tools/devlock.sh status                   who holds the lock
-#   tools/devlock.sh session start|end        manual session (Martin at the bench): while the file
-#                                             .devlock-session exists, only owners "martin" and
-#                                             "usb-manual" (or a run with DEVLOCK_MANUAL=1, e.g. his
+#   tools/devlock.sh session start|end        manual session (hands-on work at the bench): while the file
+#                                             .devlock-session exists, only the owners "martin" and
+#                                             "usb-manual" (or a run with DEVLOCK_MANUAL=1, e.g. a
 #                                             hw ctest) may take the lock; everyone else is refused
 #
 # The lock is the directory .devlock/ in the repo (atomic mkdir); a lock whose holder process is gone
@@ -109,7 +109,7 @@ case "${1:-status}" in
         [ -f "$S" ] && echo "manual session in progress since $(cat "$S")"; exit 0 ;;
     session)
         case "${2:-}" in
-            start) date '+%H:%M:%S' > "$S"; echo "manual session started: agents are refused" ;;
+            start) date '+%H:%M:%S' > "$S"; echo "manual session started: other owners are refused" ;;
             end) rm -f "$S"; echo "manual session ended" ;;
             *) echo "usage: $0 session start|end" >&2; exit 1 ;;
         esac ;;

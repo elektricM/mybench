@@ -1443,7 +1443,7 @@ private slots:
     }
 
     // Two vertical cursors draw a Δ chip at the bottom between them; cursorDeltaVisible: false
-    // (round 5, the Oscilloscope shows Δt in its cursor card) leaves that area empty.
+    // (the Oscilloscope shows Δt in its cursor card) leaves that area empty.
     void cursorDeltaChipSwitch()
     {
         PlotFixture f;

@@ -8,7 +8,7 @@ import MyBench.Controls
 // direction, the Read / Write groups): equal segments, small padding, the current segment filled
 // in its color (`model` entries { text, toolTip, color }). Never elides "In" / "Out" / "0–3" in an
 // 80 px tile or a 220 px column, where the platform SegmentedControl would. A custom part built
-// on QtQuick.Templates (docs/UI.md round 3: no native style overridden).
+// on QtQuick.Templates (docs/UI.md: no native style overridden).
 //     DioChoice { model: [{ text: "In", color: green }, { text: "Out", color: orange }]
 //                 currentIndex: dir; onActivated: index => setDirection(index) }
 Item {

@@ -7,7 +7,7 @@ import MyBench.Framework
 import MyBench.Controls
 import MyBench.Plot
 
-// Data Logger panel (docs/instruments/log.md), round-2 layout (docs/UI.md "Round 2"):
+// Data Logger panel (docs/instruments/log.md), PicoScope-style layout (docs/UI.md §13.8b):
 // - pane header: Run/Stop, Record (Pause while recording), sampling-rate knob;
 // - display (left, largest): the multi-channel trend (10 s … All in its toolbar), the DMM's own
 //   chart when it is logged next to AI channels, and an overview of the whole run;

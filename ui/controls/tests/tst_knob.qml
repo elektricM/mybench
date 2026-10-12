@@ -2,7 +2,7 @@ import QtQuick
 import QtTest
 import MyBench.Controls
 
-// Knob v2 (UI redesign round 2): stepped/continuous input by keys, drag and wheel,
+// Knob v2: stepped/continuous input by keys, drag and wheel,
 // clockwiseIncreases, defaultIndex reset, bipolar arc origin, v1 property names.
 Item {
     id: root

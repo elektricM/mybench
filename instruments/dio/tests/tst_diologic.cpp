@@ -1,5 +1,5 @@
 // Digital I/O logic: presets, right-justified mapping, patterns, actions, value formats
-// (docs/instruments/algorithms/dio.md, docs/instruments/dio.md 2.2 and 3.2).
+// (docs/instruments/dio.md 2.2 and 3.2).
 #include "diologic.h"
 
 #include <QTest>

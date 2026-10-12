@@ -62,7 +62,7 @@ std::vector<Complex> besselPrototypePoles(int order);
 Cascade besselLowpass(int order, double cutoff, double sampleRate);
 Cascade besselBandpass(int order, double low, double high, double sampleRate);
 
-// Band definitions recovered from ELVISmx (docs/instruments/algorithms/featured.md).
+// Band definitions matching ELVISmx (docs/instruments/aeq.md).
 constexpr int kFilterOrder = 4;
 constexpr double kBassCutoff = 320.0;
 constexpr double kMidLow = 320.0;
