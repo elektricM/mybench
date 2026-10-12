@@ -66,6 +66,8 @@ void mydaq_mock_set_dmm_timeout(mydaq_mock *m, int timeout);
 unsigned mydaq_mock_dmm_set_modes(const mydaq_mock *m);
 /** Levels seen on lines configured as inputs. */
 void mydaq_mock_set_dio_inputs(mydaq_mock *m, uint8_t levels);
+/** 1: three of the init's property records (the 50-byte blob, 87d9e4ed, 21aeef59) answer -225201, as unit 036528CE does. */
+void mydaq_mock_set_reject_properties(mydaq_mock *m, int reject);
 /** hwverify (05 06) answers "still starting" (-225270) for the next `count` calls. */
 void mydaq_mock_set_hwverify_busy(mydaq_mock *m, unsigned count);
 /** The next `count` commands on the AI timing engine (0550/2) answer -201381 (not ready). */

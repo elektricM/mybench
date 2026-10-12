@@ -164,6 +164,7 @@ struct mydaq_mock {
     unsigned ai_stream;      /* stream number of the AI task (in_fifo.configure) */
     unsigned ao_stream;      /* stream number of the AO task (out_timing.m0b) */
     uint64_t ai_t0_us, ai_sent_scans, ai_index;
+    int reject_properties;      /* 1: property writes (05010001) answer -225201 */
     unsigned hwverify_busy;     /* hwverify answers -225270 this many more times */
     unsigned ai_not_ready;      /* commands on 0550/2 answer -201381 this many more times */
     /* AO (bulk OUT 0x04) */
@@ -617,6 +618,9 @@ static void emulate(mydaq_mock *m, const uint8_t *f, size_t len)
     } else if (obj == 0x05500002u && m->ai_not_ready > 0) {
         --m->ai_not_ready;
         respond(m, ch, 6, -201381, NULL, 0);   /* not ready yet after an init */
+    } else if (op == 0x09 && obj == 0x05010001u && m->reject_properties && blen >= 12 &&
+               (be32(b + 4) == 0x32u || be32(b + 8) == 0x87d9e4edu || be32(b + 8) == 0x21aeef59u)) {
+        respond(m, ch, 6, -225201, NULL, 0);   
     } else if (op == 0x08 && obj == 0x05060000u && m->hwverify_busy > 0) {
         --m->hwverify_busy;
         respond(m, ch, 6, -225270, NULL, 0);   /* device still starting up */
@@ -1340,6 +1344,12 @@ void mydaq_mock_set_ai_not_ready(mydaq_mock *m, unsigned count)
     md_mutex_lock(&m->lock);
     m->ai_not_ready = count;
     md_mutex_unlock(&m->lock);
+}
+
+void mydaq_mock_set_reject_properties(mydaq_mock *m, int reject)
+{
+    if (m)
+        m->reject_properties = reject;
 }
 
 void mydaq_mock_set_hwverify_busy(mydaq_mock *m, unsigned count)

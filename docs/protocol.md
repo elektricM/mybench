@@ -206,7 +206,7 @@ The two `op0d 02fe 0001 xx` status bytes flip after the device has been used (`f
 fresh attach, `00/ff` after a reset or native session). Meaning unknown; NI and we ignore them **[C]**.
 
 The `05 01` records look like (u32 length 6?, u32 property hash, u32 length 6?, u32 value); the
-116-byte record carries a 50-byte opaque blob. Constant across all captures, replayed as is **[?]**.
+116-byte record carries a 50-byte opaque blob. Constant across all captures, replayed as is **[?]**. Unit 036528CE (2026-10-12) answers -225201 to the blob and to the `87d9e4ed` and `21aeef59` records (the other three are accepted); the device works without them, so libmydaq logs and skips a non-zero status on init property writes.
 
 ## 4. Calibration memory (object 0x0507) — **READY for libmydaq**
 

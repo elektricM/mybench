@@ -41,14 +41,21 @@ static const init_cmd init_post[] = {
     {MD_CH_OBJECT, MD_OP_WRITE, "05010001 00000006 21aeef59 00000006 00000000"},
 };
 
+/* Some units answer -225201 to individual property records of the init (seen on unit 036528CE
+ * for three of the six; the instruments work without them). A device status on a property write
+ * is therefore logged and skipped; transport errors still abort the init. */
 static int run_list(mydaq_device *dev, const init_cmd *list, size_t n)
 {
     size_t i;
     for (i = 0; i < n; ++i) {
-        const int rc =
-            md_cmd_hex(dev, list[i].channel, list[i].op, list[i].body, MD_TIMEOUT_LONG, 0, NULL);
+        md_resp r;
+        const int rc = md_cmd_hex(dev, list[i].channel, list[i].op, list[i].body, MD_TIMEOUT_LONG,
+                                  list[i].op == MD_OP_WRITE ? MD_CMD_ANY_STATUS : 0, &r);
         if (rc != MYDAQ_OK)
             return rc;
+        if (list[i].op == MD_OP_WRITE && r.status != 0)
+            MD_DBG(dev->ctx, "init: property record %zu answered status %ld, skipped", i,
+                   (long)r.status);
     }
     return MYDAQ_OK;
 }

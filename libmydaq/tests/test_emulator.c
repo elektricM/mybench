@@ -1018,6 +1018,29 @@ static void test_hwverify_retry(void)
     CHECK(info.init_seconds >= 0.15);
 }
 
+static void test_init_rejected_properties(void)
+{
+    /* A unit that refuses the property records of the init must still open and work. */
+    mydaq_context *ctx = NULL;
+    mydaq_mock *m = mydaq_mock_new_emulator_file(test_data("calmem-036CD1C6.bin"));
+    mydaq_device *dev = NULL;
+    const mydaq_ai_channel_config ch = {MYDAQ_AI0, MYDAQ_AI_RANGE_10V};
+    double v = 1;
+    int rc, rc_ai = -1;
+    CHECK(m);
+    CHECK_RC(mydaq_context_new_no_usb(&ctx));
+    mydaq_context_set_log(ctx, MYDAQ_LOG_NONE, NULL, NULL);
+    mydaq_mock_set_reject_properties(m, 1);
+    rc = mydaq_mock_open(ctx, m, 0, &dev);
+    if (rc == MYDAQ_OK)
+        rc_ai = mydaq_ai_read_scan(dev, &ch, 1, &v);
+    mydaq_close(dev);
+    mydaq_mock_free(m);
+    mydaq_context_free(ctx);
+    CHECK_RC(rc);
+    CHECK_RC(rc_ai);
+}
+
 static void test_not_ready_after_init(void)
 {
     /* After an init the device may reject commands with -201381 for a second or two: within
@@ -1114,6 +1137,7 @@ const test_case emulator_tests[] = {
     {"emu.no_init_open", test_no_init_open},
     {"emu.log_callback", test_log_callback},
     {"emu.hwverify_retry", test_hwverify_retry},
+    {"emu.init_rejected_properties", test_init_rejected_properties},
     {"emu.not_ready_after_init", test_not_ready_after_init},
     {"emu.open_unplugged", test_open_unplugged},
     {NULL, NULL},
