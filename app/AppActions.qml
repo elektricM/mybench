@@ -21,6 +21,9 @@ Item {
     // Window state, bound by the shell.
     property bool sidebarShown: workspace.sidebarShown
     property bool inspectorShown: workspace.inspectorShown
+    // The focused pane has something to show in the inspector (settings or help). Data Logger,
+    // Counter/Timer and Waveform Generator keep their controls beside the display: no inspector.
+    property bool inspectorAvailable: true
     property bool fullScreen: false
     property bool paletteOpen: false
     property bool menuBarShown: preferences.view.menuBarShown
@@ -190,7 +193,8 @@ Item {
     property ShellAction toggleInspector: ShellAction {
         text: qsTr("Show Inspector"); paletteText: checked ? qsTr("Hide Inspector") : qsTr("Show Inspector")
         iconName: "sidebar-right"; keys: actions.mac ? "Alt+Ctrl+I" : "Ctrl+I"; keywords: "settings panel"
-        checkable: true; checked: actions.inspectorShown
+        checkable: true; checked: actions.inspectorShown && actions.inspectorAvailable
+        enabled: actions.inspectorAvailable
         onTriggered: actions.workspace.setInspectorShown(!actions.inspectorShown)
     }
     property ShellAction toggleMeasurements: ShellAction {

@@ -142,6 +142,7 @@ ApplicationWindow {
         deviceButton: toolbar.deviceButton
         sidebarShown: layout.sidebarVisible || drawer.opened
         inspectorShown: layout.inspectorWanted
+        inspectorAvailable: layout.inspectorHasContent
         fullScreen: window.visibility === Window.FullScreen
         paletteOpen: palette.opened
         onPaletteRequested: palette.opened ? palette.close() : palette.open()

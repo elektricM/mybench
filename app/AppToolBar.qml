@@ -192,6 +192,7 @@ Rectangle {
 
         ToolButton {
             objectName: "inspectorToggle"
+            enabled: bar.actions.toggleInspector.enabled
             onClicked: bar.actions.toggleInspector.trigger()
             Accessible.name: ToolTip.text
             icon.source: Theme.icon("sidebar-right")

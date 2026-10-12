@@ -311,7 +311,7 @@ void TestScopehalBridge::identify()
 
     QCOMPARE(m_client.query("CHANS?").value_or("?"), QByteArray("2"));
 
-    const QByteArray rates = m_client.query("RATES?").value_or({});
+    const QByteArray rates = m_client.query("RATES?").value_or(QByteArray());
     QVERIFY(rates.endsWith(','));
     const std::vector<qint64> periods = parseList(rates);
     QVERIFY(periods.size() >= 10);
@@ -324,7 +324,7 @@ void TestScopehalBridge::identify()
         QVERIFY(hz <= 200000);
     }
 
-    const QByteArray depths = m_client.query("DEPTHS?").value_or({});
+    const QByteArray depths = m_client.query("DEPTHS?").value_or(QByteArray());
     QVERIFY(depths.endsWith(','));
     const std::vector<qint64> d = parseList(depths);
     QVERIFY(d.size() >= 5);

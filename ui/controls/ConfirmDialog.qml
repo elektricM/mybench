@@ -49,8 +49,8 @@ Item {
             styled.open()
         } else {
             nativeLoader.active = true
-            const native = nativeLoader.item as MessageDialog
-            native.open()
+            const box = nativeLoader.item as MessageDialog
+            box.open()
         }
         privateState.opened = true
     }
@@ -58,9 +58,9 @@ Item {
         const styled = styledLoader.item as Dialog
         if (styled)
             styled.close()
-        const native = nativeLoader.item as MessageDialog
-        if (native)
-            native.close()
+        const box = nativeLoader.item as MessageDialog
+        if (box)
+            box.close()
         privateState.opened = false
     }
     function accept() {

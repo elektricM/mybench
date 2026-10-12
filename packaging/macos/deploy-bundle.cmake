@@ -8,7 +8,7 @@
 #      (macdeployqt copies whole directory trees), our own MyBench.* modules (linked statically;
 #      the copied qmldir files would only shadow them), the Qt Quick Controls styles the app never
 #      selects (it picks one at run time with QQuickStyle: macOS natively, Fusion offscreen,
-#      MyBench.Style on Basic by preference; see docs/UI.md round 3), unused plugin types, then
+#      MyBench.Style on Basic by preference; see docs/UI.md), unused plugin types, then
 #      every framework or dylib no longer reachable from what is left.
 #   3. Check: no Mach-O file in the bundle may reference a library outside the bundle other than
 #      the system's (/System, /usr/lib), and every @rpath/@loader_path/@executable_path
@@ -105,13 +105,32 @@ foreach(i RANGE ${_last})
         list(APPEND _modules "${_rel}")
     endif()
 endforeach()
-foreach(m IN LISTS _runtime_style_modules)
-    if(IS_DIRECTORY "${_qml}/${m}")
-        list(APPEND _modules "${m}")
-    else()
+# The run-time styles' own QML imports further modules that qmlimportscanner never sees, some of
+# them inside a style we prune (macOS/BusyIndicator.qml imports QtQuick.Controls.iOS.impl). Follow
+# the imports of each kept style module, transitively, so none of them goes missing.
+set(_pending ${_runtime_style_modules})
+set(_seen "")
+while(_pending)
+    list(POP_FRONT _pending m)
+    if(m IN_LIST _seen)
+        continue()
+    endif()
+    list(APPEND _seen "${m}")
+    if(NOT IS_DIRECTORY "${_qml}/${m}")
         message(FATAL_ERROR "deploy-bundle: run-time style module ${m} missing from the bundle")
     endif()
-endforeach()
+    list(APPEND _modules "${m}")
+    file(GLOB _sources "${MYBENCH_QT_QML_DIR}/${m}/*.qml" "${MYBENCH_QT_QML_DIR}/${m}/qmldir")
+    foreach(f IN LISTS _sources)
+        file(STRINGS "${f}" _imports REGEX "^import Qt")
+        foreach(line IN LISTS _imports)
+            if(line MATCHES "^import (Qt[A-Za-z0-9_.]*)")
+                string(REPLACE "." "/" _dep "${CMAKE_MATCH_1}")
+                list(APPEND _pending "${_dep}")
+            endif()
+        endforeach()
+    endforeach()
+endwhile()
 list(REMOVE_DUPLICATES _modules)
 list(JOIN _modules " " _modules_text)
 message(STATUS "QML modules shipped: ${_modules_text}")
@@ -153,7 +172,8 @@ endfunction()
 _prune_dir("${_qml}" "")
 # Qt plugin types: keep only those the app uses (macdeployqt adds the plugins of every framework
 # it copied, e.g. Qt 3D's renderers/sceneparsers because QtQuick/Scene3D lives under QtQuick/).
-# imageformats: PNG and JPEG are built into QtGui; keep SVG only (icons).
+# imageformats: PNG and JPEG are built into QtGui; keep SVG (icons) and WebP (the macOS style's
+# animated BusyIndicator images).
 set(_plugin_types platforms iconengines imageformats multimedia quick)
 file(GLOB _plugin_dirs LIST_DIRECTORIES true "${_contents}/PlugIns/*")
 foreach(d IN LISTS _plugin_dirs)
@@ -165,7 +185,7 @@ endforeach()
 file(GLOB _imageformats "${_contents}/PlugIns/imageformats/*")
 foreach(f IN LISTS _imageformats)
     get_filename_component(_name "${f}" NAME)
-    if(NOT _name MATCHES "qsvg")
+    if(NOT _name MATCHES "qsvg|qwebp")
         file(REMOVE "${f}")
     endif()
 endforeach()

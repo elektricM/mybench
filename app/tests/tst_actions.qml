@@ -58,7 +58,7 @@ Item {
             fuzzyCompare(a.y, b.y, 1)
         }
 
-        // Overview tiles (round 5): a stopped instrument with nothing measured offers Run over its
+        // Overview tiles: a stopped instrument with nothing measured offers Run over its
         // empty preview, and Run starts it; a tile with a preview does not repeat its key value.
         function test_overviewIdleTileRuns() {
             const page = createTemporaryObject(overviewComponent, host)
@@ -87,6 +87,22 @@ Item {
 
         function init() {
             ws.fromMap({})
+        }
+
+        // A pane without inspector (Data Logger, Counter/Timer, Waveform Generator): the
+        // Inspector command is disabled instead of toggling a column that never appears.
+        function test_inspectorToggleNeedsContent() {
+            const before = ws.inspectorShown
+            actions.inspectorAvailable = false
+            verify(!actions.toggleInspector.enabled)
+            verify(!actions.toggleInspector.checked)
+            actions.toggleInspector.trigger()
+            compare(ws.inspectorShown, before)
+            actions.inspectorAvailable = true
+            verify(actions.toggleInspector.enabled)
+            actions.toggleInspector.trigger()
+            compare(ws.inspectorShown, !before)
+            ws.setInspectorShown(before)
         }
 
         function test_noDuplicateShortcuts() {
