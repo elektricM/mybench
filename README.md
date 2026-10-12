@@ -105,9 +105,10 @@ in ngscopeclient (through a small bridge). See [docs/integrations.md](docs/integ
 Further reading: [architecture](docs/ARCHITECTURE.md), [UI design](docs/UI.md),
 [USB protocol](docs/protocol.md) and [driver status per subsystem](docs/libmydaq.md).
 
-The USB protocol was worked out for interoperability, from USB captures of the myDAQ and from
-observing NI's software. No NI code, firmware, driver files, help text or artwork is part of
-this repository.
+The USB protocol was worked out for interoperability, from USB captures of the myDAQ, from
+observing NI's software and from studying its driver
+([notes](docs/driver-notes.md)). No NI code, firmware, driver files, help text or artwork is
+part of this repository.
 
 ## License
 

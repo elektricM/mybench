@@ -83,10 +83,10 @@ Coverage marks (2026-09-28): **explored** = UI observed; **code** = described fr
 
 | App | Status | What is covered | Coverage |
 |---|---|---|---|
-| DC Level | explored | controls, range, Start/Stop behaviour; DAQmx calls not captured | `gen.md` DC mode, `featured-apps.md 2` |
-| Data Logger | explored + code | controls, defaults (rate 1000), log file layout (header pair per channel, absolute date-time cells, `E` values, TAB, CRLF, append), path control (`*.lvm`, shared Documents); real file and dialog still to observe | `log.md 2, 8`, `featured-apps.md 3` |
-| Octave Analyzer | explored (screens) + code | every control, Mode / Time Constant / band index / weighting behaviour, tabs, staircase display, Settled; SVT engine | `dsa.md 14`, `featured-apps.md 4` |
-| Audio Equalizer | code only | panel elements, defaults, ranges, filter design, constants, two rate/delay configurations; never launched | `aeq.md 8`, `featured-apps.md 5` |
+| DC Level | explored | controls, range, Start/Stop behaviour | `gen.md` DC mode, `featured-apps.md 2` |
+| Data Logger | explored + code | controls, defaults (rate 1000), log file layout (header pair per channel, absolute date-time cells, `E` values, TAB, CRLF, append), path control (`*.lvm`, shared Documents) | `log.md 2, 8`, `featured-apps.md 3` |
+| Octave Analyzer | explored (screens) + code | every control, Mode / Time Constant / band index / weighting behaviour, tabs, staircase display, Settled | `dsa.md 14`, `featured-apps.md 4` |
+| Audio Equalizer | code only | panel elements, defaults, ranges, three-band tone control | `aeq.md 1`, `featured-apps.md 5` |
 | 8-Channel Oscilloscope | out of scope | mapped to the Oscilloscope | `scope.md`, `featured-apps.md 6` |
 | Digital Waveform Viewer | out of scope | mapped to the Digital I/O timeline (ELVIS II only) | `dio.md 4`, `featured-apps.md 7` |
 
